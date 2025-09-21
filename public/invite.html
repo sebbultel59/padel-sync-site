@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Padel Sync – Invitation</title>
+    <script>
+      // Récupère le code depuis le chemin: /invite/ABC123
+      const path = location.pathname;
+      const code = path.split("/").pop() || "";
+
+      // Essaie d'ouvrir l'app
+      const scheme = `padelsync://invite/${code}`;
+      // Page de secours si l’app n’est pas installée
+      const fallback = "https://padelsync.app/download";
+
+      // Tente d’ouvrir l’app
+      window.location.href = scheme;
+
+      // Après ~1,2s, si rien ne se passe → fallback
+      setTimeout(() => {
+        window.location.href = fallback;
+      }, 1200);
+    </script>
+  </head>
+  <body>
+    <p>Ouverture de l’invitation…</p>
+  </body>
+</html>
