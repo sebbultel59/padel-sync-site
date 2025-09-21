@@ -1,0 +1,538 @@
+// app/(tabs)/profil.js
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { router } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import { supabase } from "../../lib/supabase";
+
+const BRAND = "#1a4b97";
+const AVATAR = 100;
+
+const LEVELS = [
+  { v: 1, label: "Débutant", color: "#a3e635" },
+  { v: 2, label: "Perfectionnement", color: "#86efac" },
+  { v: 3, label: "Élémentaire", color: "#60a5fa" },
+  { v: 4, label: "Intermédiaire", color: "#22d3ee" },
+  { v: 5, label: "Confirmé", color: "#fbbf24" },
+  { v: 6, label: "Avancé", color: "#f59e0b" },
+  { v: 7, label: "Expert", color: "#fb7185" },
+  { v: 8, label: "Elite", color: "#a78bfa" },
+];
+const levelMeta = (n) => LEVELS.find((x) => x.v === n) ?? null;
+
+const RAYONS = [
+  { v: 5, label: "5 km" },
+  { v: 10, label: "10 km" },
+  { v: 20, label: "20 km" },
+  { v: 30, label: "30 km" },
+  { v: 99, label: "+30 km" },
+];
+
+export default function ProfilScreen() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const [me, setMe] = useState(null); // { id, email }
+  const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(null);
+
+  // champs profil
+  const [niveau, setNiveau] = useState(null); // 1..8
+  const [main, setMain] = useState(null);     // "droite" | "gauche"
+  const [cote, setCote] = useState(null);     // "droite" | "gauche"
+  const [club, setClub] = useState("");
+  const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
+  const [phone, setPhone] = useState("");
+
+  // snapshot initial pour détecter les changements
+  const [initialSnap, setInitialSnap] = useState(null);
+
+  // Charger session + profil
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        const id = u?.user?.id ?? null;
+        const email = u?.user?.email ?? "";
+        if (!id) { setLoading(false); return; }
+        if (mounted) setMe({ id, email });
+
+        const { data: p, error } = await supabase
+          .from("profiles")
+          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone")
+          .eq("id", id)
+          .maybeSingle();
+        if (error) throw error;
+
+        const initialName = p?.display_name || p?.name || email;
+        const init = {
+          displayName: initialName,
+          avatarUrl: p?.avatar_url ?? null,
+          niveau: Number(p?.niveau) || null,
+          main: p?.main ?? null,
+          cote: p?.cote ?? null,
+          club: p?.club ?? "",
+          rayonKm: Number.isFinite(Number(p?.rayon_km)) ? Number(p?.rayon_km) : null,
+          phone: p?.phone ?? "",
+        };
+
+        if (mounted) {
+          setDisplayName(init.displayName);
+          setAvatarUrl(init.avatarUrl);
+          setNiveau(init.niveau);
+          setMain(init.main);
+          setCote(init.cote);
+          setClub(init.club);
+          setRayonKm(init.rayonKm);
+          setPhone(init.phone);
+          setInitialSnap(init);
+        }
+      } catch (e) {
+        Alert.alert("Erreur", e?.message ?? String(e));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // comparaison simple (stringify) du snapshot
+  const isDirty = useMemo(() => {
+    if (!initialSnap) return false;
+    const cur = {
+      displayName,
+      avatarUrl,
+      niveau,
+      main,
+      cote,
+      club,
+      rayonKm,
+      phone,
+    };
+    try {
+      return JSON.stringify(cur) !== JSON.stringify(initialSnap);
+    } catch {
+      return true;
+    }
+  }, [initialSnap, displayName, avatarUrl, niveau, main, cote, club, rayonKm, phone]);
+
+  // Sauvegarde du profil (fonction principale)
+  const onSave = useCallback(async () => {
+    if (!me?.id) return false;
+    const name = (displayName || "").trim();
+    if (!name) { Alert.alert("Nom public", "Merci de renseigner un nom public."); return false; }
+
+    try {
+      setSaving(true);
+      const patch = {
+        display_name: name,
+        niveau: niveau ?? null,
+        main: main ?? null,
+        cote: cote ?? null,
+        club: (club || "").trim() || null,
+        rayon_km: rayonKm ?? null,
+        phone: (phone || "").trim() || null,
+      };
+      const { error } = await supabase.from("profiles").update(patch).eq("id", me.id);
+      if (error) throw error;
+
+      // Resynchroniser le snapshot initial (pour que isDirty repasse à false)
+      const newSnap = {
+        displayName: name,
+        avatarUrl,
+        niveau,
+        main,
+        cote,
+        club: (club || "").trim(),
+        rayonKm,
+        phone: (phone || "").trim(),
+      };
+      setInitialSnap(newSnap);
+
+      Alert.alert("Enregistré", "Profil mis à jour.");
+      return true;
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? String(e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [me?.id, displayName, niveau, main, cote, club, rayonKm, phone, avatarUrl]);
+
+  // Bouton Enregistrer : vérifie s'il y a des changements avant d'appeler onSave
+  const onSavePress = useCallback(async () => {
+    if (!isDirty) {
+      Alert.alert("Aucune modification", "Tu n'as rien changé à enregistrer.");
+      return;
+    }
+    await onSave();
+  }, [isDirty, onSave]);
+
+  // Upload avatar
+  const pickAndUpload = useCallback(async () => {
+    if (!me?.id) return;
+    try {
+      setUploading(true);
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission requise", "Autorise l'accès aux photos pour choisir un avatar.");
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (res.canceled || !res.assets?.[0]?.uri) return;
+
+      const uri = res.assets[0].uri;
+      const fr = await fetch(uri);
+      const blob = await fr.blob();
+      const arrayBuffer = blob.arrayBuffer ? await blob.arrayBuffer() : await new Response(blob).arrayBuffer();
+
+      const ts = Date.now();
+      const path = `${me.id}/avatar-${ts}.jpg`;
+      const contentType = blob.type || "image/jpeg";
+
+      const { error: upErr } = await supabase
+        .storage
+        .from("avatars")
+        .upload(path, arrayBuffer, { contentType, upsert: true });
+      if (upErr) throw upErr;
+
+      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = pub?.publicUrl ?? null;
+      if (!publicUrl) throw new Error("Impossible d'obtenir l'URL publique.");
+
+      const { error: upProfileErr } = await supabase
+        .from("profiles")
+        .update({ avatar_url: publicUrl })
+        .eq("id", me.id);
+      if (upProfileErr) throw upProfileErr;
+
+      setAvatarUrl(`${publicUrl}?t=${Date.now()}`);
+      Alert.alert("OK", "Avatar mis à jour !");
+    } catch (e) {
+      Alert.alert("Erreur upload", e?.message ?? String(e));
+    } finally {
+      setUploading(false);
+    }
+  }, [me?.id]);
+
+  const removeAvatar = useCallback(async () => {
+    if (!me?.id || !avatarUrl) return;
+    try {
+      setUploading(true);
+      const { error } = await supabase.from("profiles").update({ avatar_url: null }).eq("id", me.id);
+      if (error) throw error;
+      setAvatarUrl(null);
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? String(e));
+    } finally {
+      setUploading(false);
+    }
+  }, [me?.id, avatarUrl]);
+
+  // Helper de déconnexion
+  const doSignOut = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? String(e));
+    } finally {
+      // Forcer la navigation immédiate vers l'écran d'auth
+      try {
+        router.replace("/(auth)/signin");
+      } catch {}
+    }
+  }, []);
+
+  // Déconnexion avec garde "modifs non enregistrées"
+  const onLogout = useCallback(() => {
+    if (isDirty) {
+      Alert.alert(
+        "Déconnexion",
+        "Tu as des modifications non enregistrées.",
+        [
+          { text: "Annuler", style: "cancel" },
+          {
+            text: "Se déconnecter",
+            style: "destructive",
+            onPress: () => doSignOut(),
+          },
+          {
+            text: "Enregistrer & se déconnecter",
+            onPress: async () => {
+              const ok = await onSave();
+              if (ok) await doSignOut();
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+    } else {
+      Alert.alert(
+        "Se déconnecter",
+        "Tu vas être déconnecté de Padel Sync.",
+        [
+          { text: "Annuler", style: "cancel" },
+          { text: "Oui, me déconnecter", style: "destructive", onPress: () => doSignOut() },
+        ],
+        { cancelable: true }
+      );
+    }
+  }, [isDirty, onSave, doSignOut]);
+
+  const levelInfo = useMemo(() => levelMeta(Number(niveau) || 0), [niveau]);
+  const initial = (displayName || me?.email || "?").trim().charAt(0).toUpperCase();
+
+  if (loading) return <View style={s.center}><ActivityIndicator /></View>;
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.select({ ios: "padding", android: undefined })}>
+      <ScrollView contentContainerStyle={[s.container, { paddingBottom: 28 }]} keyboardShouldPersistTaps="handled">
+
+        {/* Avatar */}
+        <View style={s.avatarCard}>
+          <View style={s.avatarWrap}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={s.avatar} />
+            ) : (
+              <View style={[s.avatar, s.avatarFallback]}>
+                <Text style={s.avatarInitial}>{initial}</Text>
+              </View>
+            )}
+          </View>
+          <View style={s.avatarBtns}>
+            <Pressable onPress={pickAndUpload} disabled={uploading} style={[s.btn, uploading && { opacity: 0.6 }]}>
+              <Text style={s.btnTxt}>{uploading ? "Envoi..." : "Changer l’avatar"}</Text>
+            </Pressable>
+            {avatarUrl ? (
+              <Pressable onPress={removeAvatar} disabled={uploading} style={[s.btn, s.btnGhost]}>
+                <Text style={[s.btnTxt, s.btnGhostTxt]}>Supprimer</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Infos principales */}
+        <View style={s.card}>
+          <Text style={s.label}>Email</Text>
+          <Text style={s.value}>{me?.email ?? "—"}</Text>
+
+          <Text style={[s.label, { marginTop: 12 }]}>Nom public</Text>
+          <TextInput
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="Ex. Seb Padel"
+            autoCapitalize="words"
+            style={s.input}
+            maxLength={60}
+          />
+        </View>
+
+        {/* Préférences de jeu */}
+        <View style={[s.card, { gap: 12 }]}>
+
+          {/* Niveau */}
+          <Text style={s.label}>🔥 Niveau</Text>
+          <View style={s.levelRow}>
+            {LEVELS.map((lv) => {
+              const active = niveau === lv.v;
+              return (
+                <Pressable
+                  key={lv.v}
+                  onPress={() => setNiveau(lv.v)}
+                  style={[
+                    s.pill,
+                    { borderColor: active ? lv.color : "#e5e7eb", backgroundColor: active ? lv.color : "white" },
+                  ]}
+                >
+                  <Text style={[s.pillTxt, { color: active ? "#111827" : "#374151" }]}>{lv.v}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {niveau ? (
+            <Text style={{ color: "#6b7280" }}>
+              {levelInfo?.label ? `→ ${levelInfo.label}` : null}
+            </Text>
+          ) : null}
+
+          {/* Main */}
+          <Text style={[s.label, { marginTop: 6 }]}>🖐️ Main</Text>
+          <View style={s.segment}>
+            <SegBtn label="Droite" active={main === "droite"} onPress={() => setMain("droite")} />
+            <SegBtn label="Gauche" active={main === "gauche"} onPress={() => setMain("gauche")} />
+          </View>
+
+          {/* Côté */}
+          <Text style={[s.label, { marginTop: 6 }]}>🎯 Côté</Text>
+          <View style={s.segment}>
+            <SegBtn label="Droite" active={cote === "droite"} onPress={() => setCote("droite")} />
+            <SegBtn label="Gauche" active={cote === "gauche"} onPress={() => setCote("gauche")} />
+          </View>
+
+          {/* Club */}
+          <Text style={[s.label, { marginTop: 6 }]}>🏟️ Club</Text>
+          <TextInput value={club} onChangeText={setClub} placeholder="Nom du club" style={s.input} />
+
+          {/* Rayon */}
+          <Text style={[s.label, { marginTop: 6 }]}>📍 Rayon</Text>
+          <View style={s.rayonRow}>
+            {RAYONS.map((r) => {
+              const active = rayonKm === r.v;
+              return (
+                <Pressable
+                  key={r.v}
+                  onPress={() => setRayonKm(r.v)}
+                  style={[s.pill, active && { backgroundColor: "#eaf2ff", borderColor: BRAND }]}
+                >
+                  <Text style={[s.pillTxt, active && { color: BRAND, fontWeight: "800" }]}>{r.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Téléphone */}
+          <Text style={[s.label, { marginTop: 6 }]}>📞 Téléphone</Text>
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="06 12 34 56 78"
+            keyboardType="phone-pad"
+            style={s.input}
+            maxLength={20}
+          />
+        </View>
+
+        {/* Enregistrer */}
+        <Pressable
+          onPress={onSavePress}
+          disabled={saving || !isDirty}
+          style={[
+            s.btn,
+            { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center" },
+            (saving || !isDirty) && { backgroundColor: "#9ca3af" }, // grisé si inactif
+          ]}
+        >
+          <Ionicons
+            name={saving ? "cloud-upload-outline" : "save-outline"}
+            size={24}
+            color="#fff"
+            style={{ marginRight: 8 }}
+          />
+          <Text style={s.btnTxt}>{saving ? "Enregistrement..." : "Enregistrer"}</Text>
+        </Pressable>
+
+        {/* Déconnexion (garde modifs) */}
+        <View style={[s.card, { marginTop: 16 }]}>
+          <Text style={[s.label, { marginBottom: 8 }]}>Session</Text>
+          <Pressable
+            onPress={onLogout}
+            style={[
+              s.btn,
+              {
+                backgroundColor: "#dc2626",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+              },
+            ]}
+          >
+            <Ionicons name="log-out-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={s.btnTxt}>Se déconnecter</Text>
+          </Pressable>
+          {isDirty ? (
+            <Text style={{ marginTop: 8, color: "#b45309", fontSize: 13 }}>
+              ⚠️ Modifications non enregistrées
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+function SegBtn({ label, active, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        s.segmentBtn,
+        active && { backgroundColor: "white", borderColor: "#e5e7eb", borderWidth: 1 },
+      ]}
+    >
+      <Text style={[s.segmentTxt, active && { color: "#111827", fontWeight: "800" }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const s = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  container: { padding: 16, gap: 12, backgroundColor: "white" },
+
+  title: { fontSize: 30, fontWeight: "800", color: BRAND, marginBottom: 6 },
+
+  avatarCard: {
+    backgroundColor: "white",
+    borderWidth: 1, borderColor: "#e5e7eb",
+    borderRadius: 12, padding: 12, alignItems: "center",
+  },
+  avatarWrap: { alignItems: "center", justifyContent: "center" },
+  avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#f3f4f6" },
+  avatarFallback: { alignItems: "center", justifyContent: "center" },
+  avatarInitial: { fontSize: 44, fontWeight: "800", color: BRAND },
+
+  avatarBtns: { marginTop: 10, flexDirection: "row", gap: 10 },
+
+  card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12 },
+
+  sectionTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
+
+  label: { fontSize: 26, color: "#6b7280", fontWeight: "800" },
+  value: { fontSize: 20, color: "#111827", marginTop: 4 },
+
+  input: {
+    marginTop: 6,
+    borderWidth: 1, borderColor: "#d1d5db",
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 18, color: "#111827", backgroundColor: "#f9fafb",
+  },
+
+  // boutons
+  btn: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, backgroundColor: BRAND, alignItems: "center" },
+  btnTxt: { color: "white", fontWeight: "900", fontSize: 20 },
+  btnGhost: { backgroundColor: "#f3f4f6" },
+  btnGhostTxt: { color: "#111827" },
+
+  // Segmented
+  segment: { flexDirection: "row", backgroundColor: "#f3f4f6", borderRadius: 10, padding: 4, gap: 4 },
+  segmentBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
+  segmentTxt: { fontWeight: "800", color: "#6b7280", fontSize: 18 },
+
+  // Pills rows
+  levelRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  rayonRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  pill: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb" },
+  pillTxt: { fontWeight: "800", color: "#374151", fontSize: 18 },
+});

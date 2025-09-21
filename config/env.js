@@ -1,0 +1,3 @@
+export const SUPABASE_URL = "https://iieiggyqcncbkjwsdcxl.supabase.co";
+export const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpZWlnZ3lxY25jYmtqd3NkY3hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyNjk3MzQsImV4cCI6MjA3Mjg0NTczNH0.tTCN1140MVgNswkq5HSXzC3fS0Uuylb-5ZP6h1vTWMI";
+export const DEFAULT_GROUP_ID = "ae945df5-25fb-44c4-8e4a-5fd513e168e8";
