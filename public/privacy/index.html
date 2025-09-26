@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Padel Sync — Politique de confidentialité / Privacy Policy</title>
+  <meta name="description" content="Politique de confidentialité de l'application Padel Sync." />
+  <style>
+    :root{
+      --brand:#1a4b97; --bg:#0f172a; --card:#ffffff; --muted:#6b7280; --accent:#ff8c00;
+    }
+    html,body{margin:0;padding:0;background:#f3f4f6;color:#0b2240;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;}
+    .wrap{max-width:880px;margin:32px auto;padding:0 16px;}
+    .card{background:var(--card);border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 6px 24px rgba(2,6,23,.06);overflow:hidden}
+    .header{background:linear-gradient(135deg,#1a4b97,#2b5abc);color:#fff;padding:24px 22px}
+    .header h1{margin:0;font-size:22px}
+    .lang-tabs{display:flex;gap:8px;padding:12px 12px 0 12px;background:#fff;border-bottom:1px solid #e5e7eb}
+    .pill{padding:8px 12px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;color:#111827;font-weight:700;text-decoration:none}
+    .pill.active{background:#eef2ff;border-color:#c7d2fe;color:#1e40af}
+    .section{padding:16px 22px;border-top:1px solid #f1f5f9}
+    h2{font-size:18px;margin:0 0 10px 0}
+    p,li{line-height:1.6;color:#1f2937}
+    .muted{color:var(--muted);font-size:14px}
+    .footer{padding:16px 22px;background:#fafafa;border-top:1px solid #e5e7eb;color:#475569;font-size:14px}
+    .two-col{display:grid;grid-template-columns:1fr;gap:0}
+    @media (min-width:720px){.two-col{grid-template-columns:1fr 1fr;gap:0}}
+    a{color:#1a4b97}
+  </style>
+  <script>
+    // Mini switch FR/EN côté client
+    function show(lang){
+      document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+      document.querySelectorAll('.lang').forEach(s=>s.style.display='none');
+      document.getElementById('lang-'+lang).style.display='block';
+      document.getElementById('pill-'+lang).classList.add('active');
+      history.replaceState({},'',location.pathname+(lang==='en'? '?lang=en':''));
+    }
+    window.addEventListener('DOMContentLoaded',()=>{
+      const q=new URLSearchParams(location.search).get('lang');
+      show(q==='en'?'en':'fr');
+    });
+  </script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="header">
+        <h1>Padel Sync — Politique de confidentialité / Privacy Policy</h1>
+        <div class="muted">Dernière mise à jour : septembre 2025</div>
+      </div>
+
+      <div class="lang-tabs">
+        <button id="pill-fr" class="pill active" onclick="show('fr')">Français</button>
+        <button id="pill-en" class="pill" onclick="show('en')">English</button>
+      </div>
+
+      <!-- Français -->
+      <div id="lang-fr" class="lang" style="display:none">
+        <div class="section">
+          <h2>1. Données collectées</h2>
+          <ul>
+            <li><b>Informations de compte</b> : adresse email, identifiant unique.</li>
+            <li><b>Disponibilités et participations</b> : créneaux marqués disponible/absent, groupes et matchs.</li>
+            <li><b>Informations techniques</b> : appareil, système d’exploitation.</li>
+            <li><b>Notifications</b> : identifiant d’appareil pour les notifications push.</li>
+          </ul>
+          <p class="muted">Nous ne collectons pas de données sensibles (santé, financières, biométriques).</p>
+        </div>
+        <div class="section">
+          <h2>2. Utilisation des données</h2>
+          <ul>
+            <li>Gérer vos disponibilités et matchs de padel.</li>
+            <li>Créer et administrer des groupes.</li>
+            <li>Envoyer des notifications (rappels, confirmations).</li>
+          </ul>
+        </div>
+        <div class="section">
+          <h2>3. Partage et hébergement</h2>
+          <p>Nous ne vendons ni ne partageons vos données à des fins commerciales. Vos données sont stockées de manière sécurisée via <b>Supabase</b> (prestataire technique conforme aux standards internationaux).</p>
+        </div>
+        <div class="section">
+          <h2>4. Vos droits</h2>
+          <ul>
+            <li>Accéder, modifier ou supprimer vos données.</li>
+            <li>Supprimer votre compte et les données associées.</li>
+          </ul>
+          <p>Contact : <a href="mailto:contact@padelsync.app">contact@padelsync.app</a></p>
+        </div>
+        <div class="section">
+          <h2>5. Chiffrement et sécurité</h2>
+          <p>Nous utilisons des mécanismes de chiffrement standard (ex. HTTPS/TLS, Keychain iOS via SecureStore). Aucun algorithme propriétaire.</p>
+        </div>
+      </div>
+
+      <!-- English -->
+      <div id="lang-en" class="lang" style="display:none">
+        <div class="section">
+          <h2>1. Data collected</h2>
+          <ul>
+            <li><b>Account info</b>: email address, unique identifier.</li>
+            <li><b>Availability & participation</b>: time slots marked available/unavailable, groups and matches.</li>
+            <li><b>Technical info</b>: device, operating system.</li>
+            <li><b>Notifications</b>: device identifier for push notifications.</li>
+          </ul>
+          <p class="muted">We do not collect sensitive data (health, financial, biometric).</p>
+        </div>
+        <div class="section">
+          <h2>2. Use of data</h2>
+          <ul>
+            <li>Manage your availability and padel matches.</li>
+            <li>Create and manage groups.</li>
+            <li>Send notifications (reminders, confirmations).</li>
+          </ul>
+        </div>
+        <div class="section">
+          <h2>3. Sharing & hosting</h2>
+          <p>We do not sell or share your data for commercial purposes. Data is securely hosted with <b>Supabase</b> (technical provider compliant with international standards).</p>
+        </div>
+        <div class="section">
+          <h2>4. Your rights</h2>
+          <ul>
+            <li>Access, modify or delete your data.</li>
+            <li>Delete your account and associated data.</li>
+          </ul>
+          <p>Contact: <a href="mailto:contact@padelsync.app">contact@padelsync.app</a></p>
+        </div>
+        <div class="section">
+          <h2>5. Encryption & security</h2>
+          <p>We use standard encryption mechanisms (e.g., HTTPS/TLS, iOS Keychain via SecureStore). No proprietary algorithms.</p>
+        </div>
+      </div>
+
+      <div class="footer">
+        © <span id="y"></span> Padel Sync — <a href="/">Retour au site</a>
+      </div>
+    </div>
+  </div>
+  <script>document.getElementById('y').textContent=new Date().getFullYear()</script>
+</body>
+</html>
