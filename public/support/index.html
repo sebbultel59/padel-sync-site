@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Padel Sync • Assistance</title>
+  <meta name="description" content="Assistance officielle de l’application Padel Sync : contact support, FAQ et signalement de problème." />
+  <meta property="og:title" content="Padel Sync • Assistance" />
+  <meta property="og:description" content="Page d’assistance officielle de Padel Sync." />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#007BFF" />
+  <link rel="icon" href="/favicon.ico" />
+  <style>
+    :root{
+      --brand:#007BFF; --ink:#0b1220; --bg:#ffffff; --muted:#5c6b80; --ring:rgba(0,123,255,.25);
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Inter,Arial,sans-serif;color:var(--ink);background:var(--bg);}
+    .wrap{max-width:960px;margin-inline:auto;padding:24px}
+    header{display:flex;gap:16px;align-items:center;justify-content:flex-start;padding:16px 0 8px}
+    .logo{inline-size:44px;block-size:44px;border-radius:12px;background:var(--brand);display:grid;place-items:center;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+    .logo svg{inline-size:26px;block-size:26px;fill:#fff}
+    h1{font-size:clamp(22px,3.2vw,32px);margin:0;font-weight:800;letter-spacing:.2px}
+    .subtitle{color:var(--muted);margin-top:4px}
+    .card{border:1px solid #e7eef7;border-radius:16px;padding:20px;margin:16px 0;box-shadow:0 6px 24px rgba(2,25,60,.04)}
+    .grid{display:grid;gap:16px}
+    @media (min-width:768px){.grid{grid-template-columns:1.2fr .8fr}}
+    label{font-weight:600;display:block;margin:.25rem 0 .35rem}
+    input,textarea{width:100%;padding:12px 14px;border:1px solid #d7dfeb;border-radius:12px;font:inherit;outline:none;background:#fff}
+    input:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 4px var(--ring)}
+    textarea{min-height:140px;resize:vertical}
+    .btn{appearance:none;border:0;background:var(--brand);color:#fff;padding:12px 16px;border-radius:12px;font-weight:700;cursor:pointer}
+    .btn:hover{filter:brightness(.96)}
+    .btn:active{transform:translateY(1px)}
+    .pill{display:inline-block;background:#eef5ff;color:#115ad1;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.2px}
+    ul{padding-left:18px;margin:8px 0 0}
+    footer{margin-top:24px;padding:24px 0;color:var(--muted);font-size:14px;border-top:1px solid #e7eef7}
+    a{color:#0b63ff;text-decoration:none}
+    a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+  <div class="wrap" role="main">
+    <header aria-label="En-tête assistance">
+      <div class="logo" aria-hidden="true">
+        <!-- Icône raquette stylisée + flèches sync (monochrome) -->
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M28 4c8 0 14 6 14 14s-6 14-14 14-14-6-14-14S20 4 28 4zm-4 12h5l-2-2 2-2 6 6-6 6-2-2 2-2h-5v-4z"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Assistance Padel Sync</h1>
+        <div class="subtitle">Aide officielle, support et signalement de problème</div>
+      </div>
+    </header>
+
+    <div class="grid" aria-label="Contenu principal">
+      <!-- Colonne gauche: Contact / Formulaire -->
+      <section class="card" aria-labelledby="contact-title">
+        <div class="pill" aria-hidden="true">Contact</div>
+        <h2 id="contact-title">Contacter le support</h2>
+        <p>Pour toute question sur l’app, un bug ou une demande de fonctionnalité, écrivez‑nous :</p>
+        <p>
+          <strong>E‑mail :</strong>
+          <a href="mailto:support@padelsync.app" aria-label="Envoyer un e-mail au support">support@padelsync.app</a>
+        </p>
+        <form aria-label="Formulaire de contact" method="GET" action="mailto:support@padelsync.app" enctype="text/plain">
+          <label for="name">Nom</label>
+          <input id="name" name="Nom" autocomplete="name" required />
+          <label for="email">E‑mail</label>
+          <input id="email" name="Email" type="email" autocomplete="email" required />
+          <label for="topic">Sujet</label>
+          <input id="topic" name="Sujet" required />
+          <label for="msg">Message</label>
+          <textarea id="msg" name="Message" placeholder="Décrivez votre demande…" required></textarea>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn" type="submit">Envoyer</button>
+            <a class="pill" href="mailto:support@padelsync.app?subject=Support%20Padel%20Sync" rel="nofollow">Ou ouvrir votre client e‑mail</a>
+          </div>
+        </form>
+      </section>
+
+      <!-- Colonne droite: FAQ courte & Liens utiles -->
+      <aside class="card" aria-labelledby="faq-title">
+        <div class="pill" aria-hidden="true">FAQ</div>
+        <h2 id="faq-title">Questions fréquentes</h2>
+        <ul>
+          <li><strong>Comment signaler un bug ?</strong> Utilisez le formulaire ci‑contre ou envoyez un e‑mail avec une capture d’écran et la version de l’app.</li>
+          <li><strong>Sur quels appareils l’app fonctionne ?</strong> iOS et Android récents. Détail des versions à venir.</li>
+          <li><strong>Comment supprimer mon compte ?</strong> Faites une demande au support, nous traiterons la suppression dans les meilleurs délais.</li>
+        </ul>
+        <hr style="margin:16px 0;border:none;border-top:1px solid #e7eef7">
+        <nav aria-label="Liens utiles">
+          <ul>
+            <li><a href="/privacy" rel="noopener">Politique de confidentialité</a></li>
+            <li><a href="/terms" rel="noopener">Conditions d’utilisation</a></li>
+            <li><a href="/" rel="noopener">Site officiel Padel Sync</a></li>
+          </ul>
+        </nav>
+      </aside>
+    </div>
+
+    <footer>
+      <div>© <span id="year"></span> Padel Sync. Tous droits réservés.</div>
+      <div>Besoin d’aide urgente ? Écrivez à <a href="mailto:support@padelsync.app">support@padelsync.app</a>.</div>
+    </footer>
+  </div>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
