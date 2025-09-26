@@ -1,756 +1,423 @@
 // app/(tabs)/semaine.js
+import { Ionicons } from "@expo/vector-icons";
+import dayjs from "dayjs";
+import "dayjs/locale/fr";
+import isoWeek from "dayjs/plugin/isoWeek";
 import * as Haptics from "expo-haptics";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
-} from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Alert, FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 
+dayjs.extend(isoWeek);
+dayjs.locale("fr");
+
 const BRAND = "#1a4b97";
-const BG = "#f7f8fb";
-const BORDER = "#e5e7eb";
-
-// Créneaux 9:00 → 21:00 par pas de 90min
-const SLOT_MIN = 9 * 60;
-const SLOT_MAX = 21 * 60;
-const STEP = 90;
-
-// padding horizontal du ScrollView (doit matcher contentContainerStyle.padding)
-const GRID_PAD = 10;
-
-// Détection gesture
-const DRAG_START_DY = 6; // px: seuil pour considérer que ça “glisse”
-
-const fmt2 = (n) => (n < 10 ? "0" + n : "" + n);
-const labelHM = (h, m) => `${fmt2(h)}:${fmt2(m)}`;
-const toLocalDayISO = (d) =>
-  new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
-
-function monday(d0 = new Date()) {
-  const d = new Date(d0);
-  d.setHours(0, 0, 0, 0);
-  const wd = d.getDay(); // 0=dim..6=sam
-  const diff = (wd === 0 ? -6 : 1) - wd;
-  d.setDate(d.getDate() + diff);
-  return d;
-}
-function addMinutes(date, m) {
-  const d = new Date(date);
-  d.setMinutes(d.getMinutes() + m);
-  return d;
-}
-function frDayShort(d) {
-  return d.toLocaleDateString("fr-FR", { weekday: "short" });
-}
-function frDayLong(d) {
-  return d.toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-  });
-}
-
-const localKeyForSlot = (iso) => {
-  const d = new Date(iso);
-  const dayISO = toLocalDayISO(d);
-  const key = `${fmt2(d.getHours())}:${fmt2(d.getMinutes())}`;
-  return `${dayISO}|${key}`;
-};
-
-function parseHM(label) {
-  const [h, m] = String(label).split(":").map((n) => parseInt(n, 10));
-  return { h: isFinite(h) ? h : 0, m: isFinite(m) ? m : 0 };
-}
-function makeLocalDateFromDayISO(dayISO, h, m) {
-  const d = new Date(dayISO);
-  d.setHours(h, m, 0, 0);
-  return d;
-}
+const BG_PAGE = "#2b5abc"; // fond global
+const ORANGE = "#ff8c00";  // accent
+const START_HOUR = 8;
+const END_HOUR = 22;
+const SLOT_MIN = 30;            // créneaux de 30 min
+const SLOT_HEIGHT = 40;         // hauteur visuelle d’un créneau
+const FONT_HOUR = 14;           // taille du texte dans les cellules
 
 export default function Semaine() {
+  // ---- ÉTATS ----
+  const [weekStart, setWeekStart] = useState(dayjs().startOf("isoWeek"));
+  const [timeSlots, setTimeSlots] = useState([]); // time_slots (starts_at/ends_at/group_id)
+  const [slots, setSlots] = useState([]);         // availability (avec status)
+  const [matches, setMatches] = useState([]);     // matches liés aux time_slots
+  const [loading, setLoading] = useState(false);
+  const [meId, setMeId] = useState(null);
+
   const { activeGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
 
-  const [weekStart, setWeekStart] = useState(monday());
-  const [userId, setUserId] = useState(null);
-
-  const [loading, setLoading] = useState(true);
-  const [slots, setSlots] = useState([]); // [{id, starts_at, ends_at}]
-  const [statusById, setStatusById] = useState({}); // slot_id -> 'dispo' | 'flex' | 'indispo'
-
-  // --- Drag paint state ---
-  const [painting, setPainting] = useState(false);
-  const [paintStatus, setPaintStatus] = useState(null); // 'dispo' | 'flex' | 'indispo'
-  const paintedRef = useRef(new Set()); // évite de repeindre 100x la même case
-  const paintColIndexRef = useRef(null); // colonne verrouillée pendant le drag
-  const startRowRef = useRef(null); // ligne de départ
-  const lastRowRef = useRef(-1); // dernière ligne peinte
-
-  // press-in tracking (pour démarrer la peinture sans long-press)
-  const pressTrackRef = useRef({
-    active: false,
-    startY: 0,
-    colIndex: null,
-    rowIndex: null,
-  });
-
   useEffect(() => {
-    let mounted = true;
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (mounted) setUserId(data?.user?.id ?? null);
+      const { data: u } = await supabase.auth.getUser();
+      setMeId(u?.user?.id ?? null);
     })();
-    return () => {
-      mounted = false;
-    };
   }, []);
 
-  const [startISO, endISO] = useMemo(() => {
-    const a = new Date(weekStart);
-    const b = addMinutes(a, 7 * 24 * 60);
-    return [a.toISOString(), b.toISOString()];
-  }, [weekStart]);
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!groupId || !userId) {
-        setSlots([]);
-        setStatusById({});
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-
-      // 1) Slots semaine
-      const { data: ts, error: e1 } = await supabase
-        .from("time_slots")
-        .select("id, starts_at, ends_at")
-        .eq("group_id", groupId)
-        .gte("starts_at", startISO)
-        .lt("starts_at", endISO)
-        .order("starts_at", { ascending: true });
-      if (e1) {
-        Alert.alert("Erreur slots", e1.message);
-        setLoading(false);
-        return;
-      }
-
-      // 2) Filtre heures (9:00..21:00-STEP)
-      const filtered = (ts ?? []).filter((t) => {
-        const d = new Date(t.starts_at);
-        const mins = d.getHours() * 60 + d.getMinutes();
-        return mins >= SLOT_MIN && mins <= SLOT_MAX - STEP;
-      });
-
-      // 3) Mes dispos
-      const { data: avs, error: e2 } = await supabase
-        .from("availabilities")
-        .select("time_slot_id, status")
-        .eq("group_id", groupId)
-        .eq("user_id", userId)
-        .in(
-          "time_slot_id",
-          filtered.map((t) => t.id)
-        );
-      if (e2) {
-        Alert.alert("Erreur dispos", e2.message);
-        setLoading(false);
-        return;
-      }
-
-      const map = {};
-      for (const a of avs ?? []) map[a.time_slot_id] = a.status;
-
-      if (mounted) {
-        setSlots(filtered);
-        setStatusById(map);
-        setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [groupId, userId, startISO, endISO]);
-
-  // Index pour retrouver un slot à partir d’un (jourISO|HH:MM)
-  const slotByLocalKey = useMemo(() => {
-    const map = new Map();
-    for (const s of slots ?? []) map.set(localKeyForSlot(s.starts_at), s);
-    return map;
-  }, [slots]);
-
-  // Crée un time_slot s'il n'existe pas encore pour (jour, heure)
-  const ensureSlotFor = useCallback(
-    async (dayISO, label) => {
-      if (!groupId) return null;
-      const { h, m } = parseHM(label);
-      const start = makeLocalDateFromDayISO(dayISO, h, m);
-      const end = addMinutes(start, STEP);
-
-      const { data, error } = await supabase
-        .from("time_slots")
-        .insert({
-          group_id: groupId,
-          starts_at: start.toISOString(),
-          ends_at: end.toISOString(),
-        })
-        .select("id, starts_at, ends_at")
-        .single();
-
-      if (error) {
-        if (String(error.code) === "23505") {
-          // Déjà existant -> on le retrouve
-          const { data: ex } = await supabase
-            .from("time_slots")
-            .select("id, starts_at, ends_at")
-            .eq("group_id", groupId)
-            .eq("starts_at", start.toISOString())
-            .maybeSingle();
-          return ex ?? null;
-        }
-        Alert.alert("Erreur slot", error.message);
-        return null;
-      }
-
-      return data;
-    },
-    [groupId]
+  const days = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => weekStart.add(i, "day")),
+    [weekStart]
   );
 
-  // Assure que tous les créneaux (9h→21h, pas 90min) existent pour la semaine affichée.
-  const dayRefs = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < 7; i++) {
-      const d = addMinutes(weekStart, i * 24 * 60);
-      arr.push({ date: d, dayISO: toLocalDayISO(d) });
-    }
-    return arr;
-  }, [weekStart]);
-
-  const timeRows = useMemo(() => {
+  // Génère les heures: 08:00, 08:30, ..., 21:30
+  const hoursOfDay = useMemo(() => {
     const out = [];
-    for (let m = SLOT_MIN; m <= SLOT_MAX - STEP; m += STEP) {
-      const h = Math.floor(m / 60);
-      const mm = m % 60;
-      out.push({ m, label: labelHM(h, mm) });
+    for (let h = START_HOUR; h < END_HOUR; h++) {
+      out.push({ hour: h, minute: 0 });
+      out.push({ hour: h, minute: 30 });
     }
     return out;
   }, []);
 
-  const ensureAllWeekSlots = useCallback(async () => {
-    const existing = Array.isArray(slots) ? [...slots] : [];
-    const add = [];
+  // Fetch semaine
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart, groupId]);
 
-    for (const d of dayRefs) {
-      for (const row of timeRows) {
-        const key = `${d.dayISO}|${row.label}`;
-        let slot = slotByLocalKey.get(key);
-        if (!slot) {
-          const created = await ensureSlotFor(d.dayISO, row.label);
-          if (created) add.push(created);
-        }
+  async function fetchData() {
+    try {
+      setLoading(true);
+      const start = weekStart.toISOString();
+      const end = weekStart.add(7, "day").toISOString();
+
+      // 1) time_slots
+      let tsQ = supabase
+        .from("time_slots")
+        .select("id, starts_at, ends_at, group_id")
+        .gte("starts_at", start)
+        .lt("starts_at", end);
+      tsQ = groupId ? tsQ.eq("group_id", groupId) : tsQ.is("group_id", null);
+      const { data: ts, error: eTS } = await tsQ;
+      if (eTS) throw eTS;
+
+      // 2) availability
+      let avQ = supabase
+        .from("availability")
+        .select("*")
+        .gte("start", start)
+        .lt("start", end);
+      avQ = groupId ? avQ.eq("group_id", groupId) : avQ.is("group_id", null);
+      const { data: av, error: eAv } = await avQ;
+      if (eAv) throw eAv;
+
+      // 3) matches (via IN sur time_slot_id)
+      let mData = [];
+      const slotIds = (ts ?? []).map((t) => t.id);
+      if (slotIds.length) {
+        let mq = supabase
+          .from("matches")
+          .select("id, status, group_id, time_slot_id")
+          .in("time_slot_id", slotIds);
+        mq = groupId ? mq.eq("group_id", groupId) : mq.is("group_id", null);
+        const { data: m, error: eM } = await mq;
+        if (eM) throw eM;
+        mData = m ?? [];
       }
-    }
 
-    if (add.length) {
-      setSlots((prev) => {
-        const byId = new Set((prev ?? []).map((s) => s.id));
-        const toAdd = add.filter((s) => !byId.has(s.id));
-        return [...(prev ?? []), ...toAdd];
+      setTimeSlots(ts ?? []);
+      setSlots(av ?? []);
+      setMatches(mData ?? []);
+    } catch (e) {
+      console.warn(e);
+      Alert.alert("Erreur", e?.message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const keySlot = (d, hour, minute) =>
+    dayjs(d).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
+
+  // Map disponibilités: clé = start ISO, valeur = [{ user_id, status }]
+  const mapDispos = useMemo(() => {
+    const map = new Map();
+    (slots || []).forEach((s) => {
+      const k = dayjs(s.start).toISOString();
+      const arr = map.get(k) || [];
+      arr.push({ user_id: s.user_id, status: s.status || "available" });
+      map.set(k, arr);
+    });
+    return map;
+  }, [slots]);
+
+  // Index matches par start
+  const mapMatches = useMemo(() => {
+    const map = new Map();
+    const byId = new Map((timeSlots || []).map((t) => [t.id, t]));
+    (matches || []).forEach((m) => {
+      const ts = byId.get(m.time_slot_id);
+      if (ts?.starts_at) map.set(dayjs(ts.starts_at).toISOString(), m);
+    });
+    return map;
+  }, [matches, timeSlots]);
+
+  // Statut de MA dispo par start
+  const myStatusByStart = useMemo(() => {
+    const m = new Map();
+    if (!meId) return m;
+    (slots || [])
+      .filter((s) => s.user_id === meId && s.group_id === groupId)
+      .forEach((s) => {
+        const k = dayjs(s.start).toISOString();
+        m.set(k, s.status || "available");
       });
-    }
+    return m;
+  }, [slots, meId, groupId]);
 
-    return [...existing, ...add];
-  }, [slots, dayRefs, timeRows, slotByLocalKey, ensureSlotFor]);
+  // Cycle: available -> absent -> available
+  function nextStatus(current) {
+    if (current === "available") return "absent";
+    return "available";
+  }
 
-  // Mutations
-  const upsertOne = useCallback(
-    async (slotId, next) => {
-      if (!userId || !groupId) return;
-      const { error } = await supabase.from("availabilities").upsert(
-        { user_id: userId, group_id: groupId, time_slot_id: slotId, status: next },
-        { onConflict: "user_id,group_id,time_slot_id" }
+  // Toggle dispo (optimistic UI)
+  async function toggleMyAvailability(startIso) {
+    try {
+      const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!groupId) {
+        return Alert.alert(
+          "Choisis un groupe",
+          "Active un groupe dans l’onglet Groupes avant d’enregistrer des dispos."
+        );
+      }
+      if (!user) return Alert.alert("Connexion requise");
+
+      const mine = (slots || []).find(
+        (s) =>
+          s.user_id === user.id &&
+          s.group_id === groupId &&
+          dayjs(s.start).toISOString() === startIso
       );
-      if (error) Alert.alert("Erreur", error.message);
-    },
-    [userId, groupId]
-  );
 
-  const setOne = useCallback(
-    async (slot, next) => {
-      if (!slot) return;
-      setStatusById((prev) => ({ ...prev, [slot.id]: next }));
-      await upsertOne(slot.id, next);
-    },
-    [upsertOne]
-  );
+      if (!mine) {
+        const optimistic = {
+          user_id: user.id,
+          group_id: groupId,
+          start: startIso,
+          end: endIso,
+          status: "available",
+        };
+        setSlots((prev) => [...prev, optimistic]);
+        try { Haptics.selectionAsync(); } catch {}
 
-  const toggleOne = useCallback(
-    async (slot) => {
-      const cur = statusById[slot.id] ?? "indispo";
-      const next = cur === "indispo" ? "dispo" : cur === "dispo" ? "flex" : "indispo";
-      await setOne(slot, next);
-      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-    },
-    [statusById, setOne]
-  );
+        const { error } = await supabase.from("availability").insert(optimistic);
+        if (error) {
+          await fetchData();
+          throw error;
+        }
+      } else {
+        const newStatus = nextStatus(mine.status || "available");
+        setSlots((prev) =>
+          prev.map((s) =>
+            s.user_id === mine.user_id &&
+            s.group_id === groupId &&
+            dayjs(s.start).toISOString() === startIso
+              ? { ...s, status: newStatus }
+              : s
+          )
+        );
+        try { Haptics.selectionAsync(); } catch {}
 
-  const resetOne = useCallback(async (slot) => {
-    await setOne(slot, "indispo");
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-  }, [setOne]);
-
-  // ---- Paint helpers ----
-  const computeNextFromCurrent = useCallback((cur) => {
-    return cur === "indispo" ? "dispo" : cur === "dispo" ? "flex" : "indispo";
-  }, []);
-
-  const beginPaint = useCallback(
-    async (colIndex, rowIndex) => {
-      const d = dayRefs[colIndex];
-      const r = timeRows[rowIndex];
-      if (!d || !r) return;
-
-      const key = `${d.dayISO}|${r.label}`;
-      let slot = slotByLocalKey.get(key) ?? null;
-      if (!slot) {
-        const created = await ensureSlotFor(d.dayISO, r.label);
-        if (!created) return;
-        slot = created;
-        setSlots((prev) => (prev.find((x) => x.id === created.id) ? prev : [...prev, created]));
+        const { error } = await supabase
+          .from("availability")
+          .update({ status: newStatus })
+          .eq("user_id", user.id)
+          .eq("group_id", groupId)
+          .eq("start", startIso)
+          .eq("end", endIso);
+        if (error) {
+          await fetchData();
+          throw error;
+        }
       }
 
-      const cur = statusById[slot.id] ?? "indispo";
-      const next = computeNextFromCurrent(cur);
+      setTimeout(() => { fetchData(); }, 0);
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? String(e));
+    }
+  }
 
-      setPaintStatus(next);
-      setPainting(true);
-      paintColIndexRef.current = colIndex;
-      startRowRef.current = rowIndex;
-      paintedRef.current = new Set([slot.id]);
-      lastRowRef.current = rowIndex;
+  function DayColumn({ day }) {
+    const isToday = day.isSame(dayjs(), "day");
 
-      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-      await setOne(slot, next);
-    },
-    [dayRefs, timeRows, slotByLocalKey, statusById, ensureSlotFor, setOne, setSlots, computeNextFromCurrent]
-  );
-
-  // Mouvement continu depuis la cellule d’origine (sans lever le doigt)
-  const handleMoveFromCell = useCallback(
-    (e, colIndex, startRowIndex) => {
-      if (!painting || !paintStatus) return;
-      // on reste dans la même colonne; calcule combien de lignes on a parcouru
-      const dy = e.nativeEvent.locationY; // relatif à la cellule d’origine; peut dépasser sa hauteur
-      const deltaRows = Math.round((dy - CELL_H / 2) / (CELL_H + 6));
-      let targetRow = startRowIndex + deltaRows;
-      if (targetRow < 0) targetRow = 0;
-      if (targetRow > timeRows.length - 1) targetRow = timeRows.length - 1;
-      if (lastRowRef.current === targetRow) return;
-
-      lastRowRef.current = targetRow;
-
-      const d = dayRefs[colIndex];
-      const r = timeRows[targetRow];
-      const dayISO = d?.dayISO;
-      const label = r?.label;
-      if (!dayISO || !label) return;
-
-      (async () => {
-        const key = `${dayISO}|${label}`;
-        let slot = slotByLocalKey.get(key) ?? null;
-        if (!slot) {
-          const created = await ensureSlotFor(dayISO, label);
-          if (!created) return;
-          slot = created;
-          setSlots((prev) =>
-            prev.find((s) => s.id === created.id) ? prev : [...prev, created]
-          );
-        }
-        if (paintedRef.current.has(slot.id)) return;
-        paintedRef.current.add(slot.id);
-        await setOne(slot, paintStatus);
-        try { Haptics.selectionAsync(); } catch {}
-      })();
-    },
-    [painting, paintStatus, dayRefs, timeRows, slotByLocalKey, ensureSlotFor, setOne, setSlots]
-  );
-
-  const endPaint = useCallback(() => {
-    if (!painting) return;
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-    setPainting(false);
-    setPaintStatus(null);
-    paintColIndexRef.current = null;
-    startRowRef.current = null;
-    paintedRef.current = new Set();
-    lastRowRef.current = -1;
-    pressTrackRef.current.active = false;
-  }, [painting]);
-
-  const colorForStatus = (s) =>
-    s === "dispo"
-      ? ["#0a7a31", "#0a7a31", "white"] // vert foncé
-      : s === "flex"
-      ? ["#f59e0b", "#f59e0b", "white"] // orange
-      : ["#ef4444", "#ef4444", "white"]; // rouge
-
-  const labelForStatus = (s) =>
-    s === "dispo" ? "Dispo" : s === "flex" ? "Flex" : "Indispo";
-
-  if (!groupId)
     return (
-      <View style={styles.center}>
-        <Text style={{ color: "#6b7280" }}>
-          Sélectionne un groupe pour voir les créneaux.
-        </Text>
+      <View style={{ width: 128, paddingHorizontal: 6 }}>
+        {/* Titre du jour */}
+        <View
+          style={{
+            alignItems: "center",
+            paddingVertical: 6,
+            marginBottom: 4,
+            borderRadius: 10,
+            backgroundColor: isToday ? ORANGE : "#ffa94d",
+            borderWidth: isToday ? 2 : 0,
+            borderColor: isToday ? "#ffffff" : "transparent",
+          }}
+        >
+          <Text style={{ fontWeight: "800", color: "#0b2240", fontSize: 16 }}>
+            {day.format("dd").toUpperCase()} {day.format("D")}
+          </Text>
+        </View>
+
+        {/* Corps de la colonne */}
+        <View
+          style={{
+            backgroundColor: isToday ? "#fff" : "#f7f9fd",
+            borderRadius: 14,
+            borderWidth: isToday ? 2 : 0,
+            borderColor: isToday ? ORANGE : "transparent",
+            overflow: "hidden",
+          }}
+        >
+          {hoursOfDay.map(({ hour, minute }) => {
+            const startIso = keySlot(day, hour, minute);
+            const people = mapDispos.get(startIso) || [];
+            const availableCount = people.filter((p) => p.status === "available").length;
+            const match = mapMatches.get(startIso);
+
+            // Couleurs cellule selon MON statut (sauf si match présent)
+            const myStatus = myStatusByStart.get(startIso);
+            let cellBg = "#f7f9fd";   // default light grey background
+            let cellBorder = "#1f2937"; // default grey border
+            let textColor = "#0b2240"; // default dark text
+
+            if (match) {
+              cellBg = match.status === "confirmed" ? "#ecfdf5" : "#fee2e2";
+              cellBorder = match.status === "confirmed" ? "#10b981" : "#fca5a5";
+            } else {
+              if (myStatus === "absent") {
+                cellBg = "#cd0a0e";
+                cellBorder = "#cd0a0e";
+                textColor = "#d1d5db";
+              } else if (myStatus === "available") {
+                cellBg = "#2fc249";
+                cellBorder = "#2fc249";
+                textColor = "#0b2240";
+              }
+            }
+
+            // Pastille participants (réactivité gérée via optimistic setSlots)
+            let badgeBg = "#e5e7eb";
+            let badgeColor = "#0f172a";
+            if (availableCount === 0) {
+              badgeBg = "#e5e7eb";   // grey background for zero count
+              badgeColor = "#0f172a"; // dark text
+            } else if (availableCount === 1 || availableCount === 2) {
+              badgeBg = "#ef4444";   // rouge plus vif
+              badgeColor = "#ffffff"; // texte blanc pour contraste
+            } else if (availableCount === 3) {
+              badgeBg = "#fcd34d";   // orange
+              badgeColor = "#78350f"; // orange foncé
+            } else if (availableCount >= 4) {
+              badgeBg = "#15803d";   // vert foncé
+              badgeColor = "#ffffff"; // texte blanc
+            }
+
+            return (
+              <Pressable
+                key={startIso}
+                onPress={() => toggleMyAvailability(startIso)}
+                onLongPress={() => {
+                  if (match) {
+                    Alert.alert(
+                      "Match",
+                      match.status === "confirmed" ? "Confirmé ✅" : "Proposé ⏳"
+                    );
+                  } else {
+                    const absent = people.filter((p) => p.status === "absent").length;
+                    Alert.alert(
+                      `${String(hour).padStart(2, "0")}h${minute ? "30" : "00"}`,
+                      `Dispo: ${availableCount} • Absent: ${absent}`
+                    );
+                  }
+                }}
+                style={{
+                  height: SLOT_HEIGHT,
+                  paddingHorizontal: 10,
+                  borderBottomWidth: 1,
+                  borderColor: cellBorder,
+                  justifyContent: "center",
+                  backgroundColor: cellBg,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: FONT_HOUR, color: textColor, fontWeight: "700" }}>
+                    {String(hour).padStart(2, "0")}h{minute ? "30" : "00"}
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    {availableCount > 0 ? (
+                      <View
+                        style={{
+                          width: 28,
+                          height: 28,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "relative",
+                        }}
+                      >
+                        <Ionicons name="flame" size={28} color={badgeBg} />
+                        <Text
+                          style={{
+                            position: "absolute",
+                            color: "#ffffff",
+                            fontSize: 12,
+                            fontWeight: "900",
+                            lineHeight: 12,
+                            textShadowColor: "rgba(0,0,0,0.35)",
+                            textShadowOffset: { width: 0, height: 1 },
+                            textShadowRadius: 1,
+                          }}
+                        >
+                          {availableCount}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View
+                        style={{
+                          backgroundColor: badgeBg,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                        }}
+                      >
+                        <Text style={{ color: badgeColor, fontWeight: "800" }}>{availableCount}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     );
-  if (loading)
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
+  }
 
   return (
-    <View style={styles.root}>
-      {/* Entête semaine */}
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => {
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-            setWeekStart(addMinutes(weekStart, -7 * 24 * 60));
-          }}
-          style={styles.navBtn}
-        >
-          <Text style={styles.navTxt}>◀</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>
-          {weekStart.toLocaleDateString("fr-FR", {
-            day: "2-digit",
-            month: "short",
-          })}{" "}
-          –{" "}
-          {addMinutes(weekStart, 6 * 24 * 60).toLocaleDateString("fr-FR", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })}
-        </Text>
-        <Pressable
-          onPress={() => {
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-            setWeekStart(addMinutes(weekStart, 7 * 24 * 60));
-          }}
-          style={styles.navBtn}
-        >
-          <Text style={styles.navTxt}>▶</Text>
-        </Pressable>
-      </View>
-
-      {/* Actions bulk */}
-      <View style={styles.bulkRow}>
-        <Pressable
-          onPress={async () => {
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-            try {
-              const allSlots = await ensureAllWeekSlots();
-              setStatusById((prev) => {
-                const next = { ...prev };
-                for (const s of allSlots ?? []) next[s.id] = "dispo";
-                return next;
-              });
-              const upserts = (allSlots ?? []).map((s) => ({
-                user_id: userId,
-                group_id: groupId,
-                time_slot_id: s.id,
-                status: "dispo",
-              }));
-              if (upserts.length) {
-                const { error } = await supabase
-                  .from("availabilities")
-                  .upsert(upserts, {
-                    onConflict: "user_id,group_id,time_slot_id",
-                  });
-                if (error) throw error;
-              }
-            } catch (e) {
-              Alert.alert("Erreur", e?.message ?? String(e));
-            }
-          }}
-          style={[styles.bulkBtn, { backgroundColor: "#0a7a31" }]}
-        >
-          <Text style={styles.bulkTxt}>Tout Dispo</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={async () => {
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-            try {
-              const allSlots = await ensureAllWeekSlots();
-              setStatusById((prev) => {
-                const next = { ...prev };
-                for (const s of allSlots ?? []) next[s.id] = "flex";
-                return next;
-              });
-              const upserts = (allSlots ?? []).map((s) => ({
-                user_id: userId,
-                group_id: groupId,
-                time_slot_id: s.id,
-                status: "flex",
-              }));
-              if (upserts.length) {
-                const { error } = await supabase
-                  .from("availabilities")
-                  .upsert(upserts, {
-                    onConflict: "user_id,group_id,time_slot_id",
-                  });
-                if (error) throw error;
-              }
-            } catch (e) {
-              Alert.alert("Erreur", e?.message ?? String(e));
-            }
-          }}
-          style={[styles.bulkBtn, { backgroundColor: "#f59e0b" }]}
-        >
-          <Text style={styles.bulkTxt}>Tout Flex</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={async () => {
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-            try {
-              const allSlots = await ensureAllWeekSlots();
-              setStatusById((prev) => {
-                const next = { ...prev };
-                for (const s of allSlots ?? []) next[s.id] = "indispo";
-                return next;
-              });
-              const upserts = (allSlots ?? []).map((s) => ({
-                user_id: userId,
-                group_id: groupId,
-                time_slot_id: s.id,
-                status: "indispo",
-              }));
-              if (upserts.length) {
-                const { error } = await supabase
-                  .from("availabilities")
-                  .upsert(upserts, {
-                    onConflict: "user_id,group_id,time_slot_id",
-                  });
-                if (error) throw error;
-              }
-            } catch (e) {
-              Alert.alert("Erreur", e?.message ?? String(e));
-            }
-          }}
-          style={[styles.bulkBtn, { backgroundColor: "#9ca3af" }]}
-        >
-          <Text style={styles.bulkTxt}>Tout Indispo</Text>
-        </Pressable>
-      </View>
-
-      {/* Grille */}
-      <ScrollView
-        horizontal
-        bounces={false}
-        showsHorizontalScrollIndicator
-        contentContainerStyle={{ padding: GRID_PAD }}
-        scrollEnabled={!painting}
-        keyboardShouldPersistTaps="handled"
+    <View style={{ flex: 1, backgroundColor: BG_PAGE }}>
+      {/* Header semaine */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: 12,
+          backgroundColor: "#fff",
+          borderBottomWidth: 1,
+          borderColor: "#e5e7eb",
+        }}
       >
-        <View style={{ position: "relative" }}>
-          {/* En-têtes colonnes (jours) */}
-          <View style={{ flexDirection: "row", marginLeft: 64, marginBottom: 6 }}>
-            {dayRefs.map((d) => (
-              <View key={d.dayISO} style={[styles.colHeader]}>
-                <Text style={styles.colHeaderDay}>{frDayShort(d.date)}</Text>
-                <Text style={styles.colHeaderDate}>{frDayLong(d.date)}</Text>
-              </View>
-            ))}
-          </View>
+        <Pressable onPress={() => setWeekStart((w) => w.subtract(1, "week"))}>
+          <Text style={{ color: BRAND, fontWeight: "700" }}>‹ Semaine</Text>
+        </Pressable>
+        <Text style={{ fontWeight: "800", color: "#0b2240" }}>
+          {weekStart.format("DD MMM")} – {weekStart.add(6, "day").format("DD MMM")}
+        </Text>
+        <Pressable onPress={() => setWeekStart(dayjs().startOf("isoWeek"))}>
+          <Text style={{ color: ORANGE, fontWeight: "700" }}>Aujourd’hui</Text>
+        </Pressable>
+      </View>
 
-          {/* Lignes horaires + cellules */}
-          {timeRows.map((row, rowIndex) => (
-            <View key={row.m} style={{ flexDirection: "row", alignItems: "center" }}>
-              {/* temps */}
-              <View style={styles.timeCol}>
-                <Text style={styles.timeLabel}>{row.label}</Text>
-              </View>
-
-              {/* 7 colonnes */}
-              <View style={{ flexDirection: "row" }}>
-                {dayRefs.map((d, colIndex) => {
-                  const key = `${d.dayISO}|${row.label}`;
-                  const slot = slotByLocalKey.get(key) ?? null;
-                  const status = slot ? statusById[slot.id] ?? "indispo" : "indispo";
-                  const [bg, br, txt] = colorForStatus(status);
-
-                  // --- Gesture sans lever le doigt ---
-                  const onPressIn = (e) => {
-                    // mémorise point de départ; on lancera la peinture dès que DY dépasse le seuil
-                    pressTrackRef.current = {
-                      active: true,
-                      startY: e.nativeEvent.locationY,
-                      colIndex,
-                      rowIndex,
-                    };
-                  };
-
-                  const maybeStartPaintFromPressIn = async () => {
-                    // démarre la peinture sur la cellule d’origine
-                    await beginPaint(colIndex, rowIndex);
-                  };
-
-                  const onMove = async (e) => {
-                    // si déjà en peinture → peindre au fil du mouvement
-                    if (painting) {
-                      if (paintColIndexRef.current !== colIndex) return;
-                      handleMoveFromCell(e, colIndex, startRowRef.current ?? rowIndex);
-                      return;
-                    }
-                    // pas encore en peinture → vérifier si on a assez bougé pour démarrer
-                    if (!pressTrackRef.current.active) return;
-                    const dy = Math.abs(e.nativeEvent.locationY - pressTrackRef.current.startY);
-                    if (dy >= DRAG_START_DY) {
-                      // on commence la peinture immédiatement
-                      pressTrackRef.current.active = false;
-                      await maybeStartPaintFromPressIn();
-                    }
-                  };
-
-                  const onEnd = async () => {
-                    // fin du geste
-                    if (painting) {
-                      endPaint();
-                      return;
-                    }
-                    // Pas de peinture : c'est un tap court → toggle
-                    pressTrackRef.current.active = false;
-                    if (!slot) {
-                      const created = await ensureSlotFor(d.dayISO, row.label);
-                      if (!created) return;
-                      await setOne(created, "dispo"); // premier état
-                      setSlots((prev) =>
-                        prev.find((x) => x.id === created.id) ? prev : [...prev, created]
-                      );
-                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-                      return;
-                    }
-                    await toggleOne(slot);
-                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
-                  };
-
-                  return (
-                    <Pressable
-                      key={key}
-                      onPressIn={onPressIn}
-                      onTouchMove={onMove}
-                      onTouchEnd={onEnd}
-                      onTouchCancel={onEnd}
-                      style={[styles.cell, { backgroundColor: bg, borderColor: br }]}
-                    >
-                      <Text style={[styles.cellTxt, { color: txt }]}>
-                        {slot ? labelForStatus(status) : "—"}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
-        </View>
+      {/* Grille scrollable (vertical + horizontal) */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 10 }} showsVerticalScrollIndicator={false}>
+        <FlatList
+          data={days}
+          keyExtractor={(d) => d.format("YYYY-MM-DD")}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          renderItem={({ item }) => <DayColumn day={item} />}
+          contentContainerStyle={{ paddingHorizontal: 12, gap: 10 }}
+        />
       </ScrollView>
     </View>
   );
 }
-
-const CELL_W = 110;
-const CELL_H = 56;
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-
-  header: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "white",
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  headerTitle: { fontSize: 18, fontWeight: "800", color: BRAND },
-  navBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#f3f4f6",
-  },
-  navTxt: { fontSize: 16, color: "#111827" },
-
-  colHeader: {
-    width: CELL_W,
-    marginBottom: 6,
-    marginRight: 4,
-    alignItems: "center",
-  },
-  colHeaderDay: { fontWeight: "800", color: BRAND, textTransform: "capitalize" },
-  colHeaderDate: {
-    fontSize: 12,
-    color: "#6b7280",
-    textTransform: "capitalize",
-  },
-
-  timeCol: { width: 64, alignItems: "flex-end", paddingRight: 6 },
-  timeLabel: { fontWeight: "700", color: "#374151" },
-
-  cell: {
-    width: CELL_W,
-    height: CELL_H,
-    borderRadius: 10,
-    borderWidth: 1.25,
-    marginRight: 4,
-    marginBottom: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    // subtil relief
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  cellTxt: { fontWeight: "800" },
-
-  bulkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: GRID_PAD,
-    paddingVertical: 8,
-    backgroundColor: "white",
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  bulkBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    minWidth: 110,
-    alignItems: "center",
-  },
-  bulkTxt: { color: "white", fontWeight: "800" },
-});

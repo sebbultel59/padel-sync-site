@@ -1,14 +1,16 @@
 // app/_layout.js
-import { Stack } from "expo-router";
-import React from "react";
-import { ActiveGroupProvider } from "../lib/activeGroup";
+import { Slot } from 'expo-router';
+import React from 'react';
+import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ActiveGroupProvider } from '../lib/activeGroup';
 
-// Layout racine simple : on laisse les sous-arborescences gérer leurs headers & logique.
-// (L'auth + notifications restent dans app/(tabs)/_layout.js comme avant.)
 export default function RootLayout() {
   return (
-    <ActiveGroupProvider>
-      <Stack screenOptions={{ headerShown: false }} />
-    </ActiveGroupProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ActiveGroupProvider>
+        <Slot />
+      </ActiveGroupProvider>
+    </GestureHandlerRootView>
   );
 }
