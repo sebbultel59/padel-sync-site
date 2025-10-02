@@ -1,12 +1,61 @@
 // app/(tabs)/_layout.js
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { router, Tabs } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from "react-native";
+import { supabase } from "../../lib/supabase";
+
+function AuthGuard({ children }) {
+  const [status, setStatus] = useState("checking"); // "checking" | "authed" | "anon"
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        const uid = data?.user?.id;
+        if (!mounted) return;
+        setStatus(uid ? "authed" : "anon");
+        if (!uid) router.replace("/(auth)/signin");
+      } catch {
+        if (!mounted) return;
+        setStatus("anon");
+        router.replace("/(auth)/signin");
+      }
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      if (session?.user?.id) setStatus("authed");
+      else {
+        setStatus("anon");
+        router.replace("/(auth)/signin");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
+  if (status === "checking") {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+  return children;
+}
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      initialRouteName="semaine"
+    
+    <AuthGuard>
+      <Tabs
+      initialRouteName="groupes"
       screenOptions={({ route }) => ({
         headerShown: true,
         tabBarActiveTintColor: '#1a4b97',
@@ -41,5 +90,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="groupes" options={{ title: 'Groupes' }} />
       <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
     </Tabs>
+    </AuthGuard>
   );
 }

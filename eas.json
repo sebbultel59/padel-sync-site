@@ -1,21 +1,51 @@
-{
-  "cli": {
-    "version": ">= 16.19.1",
-    "appVersionSource": "remote"
-  },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
+import React, { useCallback } from "react";
+import { Alert, Text, TouchableOpacity, View } from "react-native";
+import { useActiveGroup } from "../../contexts/ActiveGroupContext";
+import s from "../../styles";
+
+const BRAND = "#007AFF";
+
+export default function Groupes({ groupes }) {
+  const { setActiveGroup } = useActiveGroup();
+
+  const onActivate = useCallback(
+    (g) => {
+      try {
+        // Forcer un feedback visuel immédiat
+        Alert.alert("Groupe activé", `“${g?.name ?? "Groupe"}” est maintenant actif.`);
+        // Log debug dans Metro
+        console.log("[Groupes] onActivate →", g?.id, g?.name);
+        // Passer un objet minimal (évite les références profondes)
+        setActiveGroup({ id: g?.id, name: g?.name, avatar_url: g?.avatar_url });
+      } catch (e) {
+        console.error("[Groupes] onActivate error:", e);
+        Alert.alert("Erreur", e?.message ?? String(e));
+      }
     },
-    "preview": {
-      "distribution": "internal"
-    },
-    "production": {
-      "autoIncrement": true
-    }
-  },
-  "submit": {
-    "production": {}
-  }
+    [setActiveGroup]
+  );
+
+  return (
+    <View>
+      <Text>Mes groupes</Text>
+      {groupes.map((g) => (
+        <View key={g.id} style={s.groupRow}>
+          <Text>{g.name}</Text>
+          <TouchableOpacity
+            onPress={() => {
+              console.log("[Groupes] Tap Activer →", g?.id);
+              onActivate(g);
+            }}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Activer le groupe ${g.name}`}
+            style={[s.btnTiny, { backgroundColor: BRAND }]}
+          >
+            <Text style={{ color: "white", fontWeight: "800", fontSize: 12 }}>Activer</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+    </View>
+  );
 }

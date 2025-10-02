@@ -4,19 +4,21 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
+import { useAuth } from "../../context/auth";
 import { supabase } from "../../lib/supabase";
+import { press } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
 const AVATAR = 100;
@@ -57,6 +59,8 @@ export default function ProfilScreen() {
   const [club, setClub] = useState("");
   const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
   const [phone, setPhone] = useState("");
+
+  const { signOut: signOutCtx } = useAuth();
 
   // snapshot initial pour détecter les changements
   const [initialSnap, setInitialSnap] = useState(null);
@@ -252,51 +256,81 @@ export default function ProfilScreen() {
   // Helper de déconnexion
   const doSignOut = useCallback(async () => {
     try {
+      // Déconnexion côté Supabase (session serveur)
       await supabase.auth.signOut();
     } catch (e) {
       Alert.alert("Erreur", e?.message ?? String(e));
     } finally {
-      // Forcer la navigation immédiate vers l'écran d'auth
-      try {
-        router.replace("/(auth)/signin");
-      } catch {}
+      // Déconnexion côté client (token local) puis navigation vers l'auth
+      try { await signOutCtx(); } catch {}
+      try { router.replace("/(auth)/signin"); } catch {}
     }
-  }, []);
+  }, [signOutCtx]);
 
-  // Déconnexion avec garde "modifs non enregistrées"
+  // Déconnexion avec garde "modifs non enregistrées" (web-safe)
   const onLogout = useCallback(() => {
-    if (isDirty) {
-      Alert.alert(
-        "Déconnexion",
-        "Tu as des modifications non enregistrées.",
-        [
-          { text: "Annuler", style: "cancel" },
-          {
-            text: "Se déconnecter",
-            style: "destructive",
-            onPress: () => doSignOut(),
-          },
-          {
-            text: "Enregistrer & se déconnecter",
-            onPress: async () => {
-              const ok = await onSave();
-              if (ok) await doSignOut();
-            },
-          },
-        ],
-        { cancelable: true }
-      );
-    } else {
-      Alert.alert(
-        "Se déconnecter",
-        "Tu vas être déconnecté de Padel Sync.",
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Oui, me déconnecter", style: "destructive", onPress: () => doSignOut() },
-        ],
-        { cancelable: true }
-      );
+    // On web, React Native's Alert with multiple buttons is not reliable.
+    if (Platform.OS === "web") {
+      if (isDirty) {
+        const saveThenLogout = window.confirm(
+          "Tu as des modifications non enregistrées.\n\nVoulez-vous enregistrer avant de vous déconnecter ?"
+        );
+        if (saveThenLogout) {
+          (async () => {
+            const ok = await onSave();
+            if (ok) await doSignOut();
+          })();
+        } else {
+          const confirmLogout = window.confirm(
+            "Se déconnecter sans enregistrer les modifications ?"
+          );
+          if (confirmLogout) {
+            (async () => {
+              await doSignOut();
+            })();
+          }
+        }
+      } else {
+        const confirmLogout = window.confirm(
+          "Tu vas être déconnecté de Padel Sync.\n\nConfirmer ?"
+        );
+        if (confirmLogout) {
+          (async () => {
+            await doSignOut();
+          })();
+        }
+      }
+      return;
     }
+
+    // Native (iOS/Android) keeps the richer Alert buttons
+    Alert.alert(
+      isDirty ? "Déconnexion" : "Se déconnecter",
+      isDirty
+        ? "Tu as des modifications non enregistrées."
+        : "Tu vas être déconnecté de Padel Sync.",
+      isDirty
+        ? [
+            { text: "Annuler", style: "cancel" },
+            {
+              text: "Se déconnecter",
+              style: "destructive",
+              onPress: () => doSignOut(),
+            },
+            {
+              text: "Enregistrer & se déconnecter",
+              onPress: async () => {
+                const ok = await onSave();
+                if (ok) await doSignOut();
+              },
+            },
+          ]
+        : [
+            { text: "Annuler", style: "cancel" },
+            { text: "Oui, me déconnecter", style: "destructive", onPress: () => doSignOut() },
+          ],
+      { cancelable: true }
+    );
   }, [isDirty, onSave, doSignOut]);
 
   const levelInfo = useMemo(() => levelMeta(Number(niveau) || 0), [niveau]);
@@ -320,11 +354,27 @@ export default function ProfilScreen() {
             )}
           </View>
           <View style={s.avatarBtns}>
-            <Pressable onPress={pickAndUpload} disabled={uploading} style={[s.btn, uploading && { opacity: 0.6 }]}>
+            <Pressable
+              onPress={press("profile-avatar-pick", pickAndUpload)}
+              disabled={uploading}
+              style={[
+                s.btn,
+                uploading && { opacity: 0.6 },
+                Platform.OS === "web" && { cursor: uploading ? "not-allowed" : "pointer" }
+              ]}
+            >
               <Text style={s.btnTxt}>{uploading ? "Envoi..." : "Changer l’avatar"}</Text>
             </Pressable>
             {avatarUrl ? (
-              <Pressable onPress={removeAvatar} disabled={uploading} style={[s.btn, s.btnGhost]}>
+              <Pressable
+                onPress={press("profile-avatar-remove", removeAvatar)}
+                disabled={uploading}
+                style={[
+                  s.btn,
+                  s.btnGhost,
+                  Platform.OS === "web" && { cursor: uploading ? "not-allowed" : "pointer" }
+                ]}
+              >
                 <Text style={[s.btnTxt, s.btnGhostTxt]}>Supprimer</Text>
               </Pressable>
             ) : null}
@@ -358,10 +408,11 @@ export default function ProfilScreen() {
               return (
                 <Pressable
                   key={lv.v}
-                  onPress={() => setNiveau(lv.v)}
+                  onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
                   style={[
                     s.pill,
                     { borderColor: active ? lv.color : "#e5e7eb", backgroundColor: active ? lv.color : "white" },
+                    Platform.OS === "web" && { cursor: "pointer" }
                   ]}
                 >
                   <Text style={[s.pillTxt, { color: active ? "#111827" : "#374151" }]}>{lv.v}</Text>
@@ -401,8 +452,12 @@ export default function ProfilScreen() {
               return (
                 <Pressable
                   key={r.v}
-                  onPress={() => setRayonKm(r.v)}
-                  style={[s.pill, active && { backgroundColor: "#eaf2ff", borderColor: BRAND }]}
+                  onPress={press(`rayon-${r.v}`, () => setRayonKm(r.v))}
+                  style={[
+                    s.pill,
+                    active && { backgroundColor: "#eaf2ff", borderColor: BRAND },
+                    Platform.OS === "web" && { cursor: "pointer" }
+                  ]}
                 >
                   <Text style={[s.pillTxt, active && { color: BRAND, fontWeight: "800" }]}>{r.label}</Text>
                 </Pressable>
@@ -424,12 +479,13 @@ export default function ProfilScreen() {
 
         {/* Enregistrer */}
         <Pressable
-          onPress={onSavePress}
+          onPress={press("profile-save", onSavePress)}
           disabled={saving || !isDirty}
           style={[
             s.btn,
             { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center" },
             (saving || !isDirty) && { backgroundColor: "#9ca3af" }, // grisé si inactif
+            Platform.OS === "web" && { cursor: saving || !isDirty ? "not-allowed" : "pointer" }
           ]}
         >
           <Ionicons
@@ -445,7 +501,7 @@ export default function ProfilScreen() {
         <View style={[s.card, { marginTop: 16 }]}>
           <Text style={[s.label, { marginBottom: 8 }]}>Session</Text>
           <Pressable
-            onPress={onLogout}
+            onPress={press("profile-logout", onLogout)}
             style={[
               s.btn,
               {
@@ -454,6 +510,7 @@ export default function ProfilScreen() {
                 alignItems: "center",
                 justifyContent: "center",
               },
+              Platform.OS === "web" && { cursor: "pointer" }
             ]}
           >
             <Ionicons name="log-out-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
@@ -475,10 +532,11 @@ export default function ProfilScreen() {
 function SegBtn({ label, active, onPress }) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={press(`seg-${String(label).toLowerCase()}`, onPress)}
       style={[
         s.segmentBtn,
         active && { backgroundColor: "white", borderColor: "#e5e7eb", borderWidth: 1 },
+        Platform.OS === "web" && { cursor: "pointer" }
       ]}
     >
       <Text style={[s.segmentTxt, active && { color: "#111827", fontWeight: "800" }]}>{label}</Text>

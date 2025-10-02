@@ -1,13 +1,26 @@
 // app/(tabs)/semaine.js
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import dayjs from "dayjs";
 import "dayjs/locale/fr";
 import isoWeek from "dayjs/plugin/isoWeek";
 import * as Haptics from "expo-haptics";
+import { useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Pressable, ScrollView, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
+import { press, safeAlert } from "../../lib/uiSafe";
+
+// --- Normalisation des statuts RSVP (client → enum rsvp_status) ---
+// Enum en base : { yes, maybe, no, accepted }
+export function normalizeRsvpStatus(status) {
+  const s = String(status || "").toLowerCase().trim();
+  if (["ok", "oui", "dispo", "present", "présent", "going", "available"].includes(s)) return "yes";
+  if (s === "accepted" || s === "accepté") return "accepted";
+  if (["no", "non", "absent"].includes(s)) return "no";
+  return "maybe";
+}
 
 dayjs.extend(isoWeek);
 dayjs.locale("fr");
@@ -29,9 +42,14 @@ export default function Semaine() {
   const [matches, setMatches] = useState([]);     // matches liés aux time_slots
   const [loading, setLoading] = useState(false);
   const [meId, setMeId] = useState(null);
+  const [persistedGroupId, setPersistedGroupId] = useState(null);
 
   const { activeGroup } = useActiveGroup();
-  const groupId = activeGroup?.id ?? null;
+  useEffect(() => {
+  // relance ton chargement/rafraîchissement ici (ce que tu fais déjà au mount)
+  // Par ex. refetchSemaine();
+}, [activeGroup?.id]);
+  const groupId = activeGroup?.id ?? persistedGroupId ?? null;
 
   useEffect(() => {
     (async () => {
@@ -39,6 +57,33 @@ export default function Semaine() {
       setMeId(u?.user?.id ?? null);
     })();
   }, []);
+
+  const params = useLocalSearchParams();
+
+  // 0) If a groupId is provided via route params, persist it
+  useEffect(() => {
+    const incoming = params?.groupId || params?.group_id;
+    if (incoming) {
+      const str = String(incoming);
+      setPersistedGroupId(str);
+      AsyncStorage.setItem("active_group_id", str).catch(() => {});
+    }
+  }, [params?.groupId, params?.group_id]);
+
+  // 1) Keep a persisted fallback of the active group id
+  useEffect(() => {
+    (async () => {
+      try {
+        if (activeGroup?.id) {
+          await AsyncStorage.setItem("active_group_id", String(activeGroup.id));
+          setPersistedGroupId(String(activeGroup.id));
+        } else {
+          const saved = await AsyncStorage.getItem("active_group_id");
+          if (saved) setPersistedGroupId(saved);
+        }
+      } catch {}
+    })();
+  }, [activeGroup?.id]);
 
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => weekStart.add(i, "day")),
@@ -106,9 +151,32 @@ export default function Semaine() {
       setMatches(mData ?? []);
     } catch (e) {
       console.warn(e);
-      Alert.alert("Erreur", e?.message ?? String(e));
+      safeAlert("Erreur", e?.message ?? String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Upsert RSVP pour un match en respectant l'enum rsvp_status
+  async function upsertRsvp(matchId, rawStatus) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return safeAlert("Connexion requise");
+
+      const status = normalizeRsvpStatus(rawStatus); // ← mapping ici
+      const { error } = await supabase
+        .from("match_rsvps")
+        .upsert(
+          { match_id: matchId, user_id: user.id, status },
+          { onConflict: "match_id,user_id" }
+        );
+
+      if (error) throw error;
+      try { Haptics.selectionAsync(); } catch {}
+      // Optionnel : recharger les données si tu affiches les RSVPs sur cet écran
+      // await fetchData();
+    } catch (e) {
+      safeAlert("Erreur RSVP", e?.message ?? String(e));
     }
   }
 
@@ -160,28 +228,29 @@ export default function Semaine() {
   // Toggle dispo (optimistic UI)
   async function toggleMyAvailability(startIso) {
     try {
+      const gid = groupId ?? (await AsyncStorage.getItem("active_group_id"));
       const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
       const { data: { user } } = await supabase.auth.getUser();
 
-      if (!groupId) {
-        return Alert.alert(
+      if (!gid) {
+        return safeAlert(
           "Choisis un groupe",
           "Active un groupe dans l’onglet Groupes avant d’enregistrer des dispos."
         );
       }
-      if (!user) return Alert.alert("Connexion requise");
+      if (!user) return safeAlert("Connexion requise");
 
       const mine = (slots || []).find(
         (s) =>
           s.user_id === user.id &&
-          s.group_id === groupId &&
+          s.group_id === gid &&
           dayjs(s.start).toISOString() === startIso
       );
 
       if (!mine) {
         const optimistic = {
           user_id: user.id,
-          group_id: groupId,
+          group_id: gid,
           start: startIso,
           end: endIso,
           status: "available",
@@ -199,7 +268,7 @@ export default function Semaine() {
         setSlots((prev) =>
           prev.map((s) =>
             s.user_id === mine.user_id &&
-            s.group_id === groupId &&
+            s.group_id === gid &&
             dayjs(s.start).toISOString() === startIso
               ? { ...s, status: newStatus }
               : s
@@ -211,7 +280,7 @@ export default function Semaine() {
           .from("availability")
           .update({ status: newStatus })
           .eq("user_id", user.id)
-          .eq("group_id", groupId)
+          .eq("group_id", gid)
           .eq("start", startIso)
           .eq("end", endIso);
         if (error) {
@@ -222,7 +291,7 @@ export default function Semaine() {
 
       setTimeout(() => { fetchData(); }, 0);
     } catch (e) {
-      Alert.alert("Erreur", e?.message ?? String(e));
+      safeAlert("Erreur", e?.message ?? String(e));
     }
   }
 
@@ -305,16 +374,16 @@ export default function Semaine() {
             return (
               <Pressable
                 key={startIso}
-                onPress={() => toggleMyAvailability(startIso)}
+                onPress={press(`toggle-${startIso}`, () => toggleMyAvailability(startIso))}
                 onLongPress={() => {
                   if (match) {
-                    Alert.alert(
+                    safeAlert(
                       "Match",
                       match.status === "confirmed" ? "Confirmé ✅" : "Proposé ⏳"
                     );
                   } else {
                     const absent = people.filter((p) => p.status === "absent").length;
-                    Alert.alert(
+                    safeAlert(
                       `${String(hour).padStart(2, "0")}h${minute ? "30" : "00"}`,
                       `Dispo: ${availableCount} • Absent: ${absent}`
                     );
@@ -327,6 +396,7 @@ export default function Semaine() {
                   borderColor: cellBorder,
                   justifyContent: "center",
                   backgroundColor: cellBg,
+                  ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
                 }}
               >
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -396,13 +466,19 @@ export default function Semaine() {
           borderColor: "#e5e7eb",
         }}
       >
-        <Pressable onPress={() => setWeekStart((w) => w.subtract(1, "week"))}>
+        <Pressable
+          onPress={press("week-prev", () => setWeekStart((w) => w.subtract(1, "week")))}
+          style={Platform.OS === "web" && { cursor: "pointer" }}
+        >
           <Text style={{ color: BRAND, fontWeight: "700" }}>‹ Semaine</Text>
         </Pressable>
         <Text style={{ fontWeight: "800", color: "#0b2240" }}>
           {weekStart.format("DD MMM")} – {weekStart.add(6, "day").format("DD MMM")}
         </Text>
-        <Pressable onPress={() => setWeekStart(dayjs().startOf("isoWeek"))}>
+        <Pressable
+          onPress={press("week-today", () => setWeekStart(dayjs().startOf("isoWeek")))}
+          style={Platform.OS === "web" && { cursor: "pointer" }}
+        >
           <Text style={{ color: ORANGE, fontWeight: "700" }}>Aujourd’hui</Text>
         </Pressable>
       </View>

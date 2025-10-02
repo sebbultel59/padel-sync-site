@@ -2,9 +2,10 @@ export default {
   expo: {
     name: "Padel Sync",
     slug: "padel-sync",
+    entryPoint: "./index.js",
     scheme: "padelsync",
     ios: {
-      bundleIdentifier: "com.padelsync.app",
+      bundleIdentifier: "app.padelsync.mobile",
       supportsTablet: false,
       infoPlist: {
         NSLocationWhenInUseUsageDescription: "Nous utilisons votre position pour trouver les clubs de padel proches.",
