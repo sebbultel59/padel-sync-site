@@ -1,42 +1,86 @@
 // lib/uiSafe.ts
-import * as Haptics from "expo-haptics";
-import { Alert, Platform } from "react-native";
+// Safe UI helpers shared across the app. Keep this file free of top-level side effects.
 
-/** Web-safe haptic: no-op on web, light impact elsewhere */
-export async function safeHaptic() {
-  try {
-    if (Platform.OS !== "web") {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } else {
-      // Visual cue in dev tools on web
-      console.log("Haptic (simulated on web)");
+/** Guarded onPress wrapper: logs errors with a label to avoid silent failures */
+export function press<T extends (...args: any[]) => any>(label: string, handler?: T) {
+  return (...args: Parameters<T>) => {
+    try {
+      // Useful trace in dev
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log(`[press:${label}]`);
+      }
+      return handler?.(...args);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(`[press:${label}]`, e);
     }
-  } catch {}
+  };
 }
 
-/** Web-safe alert: uses window.alert on web to avoid RN Alert quirks */
-export function safeAlert(title: string, msg?: string) {
-  if (Platform.OS === "web") {
-    if (typeof window !== "undefined" && typeof window.alert === "function") {
-      window.alert([title, msg].filter(Boolean).join("\n"));
-    } else {
-      console.log("Alert:", title, msg);
+/** Compute 2-letter initials from a name string */
+export function computeInitials(name?: string): string {
+  const log = (from: string, to: string) => {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log(`[Initials][compute] ${JSON.stringify(from)} -> ${to}`);
     }
+  };
+  if (!name) {
+    log(String(name), "?");
+    return "?";
+  }
+  const n = String(name).trim();
+  if (!n) {
+    log(name, "?");
+    return "?";
+  }
+  const parts = n.split(/\s+/).filter(Boolean);
+  let out: string;
+  if (parts.length === 1) {
+    out = parts[0].slice(0, 2).toUpperCase(); // "Alex" -> "AL"
   } else {
-    Alert.alert(title, msg);
+    out = (parts[0][0] + parts[1][0]).toUpperCase(); // "Jean Pierre" -> "JP"
+  }
+  log(n, out);
+  return out;
+}
+
+/** Best-effort display name extraction from various shapes */
+export function bestDisplayName(input: any): string | null {
+  try {
+    if (!input) return null;
+    const emailPrefix =
+      typeof input?.email === "string" && input.email.includes("@")
+        ? String(input.email).split("@")[0]
+        : null;
+
+    const name =
+      input.name ??
+      input.display_name ??
+      input.full_name ??
+      input.fullName ??
+      input.nickname ??
+      input.username ??
+      emailPrefix;
+
+    if (typeof name === "string" && name.trim()) return name.trim();
+    return null;
+  } catch {
+    return null;
   }
 }
 
-/** Wrap any onPress to log + surface errors clearly (especially on web) */
-export function press(label: string, fn?: () => any) {
-  return async () => {
-    try {
-      console.log(`[UI] ${label} clicked`);
-      const res = fn?.();
-      if (res instanceof Promise) await res;
-    } catch (e) {
-      console.error(`[UI] ${label} error:`, e);
-      safeAlert("Erreur", (e as any)?.message ?? String(e));
-    }
-  };
+/** Debug helper: logs which display string is used, then returns 2-letter initials */
+export function debugInitials(label: string, input: any, fallbackId?: string): string {
+  const display =
+    bestDisplayName(input) ||
+    fallbackId ||
+    (input && typeof input === "object" ? input.user_id : null) ||
+    "?";
+  if (__DEV__) {
+    // eslint-disable-next-line no-console
+    console.log(`[Initials][${label}]`, { display, input });
+  }
+  return computeInitials(display);
 }

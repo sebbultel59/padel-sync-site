@@ -1,5 +1,5 @@
 // app/(tabs)/groupes.js
-import { FontAwesome, Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
@@ -7,11 +7,13 @@ import * as ImagePicker from "expo-image-picker";
 import { router, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   DeviceEventEmitter,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -22,12 +24,45 @@ import {
   TextInput,
   TouchableOpacity,
   Vibration,
-  View
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
-import { press } from "../../lib/uiSafe";
+import { computeInitials, press } from "../../lib/uiSafe";
+
+// --- Super admin helper (UI guard) ---
+
+function useIsSuperAdmin() {
+  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth?.user?.id;
+        if (!uid) return setIsSuperAdmin(false);
+
+        // Vérifie l'existence d'une ligne dans super_admins pour l'utilisateur courant
+        const { data: saRow, error: saErr } = await supabase
+          .from('super_admins')
+          .select('user_id')
+          .eq('user_id', uid)
+          .maybeSingle();
+        if (saErr) console.warn('[useIsSuperAdmin] super_admins check failed:', saErr.message);
+        const flag = !!saRow?.user_id;
+        setIsSuperAdmin(flag);
+      } catch (e) {
+        console.warn('[useIsSuperAdmin] fallback to false:', e?.message || e);
+        setIsSuperAdmin(false);
+      }
+    })();
+  }, []);
+
+  return isSuperAdmin;
+}
+// --- end helper ---
 
 async function hapticSelect() {
   try {
@@ -49,30 +84,52 @@ async function hapticSelect() {
   } catch {}
 }
 
+
 const BRAND = "#1a4b97";
 const FALLBACK_WEB_BASE = "https://syncpadel.app";
 
-function Avatar({ url, fallback, size = 48, level, onPress }) {
-  const letter = (fallback || "?").trim().charAt(0).toUpperCase();
+// Niveau → couleur (cohérent avec LEVELS global)
+const LEVEL_COLORS = {
+  1: '#a3e635', // Débutant
+  2: '#86efac', // Perfectionnement
+  3: '#0e7aff', // Élémentaire
+  4: '#0d97ac', // Intermédiaire
+  5: '#ff9d00', // Confirmé
+  6: '#f06300', // Avancé
+  7: '#fb7185', // Expert
+  8: '#a78bfa', // Elite
+};
+const colorForLevel = (n) => LEVEL_COLORS[n] || '#9ca3af';
+
+
+function Avatar({ url, fallback, size = 48, level = null, onPress, ...rest }) {
+  const S = Math.round(size * 1.2);
+  const initials = computeInitials(fallback || "?");
   return (
-    <Pressable onPress={onPress} disabled={!onPress}>
-      <View style={{ width: size, height: size }}>
+    <Pressable
+      onPress={press("avatar", onPress)}
+      disabled={!onPress}
+      style={[
+        Platform.OS === "web" && { cursor: onPress ? "pointer" : "default" }
+      ]}
+    >
+      <View style={{ width: S, height: S }}>
         {url ? (
           <Image
             source={{ uri: url }}
             style={{
-              width: size,
-              height: size,
-              borderRadius: size / 2,
+              width: S,
+              height: S,
+              borderRadius: S / 2,
               backgroundColor: "#eef2f7",
             }}
           />
         ) : (
           <View
             style={{
-              width: size,
-              height: size,
-              borderRadius: size / 2,
+              width: S,
+              height: S,
+              borderRadius: S / 2,
               backgroundColor: "#eaf2ff",
               alignItems: "center",
               justifyContent: "center",
@@ -80,32 +137,35 @@ function Avatar({ url, fallback, size = 48, level, onPress }) {
               borderColor: BRAND,
             }}
           >
-            <Text style={{ color: BRAND, fontWeight: "800", fontSize: 18 }}>
-              {letter}
+            <Text style={{ color: BRAND, fontWeight: "800", fontSize: Math.max(14, Math.round(S * 0.40)) }}>
+              {initials}
             </Text>
           </View>
         )}
-        {level ? (
+        {!!level && (
           <View
             style={{
-              position: "absolute",
-              bottom: -2,
+              position: 'absolute',
               right: -2,
-              backgroundColor: BRAND,
-              borderRadius: 8,
+              bottom: -2,
+              backgroundColor: colorForLevel(level), // background = couleur du niveau
+              borderColor: '#ffffff',               // fin liseré blanc pour le contraste
+              borderWidth: 1,
+              borderRadius: 10,
+              minWidth: 18,
+              height: 18,
               paddingHorizontal: 4,
-              paddingVertical: 1,
-              minWidth: 22,
-              alignItems: "center",
-              justifyContent: "center",
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
+            accessibilityLabel={`Niveau ${level}`}
           >
-            <Text style={{ color: "white", fontSize: 10, fontWeight: "700" }}>
-              {level}
+            <Text style={{ color: '#000000', fontWeight: '900', fontSize: 10, lineHeight: 12 }}>
+              {String(level)}
             </Text>
           </View>
-        ) : null}
-      </View>
+        )}
+          </View>
     </Pressable>
   );
 }
@@ -113,6 +173,8 @@ function Avatar({ url, fallback, size = 48, level, onPress }) {
 export default function GroupesScreen() {
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const nav = useRouter();
+  const isSuperAdmin = useIsSuperAdmin();
+  const insets = useSafeAreaInsets();
 
   // --- Auth guard ---
   const [authChecked, setAuthChecked] = useState(false);
@@ -226,7 +288,7 @@ export default function GroupesScreen() {
         if (ids.length) {
           const { data: profs, error: eP } = await supabase
             .from("profiles")
-            .select("id, display_name, avatar_url, niveau")
+            .select("id, display_name, avatar_url, niveau, phone")
             .in("id", ids);
           if (eP) throw eP;
 
@@ -238,6 +300,7 @@ export default function GroupesScreen() {
               name: p?.display_name || "Joueur",
               avatar_url: p?.avatar_url ?? null,
               niveau: p?.niveau ?? null,
+              phone: p?.phone ?? null,
               is_admin: gm.role === "admin",
             };
           });
@@ -262,6 +325,39 @@ export default function GroupesScreen() {
     },
     [meId]
   );
+  const contactMember = useCallback((m) => {
+    if (!m?.phone) {
+      Alert.alert("Aucun numéro", `${m?.name || "Ce membre"} n'a pas de numéro renseigné.`);
+      return;
+    }
+    const telUrl = `tel:${m.phone}`;
+    const smsUrl = `sms:${m.phone}`;
+
+    if (Platform.OS === 'ios' && ActionSheetIOS) {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: m.name || 'Contacter',
+          options: ['📞 Appeler', '💬 SMS', 'Annuler'],
+          cancelButtonIndex: 2,
+          userInterfaceStyle: 'dark',
+        },
+        (idx) => {
+          if (idx === 0) Linking.openURL(telUrl).catch(() => {});
+          else if (idx === 1) Linking.openURL(smsUrl).catch(() => {});
+        }
+      );
+    } else {
+      Alert.alert(
+        m.name || 'Contacter',
+        m.phone,
+        [
+          { text: 'Appeler', onPress: () => Linking.openURL(telUrl).catch(() => {}) },
+          { text: 'SMS', onPress: () => Linking.openURL(smsUrl).catch(() => {}) },
+          { text: 'Annuler', style: 'cancel' },
+        ]
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (authChecked) loadMembersAndAdmin(activeGroup?.id ?? null);
@@ -467,6 +563,44 @@ export default function GroupesScreen() {
     );
   }, [activeGroup, setActiveGroup, loadGroups]);
 
+  const onDeleteGroup = useCallback(() => {
+    if (!activeGroup?.id) return;
+
+    if (!isAdmin) {
+      Alert.alert('Action réservée', "Seuls les admins peuvent supprimer le groupe.");
+      return;
+    }
+
+    const groupId = activeGroup.id;
+    const groupName = activeGroup.name || 'Ce groupe';
+
+    Alert.alert(
+      'Supprimer le groupe',
+      `Voulez-vous vraiment supprimer "${groupName}" ? Cette action est définitive.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.from('groups').delete().eq('id', groupId);
+              if (error) throw error;
+              // Nettoyage local
+              setActiveGroup(null);
+              try { await AsyncStorage.removeItem('active_group_id'); } catch {}
+              await loadGroups();
+              Alert.alert('Groupe supprimé', `${groupName} a été supprimé.`);
+              try { router.replace('/(tabs)/groupes'); } catch {}
+            } catch (e) {
+              Alert.alert('Suppression impossible', e?.message || 'Une erreur est survenue.');
+            }
+          }
+        }
+      ]
+    );
+  }, [activeGroup, isAdmin, setActiveGroup, loadGroups]);
+
   // --- Création de groupe ---
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -486,31 +620,53 @@ export default function GroupesScreen() {
     try {
       const { data: u } = await supabase.auth.getUser();
       const me = u?.user?.id;
-      const visibility = createVisibility;
-      const join_policy = createVisibility === "public" ? createJoinPolicy : "invite";
+      if (!me) throw new Error("Utilisateur non authentifié");
 
-      const { data, error } = await supabase
-        .from("groups")
-        .insert({ name: n, created_by: me, visibility, join_policy })
-        .select("id, name, avatar_url")
-        .single();
-      if (error) throw error;
+      // Sécurise la visibilité et la join policy selon le rôle
+      const safeVisibility = isSuperAdmin ? createVisibility : "private";
+      const join_policy = safeVisibility === "public" ? createJoinPolicy : "invite";
+      if (!isSuperAdmin && createVisibility === "public") {
+        Alert.alert('Restriction', 'Seuls les super admins peuvent créer un groupe public. Le groupe sera créé en privé.');
+      }
 
-      try {
-        await supabase
-          .from("group_members")
-          .insert({ group_id: data.id, user_id: me, role: "admin" });
-      } catch {}
+      console.log('[Groups][create] me =', me, 'visibility =', safeVisibility, 'join_policy =', join_policy);
+
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('rpc_create_group', {
+        p_name: n,
+        p_visibility: safeVisibility,
+        p_join_policy: join_policy,
+      });
+      if (rpcErr) throw rpcErr;
+
+      console.log('[Groups][create][rpc] result =', rpcData);
+      let created = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+
+      // Fallback: si la RPC ne renvoie pas l’ID (implémentation SQL différente),
+      // on va rechercher le dernier groupe créé par l’utilisateur avec ce nom.
+      if (!created || !created.id) {
+        const { data: fallback, error: fbErr } = await supabase
+          .from('groups')
+          .select('id, name, avatar_url')
+          .eq('name', n)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fbErr) throw fbErr;
+        if (!fallback?.id) {
+          throw new Error('Création du groupe : réponse invalide (aucun ID retourné)');
+        }
+        created = fallback;
+      }
 
       await loadGroups();
-      setActiveGroup(data);
-      await loadMembersAndAdmin(data.id);
+      setActiveGroup(created);
+      await loadMembersAndAdmin(created.id);
       setShowCreate(false);
       Alert.alert("Groupe créé", `“${n}” est maintenant actif.`);
     } catch (e) {
       Alert.alert("Erreur création", e?.message ?? String(e));
     }
-  }, [createName, createVisibility, createJoinPolicy, loadGroups, setActiveGroup, loadMembersAndAdmin]);
+  }, [createName, createVisibility, createJoinPolicy, isSuperAdmin, loadGroups, setActiveGroup, loadMembersAndAdmin]);
 
   const { activeRecord } = useMemo(() => {
     const a = (groups.mine ?? []).find((g) => g.id === activeGroup?.id) || null;
@@ -526,9 +682,10 @@ export default function GroupesScreen() {
   }
 
   return (
-    <View style={{ flex: 1, position: "relative" }}>
+    <View style={{ flex: 1, position: "relative", backgroundColor: "#001831" }}>
       <ScrollView
-        contentContainerStyle={{ padding: 16, gap: 14 }}
+        contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: Math.max(24, insets.bottom + 140) }}
+        scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 70) }}
         keyboardShouldPersistTaps="handled"
         {...(Platform.OS === "web" ? {} : { pointerEvents: "box-none" })}
       >
@@ -538,60 +695,44 @@ export default function GroupesScreen() {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Avatar url={activeRecord.avatar_url} fallback={activeRecord.name} size={56} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: "800", fontSize: 18, color: "#111827" }}>
+                <Text style={{ fontWeight: "800", fontSize: 18, color: "#001831", textTransform: 'uppercase' }}>
                   {activeRecord.name}
                 </Text>
-                <Text style={{ color: BRAND, marginTop: 2 }}>
+                <Text style={{ color: "#5b89b8", marginTop: 2, fontWeight: "700" }}>
+                  {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
+                </Text>
+                <Text style={{ color: "#5b89b8", marginTop: 2 }}>
                   {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
                 </Text>
               </View>
-            </View>
-            {/* Info-badges row: visibility & join policy */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: BRAND, backgroundColor: "#eaf2ff" }}>
-                <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12 }}>
-                  {activeRecord.visibility === "public" ? "Public" : "Privé"}
-                </Text>
-              </View>
-              {activeRecord.visibility === "public" ? (
-                <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: "#93c5fd", backgroundColor: "#eff6ff" }}>
-                  <Text style={{ color: "#1d4ed8", fontWeight: "700", fontSize: 12 }}>
-                    {activeRecord.join_policy === "open" ? "Ouvert" : "Sur demande"}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-            {/* Invite buttons row */}
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-              <Pressable onPress={press("invite-link", onInviteLink)} style={[s.btn, { backgroundColor: "#ff8c00", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
-                <Text style={s.btnTxt}>Inviter (lien)</Text>
-              </Pressable>
-              <Pressable onPress={press("invite-qr", onInviteQR)} style={[s.btn, { backgroundColor: "#111827", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
-                <Text style={s.btnTxt}>QR</Text>
-              </Pressable>
             </View>
 
             {/* Membres */}
             <View style={{ marginTop: 12 }}>
               {members?.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingVertical: 8, minHeight: 56 }}
+                >
                   {members.slice(0, 20).map((m) => (
                     <Avatar
                       key={m.id}
                       url={m.avatar_url}
                       fallback={m.name}
                       level={m.niveau}
+                      size={36}
                       onPress={press("open-profile", () => router.push(`/profiles/${m.id}`))}
                     />
                   ))}
                   {members.length > 20 ? (
                     <View style={{ alignItems: "center", justifyContent: "center", paddingHorizontal: 8 }}>
-                      <Text style={{ color: "#6b7280", fontWeight: "700" }}>+{members.length - 20}</Text>
+                      <Text style={{ color: "#cbd5e1", fontWeight: "700" }}>+{members.length - 20}</Text>
                     </View>
                   ) : null}
                 </ScrollView>
               ) : (
-                <Text style={{ color: "#6b7280" }}>Aucun membre trouvé.</Text>
+                <Text style={{ color: "#cbd5e1" }}>Aucun membre trouvé.</Text>
               )}
             </View>
 
@@ -602,13 +743,23 @@ export default function GroupesScreen() {
               </Pressable>
             </View>
 
+            {/* Invite buttons row (moved under "Voir les membres") */}
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+              <Pressable onPress={press("invite-link", onInviteLink)} style={[s.btn, { backgroundColor: "#ff8c00", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
+                <Text style={s.btnTxt}>Inviter (lien)</Text>
+              </Pressable>
+              <Pressable onPress={press("invite-qr", onInviteQR)} style={[s.btn, { backgroundColor: "#111827", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
+                <Text style={s.btnTxt}>QR</Text>
+              </Pressable>
+            </View>
+
             <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
               <Pressable
                 onPress={press("change-group-avatar", onChangeGroupAvatar)}
                 disabled={isAdminLoading ? true : !isAdmin}
                 style={[
                   s.btn,
-                  { flex: 1, flexDirection: "row", justifyContent: "center", gap: 6 },
+                  { flex: 1, flexDirection: "row", justifyContent: "center", gap: 6, paddingVertical: 8 },
                   isAdminLoading ? { backgroundColor: "#cbd5e1" } : isAdmin ? { backgroundColor: BRAND } : { backgroundColor: "#d1d5db" },
                   Platform.OS === "web" && { cursor: isAdminLoading || !isAdmin ? "not-allowed" : "pointer" }
                 ]}
@@ -616,16 +767,29 @@ export default function GroupesScreen() {
                 {isAdminLoading ? <ActivityIndicator color="#fff" /> : !isAdmin ? <Text style={{ color: "white", fontSize: 14 }}>🔒</Text> : null}
                 <Text style={s.btnTxt}>Changer avatar</Text>
               </Pressable>
-            </View>
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-              <Pressable onPress={press("leave-group", onLeaveGroup)} style={[s.btn, { backgroundColor: "#dc2626", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
+
+              <Pressable
+                onPress={press("leave-group", onLeaveGroup)}
+                style={[s.btn, { backgroundColor: "#dc2626", flex: 1, paddingVertical: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
                 <Text style={s.btnTxt}>Quitter le groupe</Text>
               </Pressable>
+
+              {isAdmin && (
+                <Pressable
+                  onPress={press('delete-group', onDeleteGroup)}
+                  style={[s.btn, { backgroundColor: '#991b1b', flex: 1, paddingVertical: 8 }, Platform.OS === 'web' && { cursor: 'pointer' }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Supprimer le groupe"
+                >
+                  <Text style={s.btnTxt}>Supprimer le groupe</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         ) : (
           <View style={[s.card, { alignItems: "center" }]}>
-            <Text style={{ color: "#6b7280" }}>Aucun groupe actif.</Text>
+            <Text style={{ color: "#cbd5e1" }}>Aucun groupe actif.</Text>
           </View>
         )}
 
@@ -635,55 +799,35 @@ export default function GroupesScreen() {
         </View>
         {(groups.mine ?? []).length === 0 ? (
           <View style={[s.card, { alignItems: "center" }]}>
-            <Text style={{ color: "#6b7280" }}>Tu n’as pas encore de groupe.</Text>
+            <Text style={{ color: "#cbd5e1" }}>Tu n’as pas encore de groupe.</Text>
           </View>
         ) : (
           <View style={{ gap: 8 }}>
             {(groups.mine ?? []).map((g) => (
-              <View key={g.id} style={s.rowCard} pointerEvents="box-none">
+              <Pressable
+                key={g.id}
+                onPress={press("activate-group", () => onActivate(g))}
+                style={[s.rowCard, Platform.OS === 'web' && { cursor: 'pointer' }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Activer le groupe ${g.name}`}
+              >
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
                   <Avatar url={g.avatar_url} fallback={g.name} size={40} />
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                        <Text style={{ fontWeight: "700", color: "#111827" }}>{g.name}</Text>
-                      </View>
-                      <View style={{ marginTop: 4, flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-                        {g.visibility === "public" ? (
-                          <>
-                            <View style={s.badgePublic}>
-                              <Text style={s.badgePublicTxt}>Public</Text>
-                            </View>
-                            <View style={[s.badgePublic, { borderColor: "#93c5fd", backgroundColor: "#eff6ff" }]}>
-                              <Text style={{ color: "#1d4ed8", fontWeight: "700", fontSize: 10 }}>
-                                {g.join_policy === "open" ? "Ouvert" : "Sur demande"}
-                              </Text>
-                            </View>
-                          </>
-                        ) : (
-                          <View style={s.badgePublic}>
-                            <Text style={s.badgePublicTxt}>Privé</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
+                    <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
+                      {g.visibility === 'public'
+                        ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}`
+                        : 'Privé'}
+                    </Text>
+                  </View>
                 </View>
                 {activeGroup?.id === g.id ? (
                   <View style={[s.btnTiny, { backgroundColor: "#d1d5db" }]}>
                     <Text style={{ color: "#111827", fontWeight: "800", fontSize: 12 }}>Actif</Text>
                   </View>
-                ) : (
-                  <TouchableOpacity
-                    onPress={press("activate-group", () => onActivate(g))}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Activer le groupe ${g.name}`}
-                    style={[s.btnTiny, { backgroundColor: BRAND }, Platform.OS === "web" && { cursor: "pointer" }]}
-                  >
-                    <Text style={{ color: "white", fontWeight: "800", fontSize: 12 }}>Activer</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+                ) : null}
+              </Pressable>
             ))}
           </View>
         )}
@@ -694,7 +838,7 @@ export default function GroupesScreen() {
         </View>
         {(groups.open ?? []).length === 0 ? (
           <View style={[s.card, { alignItems: "center" }]}>
-            <Text style={{ color: "#6b7280" }}>Aucun groupe public disponible.</Text>
+            <Text style={{ color: "#cbd5e1" }}>Aucun groupe public disponible.</Text>
           </View>
         ) : (
           <View style={{ gap: 8 }}>
@@ -703,21 +847,10 @@ export default function GroupesScreen() {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
                   <Avatar url={g.avatar_url} fallback={g.name} size={40} />
                   <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Text style={{ fontWeight: "700", color: "#111827" }}>{g.name}</Text>
-                    </View>
-                    {g.visibility === "public" ? (
-                      <View style={{ marginTop: 4, flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-                        <View style={s.badgePublic}>
-                          <Text style={s.badgePublicTxt}>Public</Text>
-                        </View>
-                        <View style={[s.badgePublic, { borderColor: "#93c5fd", backgroundColor: "#eff6ff" }]}>
-                          <Text style={{ color: "#1d4ed8", fontWeight: "700", fontSize: 10 }}>
-                            {g.join_policy === "open" ? "Ouvert" : "Sur demande"}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : null}
+                    <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
+                    <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
+                      {g.visibility === 'public' ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}` : 'Privé'}
+                    </Text>
                   </View>
                 </View>
                 <Pressable onPress={press("join-public", () => onJoinPublic(g.id))} style={[s.btnTiny, { backgroundColor: "#111827" }, Platform.OS === "web" && { cursor: "pointer" }]}>
@@ -768,36 +901,36 @@ export default function GroupesScreen() {
               </TouchableOpacity>
 
               {/* Public (ouvert) */}
-              <TouchableOpacity
-                onPress={() => {
-                  setCreateVisibility("public");
-                  setCreateJoinPolicy("open");
-                }}
-                style={[s.choice, createVisibility === "public" && createJoinPolicy === "open" ? s.choiceActive : null]}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Ionicons name="globe-outline" size={16} color={createVisibility === "public" && createJoinPolicy === "open" ? BRAND : "#374151"} />
-                  <Text style={[s.choiceTxt, createVisibility === "public" && createJoinPolicy === "open" ? s.choiceTxtActive : null]}>
-                    Public (ouvert)
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              {isSuperAdmin && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setCreateVisibility("public");
+                    setCreateJoinPolicy("open");
+                  }}
+                  style={[s.choice, createVisibility === "public" && createJoinPolicy === "open" ? s.choiceActive : null]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="earth-outline" size={16} color={createVisibility === "public" && createJoinPolicy === "open" ? BRAND : "#374151"} />
+                    <Text style={[s.choiceTxt, createVisibility === "public" && createJoinPolicy === "open" ? s.choiceTxtActive : null]}>Public (ouvert)</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
 
               {/* Public (sur demande) */}
-              <TouchableOpacity
-                onPress={() => {
-                  setCreateVisibility("public");
-                  setCreateJoinPolicy("invite");
-                }}
-                style={[s.choice, createVisibility === "public" && createJoinPolicy === "invite" ? s.choiceActive : null]}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <FontAwesome name="handshake-o" size={16} color={createVisibility === "public" && createJoinPolicy === "invite" ? BRAND : "#374151"} />
-                  <Text style={[s.choiceTxt, createVisibility === "public" && createJoinPolicy === "invite" ? s.choiceTxtActive : null]}>
-                    Public (sur demande)
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              {isSuperAdmin && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setCreateVisibility("public");
+                    setCreateJoinPolicy("request");
+                  }}
+                  style={[s.choice, createVisibility === "public" && createJoinPolicy === "request" ? s.choiceActive : null]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="people-outline" size={16} color={createVisibility === "public" && createJoinPolicy === "request" ? BRAND : "#374151"} />
+                    <Text style={[s.choiceTxt, createVisibility === "public" && createJoinPolicy === "request" ? s.choiceTxtActive : null]}>Public (sur demande)</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
 
               <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
                 <Pressable onPress={press("create-cancel", () => setShowCreate(false))} style={[s.btn, { backgroundColor: "#9ca3af", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]} >
@@ -835,7 +968,15 @@ export default function GroupesScreen() {
                 <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
                   <Avatar url={m.avatar_url} fallback={m.name} size={36} level={m.niveau} onPress={press("open-profile", () => router.push(`/profiles/${m.id}`))} />
                   <Text style={{ flex: 1, fontWeight: "600" }}>{m.name}</Text>
-                  {m.is_admin && <Text style={{ color: BRAND, fontWeight: "800" }}>Admin</Text>}
+                  {m.is_admin && <Text style={{ color: BRAND, fontWeight: "800", marginRight: 8 }}>Admin</Text>}
+                  <Pressable
+                    onPress={press('contact-member', () => contactMember(m))}
+                    style={[{ padding: 6, borderRadius: 8 }, Platform.OS === 'web' && { cursor: 'pointer' }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Contacter ${m.name}`}
+                  >
+                    <Ionicons name="call-outline" size={20} color={BRAND} />
+                  </Pressable>
                 </View>
               ))}
             </ScrollView>
@@ -852,12 +993,12 @@ export default function GroupesScreen() {
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   sectionHeader: { marginTop: 4, marginBottom: 2 },
-  sectionTitle: { color: "#111827", fontWeight: "800" },
-  card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12, gap: 8 },
-  activeCard: { backgroundColor: "#b0d4fb", borderColor: "#0d3186" },
-  rowCard: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 },
-  btn: { paddingVertical: 10, borderRadius: 8, alignItems: "center" },
-  btnTxt: { color: "white", fontWeight: "800" },
+  sectionTitle: { color: "#ffffff", fontWeight: "800" },
+  card: { backgroundColor: "#001831", borderWidth: 0.5, borderColor: "#808080", borderRadius: 12, padding: 12, gap: 8 },
+  activeCard: { backgroundColor: "#ffffff", borderColor: "gold" },
+  rowCard: { backgroundColor: "#001831", borderWidth: 0.5, borderColor: "#808080", borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 },
+  btn: { paddingVertical: 10, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  btnTxt: { color: "white", fontWeight: "800", textAlign: "center" },
   btnTiny: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8 },
   choice: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#fff" },
   choiceActive: { borderColor: BRAND, backgroundColor: "#eaf2ff" },

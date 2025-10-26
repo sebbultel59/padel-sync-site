@@ -1,7 +1,7 @@
 // app/(auth)/signin.js
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
@@ -58,6 +58,11 @@ export default function SigninScreen() {
     <>
       <Stack.Screen options={{ title: authMode === "signup" ? "Créer un compte" : "Connexion" }} />
       <View style={s.wrap}>
+        <Image
+          source={require('../../assets/icons/logo-signin.png')}
+          style={{ width: '100%', height: 350, alignSelf: 'center', marginBottom: -50, marginTop: 10 }}
+          resizeMode="contain"
+        />
         {/* Toggle */}
         <View style={s.segment}>
           <Pressable
@@ -110,16 +115,23 @@ export default function SigninScreen() {
             )}
           </Pressable>
         </View>
+
+        <Image
+          source={require('../../assets/images/padel_3click_signin.png')}
+          style={{ width: '100%', height: 100, alignSelf: 'center', marginBottom: -20, marginTop: 10 }}
+          resizeMode="contain"
+        />
+
       </View>
     </>
   );
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: "white", padding: 16, gap: 12 },
+  wrap: { flex: 1, backgroundColor: "#001831", padding: 16, gap: 12 },
   card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12, gap: 8 },
 
-  segment: { flexDirection: "row", backgroundColor: "#f3f4f6", borderRadius: 10, padding: 4, gap: 4 },
+  segment: { flexDirection: "row", backgroundColor: "#f3f4f6", borderRadius: 10, padding: 4, gap: 4, marginTop: 20 },
   segmentBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
   segmentBtnActive: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb" },
   segmentTxt: { fontWeight: "700", color: "#6b7280" },

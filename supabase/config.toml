@@ -20,3 +20,8 @@ entrypoint = "./functions/push-reminders/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/push-reminders/*.html" ]
+
+[functions.dispatch-notifs]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/dispatch-notifs/index.ts"

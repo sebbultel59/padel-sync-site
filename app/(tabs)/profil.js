@@ -16,23 +16,25 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from "../../context/auth";
 import { supabase } from "../../lib/supabase";
-import { press } from "../../lib/uiSafe";
+import { computeInitials, press } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
-const AVATAR = 100;
+const AVATAR = 150;
 
 const LEVELS = [
   { v: 1, label: "Débutant", color: "#a3e635" },
   { v: 2, label: "Perfectionnement", color: "#86efac" },
-  { v: 3, label: "Élémentaire", color: "#60a5fa" },
-  { v: 4, label: "Intermédiaire", color: "#22d3ee" },
-  { v: 5, label: "Confirmé", color: "#fbbf24" },
-  { v: 6, label: "Avancé", color: "#f59e0b" },
+  { v: 3, label: "Élémentaire", color: "#0e7aff" },
+  { v: 4, label: "Intermédiaire", color: "#0d97ac" },
+  { v: 5, label: "Confirmé", color: "#ff9d00" },
+  { v: 6, label: "Avancé", color: "#f06300" },
   { v: 7, label: "Expert", color: "#fb7185" },
   { v: 8, label: "Elite", color: "#a78bfa" },
 ];
+const colorForLevel = (n) => (LEVELS.find(x => x.v === Number(n))?.color) || '#9ca3af';
 const levelMeta = (n) => LEVELS.find((x) => x.v === n) ?? null;
 
 const RAYONS = [
@@ -60,10 +62,15 @@ export default function ProfilScreen() {
   const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
   const [phone, setPhone] = useState("");
 
+  // classement (UI uniquement pour l'instant — non persisté tant que la colonne n'existe pas en base)
+  const [classement, setClassement] = useState("");
+
   const { signOut: signOutCtx } = useAuth();
 
   // snapshot initial pour détecter les changements
   const [initialSnap, setInitialSnap] = useState(null);
+
+  const insets = useSafeAreaInsets();
 
   // Charger session + profil
   useEffect(() => {
@@ -334,22 +341,50 @@ export default function ProfilScreen() {
   }, [isDirty, onSave, doSignOut]);
 
   const levelInfo = useMemo(() => levelMeta(Number(niveau) || 0), [niveau]);
-  const initial = (displayName || me?.email || "?").trim().charAt(0).toUpperCase();
+  const initials = computeInitials(displayName || me?.email || "");
 
   if (loading) return <View style={s.center}><ActivityIndicator /></View>;
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.select({ ios: "padding", android: undefined })}>
-      <ScrollView contentContainerStyle={[s.container, { paddingBottom: 28 }]} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[s.container, { paddingBottom: Math.max(28, insets.bottom + 140) }]}
+        scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 70) }}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* Avatar */}
         <View style={s.avatarCard}>
-          <View style={s.avatarWrap}>
+          <View style={[s.avatarWrap, { position: 'relative', width: AVATAR, height: AVATAR }]}>
             {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={s.avatar} />
+              <Image source={{ uri: avatarUrl }} style={[s.avatar, { borderColor: colorForLevel(niveau) }]} />
             ) : (
-              <View style={[s.avatar, s.avatarFallback]}>
-                <Text style={s.avatarInitial}>{initial}</Text>
+              <View style={[s.avatar, s.avatarFallback, { borderColor: colorForLevel(niveau) }]}>
+                <Text style={s.avatarInitial}>{initials}</Text>
+              </View>
+            )}
+
+            {!!niveau && (
+              <View
+                style={{
+                  position: 'absolute',
+                  right: -4,
+                  bottom: -4,
+                  backgroundColor: colorForLevel(niveau), // fond = couleur du niveau
+                  borderColor: colorForLevel(niveau),
+                  borderWidth: 1,
+                  borderRadius: 99,
+                  minWidth: 40,
+                  height: 40,
+                  paddingHorizontal: 6,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                accessibilityLabel={`Niveau ${niveau}`}
+              >
+                <Text style={{ color: '#000000', fontWeight: '900', fontSize: 20, lineHeight: 24 }}>
+                  {String(niveau)}
+                </Text>
               </View>
             )}
           </View>
@@ -383,10 +418,11 @@ export default function ProfilScreen() {
 
         {/* Infos principales */}
         <View style={s.card}>
-          <Text style={s.label}>Email</Text>
-          <Text style={s.value}>{me?.email ?? "—"}</Text>
 
-          <Text style={[s.label, { marginTop: 12 }]}>Nom public</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <Text style={{ fontSize: 18 }}>👤</Text>
+            <Text style={s.label}>Pseudo</Text>
+          </View>
           <TextInput
             value={displayName}
             onChangeText={setDisplayName}
@@ -397,7 +433,7 @@ export default function ProfilScreen() {
           />
         </View>
 
-        {/* Préférences de jeu */}
+        {/* Niveau de jeu */}
         <View style={[s.card, { gap: 12 }]}>
 
           {/* Niveau */}
@@ -411,11 +447,16 @@ export default function ProfilScreen() {
                   onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
                   style={[
                     s.pill,
-                    { borderColor: active ? lv.color : "#e5e7eb", backgroundColor: active ? lv.color : "white" },
-                    Platform.OS === "web" && { cursor: "pointer" }
+                    {
+                      backgroundColor: lv.color,
+                      borderColor: active ? BRAND : 'transparent',
+                      borderWidth: active ? 2 : 1,
+                      transform: active ? [{ scale: 1.06 }] : [],
+                    },
+                    Platform.OS === 'web' && { cursor: 'pointer' },
                   ]}
                 >
-                  <Text style={[s.pillTxt, { color: active ? "#111827" : "#374151" }]}>{lv.v}</Text>
+                  <Text style={[s.pillTxt, { color: '#111827', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
                 </Pressable>
               );
             })}
@@ -426,6 +467,20 @@ export default function ProfilScreen() {
             </Text>
           ) : null}
 
+          {/* Classement */}
+          <Text style={[s.label, { marginTop: 6 }]}>🏆 Classement</Text>
+          <TextInput
+            value={classement}
+            onChangeText={setClassement}
+            placeholder="Ex. 500"
+            keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+            style={s.input}
+            maxLength={6}
+          />
+        </View>
+
+        {/* Préférences de jeu */}
+        <View style={[s.card, { gap: 12 }]}>
           {/* Main */}
           <Text style={[s.label, { marginTop: 6 }]}>🖐️ Main</Text>
           <View style={s.segment}>
@@ -438,8 +493,11 @@ export default function ProfilScreen() {
           <View style={s.segment}>
             <SegBtn label="Droite" active={cote === "droite"} onPress={() => setCote("droite")} />
             <SegBtn label="Gauche" active={cote === "gauche"} onPress={() => setCote("gauche")} />
+            <SegBtn label="Les 2" active={cote === "les_deux"} onPress={() => setCote("les_deux")} />
           </View>
+        </View> 
 
+        <View style={[s.card, { gap: 12 }]}>
           {/* Club */}
           <Text style={[s.label, { marginTop: 6 }]}>🏟️ Club</Text>
           <TextInput value={club} onChangeText={setClub} placeholder="Nom du club" style={s.input} />
@@ -464,7 +522,16 @@ export default function ProfilScreen() {
               );
             })}
           </View>
+        </View>    
 
+        {/* Contact */}
+        <View style={[s.card, { gap: 12 }]}>
+          {/* Email */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 18 }}>✉️</Text>
+            <Text style={s.label}>Email</Text>
+          </View>
+          <Text style={s.value}>{me?.email ?? '—'}</Text>
           {/* Téléphone */}
           <Text style={[s.label, { marginTop: 6 }]}>📞 Téléphone</Text>
           <TextInput
@@ -483,6 +550,7 @@ export default function ProfilScreen() {
           disabled={saving || !isDirty}
           style={[
             s.btn,
+            { backgroundColor: '#10b981' },
             { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center" },
             (saving || !isDirty) && { backgroundColor: "#9ca3af" }, // grisé si inactif
             Platform.OS === "web" && { cursor: saving || !isDirty ? "not-allowed" : "pointer" }
@@ -498,32 +566,27 @@ export default function ProfilScreen() {
         </Pressable>
 
         {/* Déconnexion (garde modifs) */}
-        <View style={[s.card, { marginTop: 16 }]}>
-          <Text style={[s.label, { marginBottom: 8 }]}>Session</Text>
-          <Pressable
-            onPress={press("profile-logout", onLogout)}
-            style={[
-              s.btn,
-              {
-                backgroundColor: "#dc2626",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-              },
-              Platform.OS === "web" && { cursor: "pointer" }
-            ]}
-          >
-            <Ionicons name="log-out-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={s.btnTxt}>Se déconnecter</Text>
-          </Pressable>
-          {isDirty ? (
-            <Text style={{ marginTop: 8, color: "#b45309", fontSize: 13 }}>
+        <Pressable
+          onPress={press("profile-logout", onLogout)}
+          style={[
+            s.btn,
+            {
+              backgroundColor: "#dc2626",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+            },
+            Platform.OS === "web" && { cursor: "pointer" }
+          ]}
+        >
+          <Ionicons name="log-out-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={s.btnTxt}>Se déconnecter</Text>
+        </Pressable>
+        {isDirty ? (
+            <Text style={{ marginTop: 8, color: "#b45309", fontSize: 11 }}>
               ⚠️ Modifications non enregistrées
             </Text>
           ) : null}
-        </View>
-
-        <View style={{ height: 24 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -547,50 +610,52 @@ function SegBtn({ label, active, onPress }) {
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  container: { padding: 16, gap: 12, backgroundColor: "white" },
+  container: { padding: 16, gap: 12, backgroundColor: "#001831" },
 
-  title: { fontSize: 30, fontWeight: "800", color: BRAND, marginBottom: 6 },
+  title: { fontSize: 24, fontWeight: "800", color: BRAND, marginBottom: 6 },
 
   avatarCard: {
-    backgroundColor: "white",
-    borderWidth: 1, borderColor: "#e5e7eb",
+    backgroundColor: "transparent",
+    borderWidth: 0, borderColor: "gold",
     borderRadius: 12, padding: 12, alignItems: "center",
   },
   avatarWrap: { alignItems: "center", justifyContent: "center" },
-  avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#f3f4f6" },
+  avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#f3f4f6", borderWidth: 5, borderColor: "gold" },
   avatarFallback: { alignItems: "center", justifyContent: "center" },
-  avatarInitial: { fontSize: 44, fontWeight: "800", color: BRAND },
+  avatarInitial: { fontSize: 36, fontWeight: "800", color: BRAND },
 
   avatarBtns: { marginTop: 10, flexDirection: "row", gap: 10 },
 
-  card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12 },
+  card: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "gold", borderRadius: 12, padding: 12 },
 
-  sectionTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
 
-  label: { fontSize: 26, color: "#6b7280", fontWeight: "800" },
-  value: { fontSize: 20, color: "#111827", marginTop: 4 },
+  label: { fontSize: 18, color: "#001831", fontWeight: "800" },
+  value: { fontSize: 16, color: "#001831", marginTop: 4 },
 
   input: {
     marginTop: 6,
     borderWidth: 1, borderColor: "#d1d5db",
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 18, color: "#111827", backgroundColor: "#f9fafb",
+    fontSize: 16, color: "#111827", backgroundColor: "#f9fafb",
   },
 
   // boutons
   btn: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, backgroundColor: BRAND, alignItems: "center" },
-  btnTxt: { color: "white", fontWeight: "900", fontSize: 20 },
+  btnTxt: { color: "white", fontWeight: "900", fontSize: 12 },
+  btnSm: { paddingVertical: 8, paddingHorizontal: 10 },
+  btnTxtSm: { fontSize: 16 },
   btnGhost: { backgroundColor: "#f3f4f6" },
   btnGhostTxt: { color: "#111827" },
 
   // Segmented
   segment: { flexDirection: "row", backgroundColor: "#f3f4f6", borderRadius: 10, padding: 4, gap: 4 },
-  segmentBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 8 },
-  segmentTxt: { fontWeight: "800", color: "#6b7280", fontSize: 18 },
+  segmentBtn: { flex: 1, paddingVertical: 4, alignItems: "center", borderRadius: 8 },
+  segmentTxt: { fontWeight: "800", color: "#6b7280", fontSize: 16 },
 
   // Pills rows
   levelRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
   rayonRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
-  pill: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb" },
+  pill: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb" },
   pillTxt: { fontWeight: "800", color: "#374151", fontSize: 18 },
 });
