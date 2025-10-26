@@ -37,6 +37,3 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
-
-# Secrets
-google-service-account.json
