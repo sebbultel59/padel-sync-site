@@ -16,7 +16,6 @@ export default {
           "Nous utilisons votre position pour trouver les clubs de padel proches.",
         ITSAppUsesNonExemptEncryption: false,
         NSCameraUsageDescription: "Permet de scanner ou ajouter des photos de profil ou de club.",
-        NSPhotoLibraryUsageDescription: "Permet de sélectionner une photo depuis votre bibliothèque pour l’avatar du groupe.",
         NSPhotoLibraryAddUsageDescription: "Permet d’enregistrer des images liées aux matchs.",
         NSCalendarsUsageDescription: "Permet d’ajouter des matchs à votre calendrier."
       }
@@ -31,11 +30,7 @@ export default {
       permissions: [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "POST_NOTIFICATIONS",
-        // Nécessaire pour Android 13+ (Tiramisu) pour accéder aux images
-        "READ_MEDIA_IMAGES",
-        // Compat pour Android <=12
-        "READ_EXTERNAL_STORAGE"
+        "POST_NOTIFICATIONS"
       ]
     },
     plugins: [

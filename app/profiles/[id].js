@@ -1,12 +1,11 @@
 // app/profiles/[id].js
-import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
-const AVATAR = 80;
+const AVATAR = 120;
 
 const LEVELS = [
   { v: 1, label: "Débutant", color: "#a3e635" },
@@ -25,7 +24,6 @@ export default function ProfileScreen() {
   const { id } = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [p, setP] = useState(null);
-  const [showContactModal, setShowContactModal] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -69,141 +67,45 @@ export default function ProfileScreen() {
   const title = p.display_name || p.name || p.email || "Joueur";
   const initial = (title?.trim?.()[0] ?? "?").toUpperCase();
 
-  // Modale de contact
-  const ContactModal = () => (
-    <Modal
-      visible={showContactModal}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => setShowContactModal(false)}
-    >
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
-          <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
-            Contacter {p?.display_name || p?.name || p?.email || 'ce joueur'}
-          </Text>
-          
-          <View style={{ gap: 12 }}>
-            {p?.phone && (
-              <Pressable
-                onPress={() => {
-                  Linking.openURL(`tel:${p.phone}`);
-                  setShowContactModal(false);
-                }}
-                style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              >
-                <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
-              </Pressable>
-            )}
-            
-            {p?.phone && (
-              <Pressable
-                onPress={() => {
-                  Linking.openURL(`sms:${p.phone}`);
-                  setShowContactModal(false);
-                }}
-                style={{ backgroundColor: '#10b981', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              >
-                <Ionicons name="chatbubble" size={20} color="white" style={{ marginRight: 8 }} />
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un SMS</Text>
-              </Pressable>
-            )}
-            
-            {p?.phone && (
-              <Pressable
-                onPress={() => {
-                  Linking.openURL(`whatsapp://send?phone=${p.phone}`);
-                  setShowContactModal(false);
-                }}
-                style={{ backgroundColor: '#25d366', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              >
-                <Ionicons name="logo-whatsapp" size={20} color="white" style={{ marginRight: 8 }} />
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>WhatsApp</Text>
-              </Pressable>
-            )}
-            
-            <Pressable
-              onPress={() => {
-                Linking.openURL(`mailto:${p?.email}`);
-                setShowContactModal(false);
-              }}
-              style={{ backgroundColor: '#3b82f6', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-            >
-              <Ionicons name="mail" size={20} color="white" style={{ marginRight: 8 }} />
-              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un email</Text>
-            </Pressable>
-          </View>
-          
-          <Pressable
-            onPress={() => setShowContactModal(false)}
-            style={{ backgroundColor: '#6b7280', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 12 }}
-          >
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-
   return (
-    <Modal
-      visible={true}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => router.replace("/groupes")}
-    >
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
-          <ContactModal />
-          
-          {/* Bouton retour */}
-          <Pressable onPress={() => router.replace("/groupes")} style={s.backBtn}>
-            <Text style={s.backTxt}>← Retour aux groupes</Text>
-          </Pressable>
+    <ScrollView contentContainerStyle={s.container}>
+      {/* Bouton retour */}
+      <Pressable onPress={() => router.replace("/groupes")} style={s.backBtn}>
+        <Text style={s.backTxt}>← Retour aux groupes</Text>
+      </Pressable>
 
-          {/* Avatar + Nom */}
-          <View style={s.hero}>
-            {p.avatar_url ? (
-              <Image source={{ uri: p.avatar_url }} style={s.avatar} />
-            ) : (
-              <View style={[s.avatar, s.avatarFallback]}>
-                <Text style={s.initial}>{initial}</Text>
-              </View>
-            )}
-            <Text style={s.title}>{title}</Text>
-            <Pressable onPress={() => Linking.openURL(`mailto:${p.email}`)}>
-              <Text style={[s.subtitle, { textDecorationLine: 'underline', color: '#3b82f6' }]}>{p.email}</Text>
-            </Pressable>
+      {/* Avatar + Nom */}
+      <View style={s.hero}>
+        {p.avatar_url ? (
+          <Image source={{ uri: p.avatar_url }} style={s.avatar} />
+        ) : (
+          <View style={[s.avatar, s.avatarFallback]}>
+            <Text style={s.initial}>{initial}</Text>
           </View>
+        )}
+        <Text style={s.title}>{title}</Text>
+        <Text style={s.subtitle}>{p.email}</Text>
+      </View>
 
-          {/* Résumé visuel */}
-          <View style={s.card}>
-            <Text style={s.sectionTitle}>Résumé</Text>
-            <View style={s.tiles}>
-              <Tile emoji="🔥" label="Niveau" value={levelInfo?.v || levelInfo?.label || "—"} hint={levelInfo?.label} />
-              <Tile emoji="🖐️" label="Main" value={p.main || "—"} />
-              <Tile emoji="🎯" label="Côté" value={p.cote || "—"} />
-              <Tile emoji="🏟️" label="Club" value={p.club || "—"} />
-              <Tile emoji="📍" label="Rayon" value={formatRayon(p.rayon_km)} />
-              <Tile
-                emoji="📞"
-                label="Téléphone"
-                value={p.phone || "—"}
-                onPress={p.phone ? () => setShowContactModal(true) : null}
-              />
-            </View>
-          </View>
-          
-          <Pressable
-            onPress={() => router.replace("/groupes")}
-            style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 16 }}
-          >
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
-          </Pressable>
+      {/* Résumé visuel */}
+      <View style={s.card}>
+        <Text style={s.sectionTitle}>Résumé</Text>
+        <View style={s.tiles}>
+          <Tile emoji="🔥" label="Niveau" value={levelInfo?.v || levelInfo?.label || "—"} hint={levelInfo?.label} />
+          <Tile emoji="🖐️" label="Main" value={p.main || "—"} />
+          <Tile emoji="🎯" label="Côté" value={p.cote || "—"} />
+          <Tile emoji="🏟️" label="Club" value={p.club || "—"} />
+          <Tile emoji="📍" label="Rayon" value={formatRayon(p.rayon_km)} />
+          <Tile
+            emoji="📞"
+            label="Téléphone"
+            value={p.phone || "—"}
+            onPress={p.phone ? () => Linking.openURL(`tel:${p.phone}`) : null}
+          />
         </View>
       </View>
-    </Modal>
+      <View style={{ height: 24 }} />
+    </ScrollView>
   );
 }
 
@@ -255,8 +157,8 @@ const s = StyleSheet.create({
   hero: { alignItems: "center", gap: 8, marginBottom: 12 },
   avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#f3f4f6" },
   avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#eaf2ff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: BRAND },
-  initial: { fontSize: 32, fontWeight: "800", color: BRAND },
-  title: { fontSize: 20, fontWeight: "800", color: BRAND, textAlign: "center" },
+  initial: { fontSize: 48, fontWeight: "800", color: BRAND },
+  title: { fontSize: 22, fontWeight: "800", color: BRAND, textAlign: "center" },
   subtitle: { fontSize: 13, color: "#6b7280", textAlign: "center" },
 
   card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12, gap: 12 },

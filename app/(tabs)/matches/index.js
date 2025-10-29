@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useNavigation } from 'expo-router';
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -14,6 +16,7 @@ import {
   ScrollView,
   SectionList,
   Text,
+  TextInput,
   View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -138,6 +141,7 @@ function colorForLevel(level) {
 export default function MatchesScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { activeGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
 
@@ -155,12 +159,6 @@ export default function MatchesScreen() {
   const [hourReady, setHourReady] = useState([]);
   const [matchesPending, setMatchesPending] = useState([]);
   const [matchesConfirmed, setMatchesConfirmed] = useState([]);
-  
-  // États pour les modales
-  const [selectedProfile, setSelectedProfile] = useState(null);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showContactModal, setShowContactModal] = useState(false);
-  
   const [rsvpsByMatch, setRsvpsByMatch] = useState({});
   const [profilesById, setProfilesById] = useState({});
   const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
@@ -172,6 +170,15 @@ export default function MatchesScreen() {
   const [flashPickerOpen, setFlashPickerOpen] = useState(false);
   const [flashQuery, setFlashQuery] = useState('');
   const [flashWhenOpen, setFlashWhenOpen] = useState(false);
+  const [flashDateModalOpen, setFlashDateModalOpen] = useState(false);
+  const [flashDatePickerOpen, setFlashDatePickerOpen] = useState(false);
+  const [flashTimePickerOpen, setFlashTimePickerOpen] = useState(false);
+  const [flashInlineDateOpen, setFlashInlineDateOpen] = useState(false);
+  const [flashInlineTimeOpen, setFlashInlineTimeOpen] = useState(false);
+  const [flashDatePickerModalOpen, setFlashDatePickerModalOpen] = useState(false);
+  const [flashTimePickerModalOpen, setFlashTimePickerModalOpen] = useState(false);
+  const [tempDate, setTempDate] = useState(() => new Date());
+  const [tempTime, setTempTime] = useState(() => ({ hours: 20, minutes: 0 }));
   const [flashStart, setFlashStart] = useState(() => {
     const now = new Date();
     const ms = 30 * 60 * 1000;
@@ -574,7 +581,7 @@ const Badge = ({ tone = 'blue', text }) => (
   </View>
 );
 
-const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected, profile }) => {
+const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected }) => {
   // Extraire les initiales (2 lettres)
   let initials = 'U';
   if (fallback) {
@@ -589,28 +596,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   const borderColor = rsvpStatus === 'accepted' ? '#10b981' : rsvpStatus === 'no' ? '#ef4444' : '#f59e0b';
   const [imageError, setImageError] = React.useState(false);
   
-  const handlePress = () => {
-    if (onPress) {
-      // Priorité au onPress (sélection de joueur dans matchs possibles)
-      onPress();
-    } else if (profile) {
-      // Navigation vers la page de profil seulement si pas de onPress
-      const { router } = require('expo-router');
-      router.push(`/profiles/${profile.id}`);
-    }
-  };
-
-  const handleLongPress = () => {
-    if (profile) {
-      setSelectedProfile(profile);
-      setShowProfileModal(true);
-    }
-  };
-  
   return (
     <Pressable
-      onPress={handlePress}
-      onLongPress={handleLongPress}
+      onPress={onPress}
       style={{
     width: size,
     height: size,
@@ -835,6 +823,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               });
             };
 
+            // Afficher les créneaux avec 4+ joueurs disponibles
             if (uniquePlayers60.length >= 4) {
               const slotStartISO = slotStart.toISOString();
               const slotEnd60ISO = slotEnd60.toISOString();
@@ -853,6 +842,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               }
             }
 
+            // Afficher les créneaux avec 4+ joueurs disponibles
             if (uniquePlayers90.length >= 4) {
               const slotStartISO = slotStart.toISOString();
               const slotEnd90ISO = slotEnd90.toISOString();
@@ -1300,7 +1290,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       // Essai 1 : récupérer les membres avec jointure profiles si relation existante
       let { data, error } = await supabase
         .from('group_members')
-        .select('user_id, profiles!inner(id, display_name, name)')
+        .select('user_id, profiles!inner(id, display_name, name, niveau)')
         .eq('group_id', groupId);
 
       // Si la jointure échoue (data vide ou erreur), fallback manuel
@@ -1317,12 +1307,12 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
         const { data: profs } = await supabase
           .from('profiles')
-          .select('id, display_name, name')
+          .select('id, display_name, name, niveau')
           .in('id', ids);
 
         data = profs.map(p => ({
           user_id: p.id,
-          profiles: { id: p.id, display_name: p.display_name, name: p.name },
+          profiles: { id: p.id, display_name: p.display_name, name: p.name, niveau: p.niveau },
         }));
       }
 
@@ -1331,6 +1321,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         .map(r => ({
           id: r?.profiles?.id || r?.user_id,
           name: r?.profiles?.display_name || r?.profiles?.name || 'Joueur inconnu',
+          niveau: r?.profiles?.niveau || null,
         }))
         .filter(x => !!x.id);
 
@@ -1357,7 +1348,24 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     });
   }
 
-  async function openFlashMatchPicker() {
+  async function openFlashMatchDateModal() {
+    try {
+      // (Ré)initialiser les dates par défaut
+      const now = new Date();
+      const msRound = 30 * 60 * 1000;
+      const rounded = new Date(Math.ceil(now.getTime() / msRound) * msRound);
+      const defaultStart = new Date(rounded.getTime() + 30 * 60 * 1000);
+      const defaultEnd = new Date(defaultStart.getTime() + 90 * 60 * 1000);
+      setFlashStart(defaultStart);
+      setFlashEnd(defaultEnd);
+      setFlashDurationMin(90);
+      setFlashDateModalOpen(true);
+    } catch (e) {
+      Alert.alert('Erreur', e?.message || String(e));
+    }
+  }
+
+  async function openFlashMatchPlayersModal() {
     try {
       setFlashLoading(true);
       const members = await loadGroupMembersForFlash();
@@ -1372,20 +1380,31 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       }
 
       // Exclure l'utilisateur authentifié de la liste proposée
-      const ms = (members || []).filter(m => !uid || String(m.id) !== String(uid));
+      let ms = (members || []).filter(m => !uid || String(m.id) !== String(uid));
+
+      // Exclure les joueurs déjà pris (pending/confirmed) sur un match qui chevauche l'intervalle choisi
+      try {
+        const startsIso = flashStart instanceof Date ? flashStart.toISOString() : new Date().toISOString();
+        const endDate = new Date(flashStart);
+        endDate.setMinutes(endDate.getMinutes() + (flashDurationMin || 90));
+        const endsIso = endDate.toISOString();
+        const blocked = await findConflictingUsers({
+          groupId,
+          startsAt: startsIso,
+          endsAt: endsIso,
+          userIds: ms.map(m => m.id),
+        });
+        if (blocked && blocked.size) {
+          ms = ms.filter(m => !blocked.has(String(m.id)));
+        }
+      } catch (e) {
+        console.warn('[FlashMatch] conflict filter failed:', e?.message || e);
+      }
 
       setFlashMembers(ms);
       setFlashSelected([]);
       setFlashQuery("");
-      // (Ré)initialiser les dates par défaut
-      const now = new Date();
-      const msRound = 30 * 60 * 1000;
-      const rounded = new Date(Math.ceil(now.getTime() / msRound) * msRound);
-      const defaultStart = new Date(rounded.getTime() + 30 * 60 * 1000);
-      const defaultEnd = new Date(defaultStart.getTime() + 90 * 60 * 1000);
-      setFlashStart(defaultStart);
-      setFlashEnd(defaultEnd);
-      setFlashPickerOpen(true); // 👉 Ouvre la modale universelle (iOS + Android)
+      setFlashPickerOpen(true);
     } catch (e) {
       Alert.alert('Erreur', e?.message || String(e));
     } finally {
@@ -1409,7 +1428,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         selectedUserIds.map((uid) => ({
           kind: 'match_flash',
           recipients: [uid],
-          payload: { title: 'Match Éclair ⚡️', message: "Un match rapide t’a été proposé !" },
+          payload: { title: 'Match Éclair ⚡️', message: "Un match rapide t'a été proposé !" },
           created_at: new Date().toISOString(),
         }))
       );
@@ -1420,15 +1439,75 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     Alert.alert('Match Éclair', 'Match créé et invitations envoyées.');
   }
 
-  // --- Ajout : handler de confirmation du match éclair ---
-  const onConfirmFlashMatch = React.useCallback(() => {
+  // Handler pour valider date/heure/durée et passer à la sélection des joueurs
+  const onValidateFlashDate = React.useCallback(async () => {
+    setFlashDateModalOpen(false);
+    await openFlashMatchPlayersModal();
+  }, []);
+
+  // Handler pour créer le match éclair après sélection des joueurs
+  const onCreateFlashMatch = React.useCallback(async () => {
     if (flashSelected.length !== 3) {
       Alert.alert('Match éclair', 'Sélectionne exactement 3 joueurs.');
       return;
     }
-    // Ouvre la modale de choix date/heure
-    setFlashWhenOpen(true);
-  }, [flashSelected]);
+
+    // Récupérer l'utilisateur authentifié
+    let uid = meId;
+    if (!uid) {
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        uid = u?.user?.id ?? null;
+      } catch {}
+    }
+
+    if (!uid) {
+      Alert.alert('Erreur', 'Utilisateur non authentifié.');
+      return;
+    }
+
+    // Calculer la date de fin en fonction de la durée sélectionnée
+    const startIso = flashStart.toISOString();
+    const endDate = new Date(flashStart);
+    endDate.setMinutes(endDate.getMinutes() + flashDurationMin);
+    const endIso = endDate.toISOString();
+
+    // Créer le match avec les joueurs sélectionnés + l'utilisateur authentifié
+    const allPlayers = [...flashSelected, uid];
+    
+    try {
+      await onCreateIntervalMatch(startIso, endIso, allPlayers);
+      
+      // Envoyer des notifications aux joueurs sélectionnés
+      try {
+        await supabase.from('notification_jobs').insert(
+          flashSelected.map((uid) => ({
+            kind: 'match_flash',
+            recipients: [uid],
+            payload: { title: 'Match Éclair ⚡️', message: "Un match rapide t'a été proposé !" },
+            created_at: new Date().toISOString(),
+          }))
+        );
+      } catch (e) {
+        console.warn('[FlashMatch] notification insert failed:', e?.message || e);
+      }
+
+      setFlashPickerOpen(false);
+      setFlashSelected([]);
+      
+      if (Platform.OS === "web") {
+        window.alert("Match Éclair créé 🎾");
+      } else {
+        Alert.alert("Match Éclair créé 🎾", "Le match a été créé avec succès.");
+      }
+    } catch (e) {
+      if (Platform.OS === "web") {
+        window.alert("Impossible de créer le match éclair\n" + (e.message ?? String(e)));
+      } else {
+        Alert.alert("Erreur", e.message ?? String(e));
+      }
+    }
+  }, [flashSelected, flashStart, flashDurationMin, meId, onCreateIntervalMatch]);
 
 // Accepter en masse des joueurs sélectionnés sur un match donné
 async function acceptPlayers(matchId, userIds = []) {
@@ -2233,7 +2312,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
           phone={phone}
           onPress={onPress}
           selected={selected}
-          profile={profile}
         />
         {level != null && level !== '' && (
           <View
@@ -2273,10 +2351,12 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       setSelectedIds((prev) => {
         const id = String(uid);
         if (prev.includes(id)) return prev.filter((x) => x !== id);
-        if (prev.length >= 4) return prev; // keep max 4
+        // Limite stricte à 4 joueurs
+        if (prev.length >= 4) return prev;
         return [...prev, id];
       });
     };
+    // Création uniquement avec exactement 4 joueurs
     const canCreate = type === 'ready' && selectedIds.length === 4;
     return (
       <View style={[cardStyle, { minHeight: 120 }]}>
@@ -2336,8 +2416,8 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 // --- 1h30 ---
 const LongSlotRow = ({ item }) => {
   console.log('[LongSlotRow] Rendered for item:', item.time_slot_id, 'starts_at:', item.starts_at);
-  // Utiliser directement tous les membres du groupe
-  const userIds = allGroupMemberIds;
+  // Utiliser tous les joueurs disponibles pour ce créneau (pas seulement les membres du groupe)
+  const userIds = item.ready_user_ids || [];
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -2345,10 +2425,12 @@ const LongSlotRow = ({ item }) => {
     setSelectedIds((prev) => {
       const id = String(uid);
       if (prev.includes(id)) return prev.filter((x) => x !== id);
+      // Limite stricte à 4 joueurs
       if (prev.length >= 4) return prev;
       return [...prev, id];
     });
   };
+  // Création uniquement avec exactement 4 joueurs
   const canCreate = selectedIds.length === 4;
 
   return (
@@ -2395,7 +2477,7 @@ const LongSlotRow = ({ item }) => {
               <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
             )}
             <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
-              {canCreate ? "Créer un match" : "Sélectionne 4 joueurs"}
+              {canCreate ? "Créer un match" : `Sélectionne ${4 - selectedIds.length} joueur${4 - selectedIds.length > 1 ? 's' : ''} (${selectedIds.length}/${4})`}
             </Text>
           </View>
         </Pressable>
@@ -2406,8 +2488,8 @@ const LongSlotRow = ({ item }) => {
 
 // --- 1h ---
 const HourSlotRow = ({ item }) => {
-  // Utiliser directement tous les membres du groupe
-  const userIds = allGroupMemberIds;
+  // Utiliser tous les joueurs disponibles pour ce créneau (pas seulement les membres du groupe)
+  const userIds = item.ready_user_ids || [];
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -2415,10 +2497,12 @@ const HourSlotRow = ({ item }) => {
     setSelectedIds((prev) => {
       const id = String(uid);
       if (prev.includes(id)) return prev.filter((x) => x !== id);
+      // Limite stricte à 4 joueurs
       if (prev.length >= 4) return prev;
       return [...prev, id];
     });
   };
+  // Création uniquement avec exactement 4 joueurs
   const canCreate = selectedIds.length === 4;
 
   return (
@@ -2465,7 +2549,7 @@ const HourSlotRow = ({ item }) => {
               <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
             )}
             <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
-              {canCreate ? "Créer un match" : "Sélectionne 4 joueurs"}
+              {canCreate ? "Créer un match" : `Sélectionne ${3 - selectedIds.length} joueur${3 - selectedIds.length > 1 ? 's' : ''} (${selectedIds.length}/${3} minimum)`}
             </Text>
           </View>
         </Pressable>
@@ -2918,7 +3002,7 @@ const HourSlotRow = ({ item }) => {
 
         {/* Wrap Ligne 4 and Ligne 5 in a single Fragment */}
         <>
-        {/* Ligne 5 — Boutons d’action */}
+        {/* Ligne 5 — Boutons d'action */}
         {!isAccepted ? (
           <View
             style={{
@@ -3060,187 +3144,8 @@ const HourSlotRow = ({ item }) => {
     );
   }
 
-  // Fonction pour formater le rayon
-  const formatRayon = (v) => {
-    if (v == null) return "—";
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    if (n === 99) return "+30 km";
-    return `${n} km`;
-  };
-
-  // Composants de modales
-  const ProfileModal = () => (
-    <Modal
-      visible={showProfileModal}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => setShowProfileModal(false)}
-    >
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
-          {/* Avatar + Nom */}
-          <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
-            {selectedProfile?.avatar_url ? (
-              <Image 
-                source={{ uri: selectedProfile.avatar_url }} 
-                style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#f3f4f6' }}
-              />
-            ) : (
-              <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1a4b97' }}>
-                <Text style={{ fontSize: 32, fontWeight: '800', color: '#1a4b97' }}>
-                  {(selectedProfile?.display_name || selectedProfile?.email || 'J').substring(0, 2).toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <Text style={{ fontSize: 20, fontWeight: '800', color: '#1a4b97', textAlign: 'center' }}>
-              {selectedProfile?.display_name || selectedProfile?.email || 'Joueur'}
-            </Text>
-            <Pressable onPress={() => Linking.openURL(`mailto:${selectedProfile?.email}`)}>
-              <Text style={{ fontSize: 13, color: '#3b82f6', textAlign: 'center', textDecorationLine: 'underline' }}>
-                {selectedProfile?.email}
-              </Text>
-            </Pressable>
-          </View>
-          
-          {/* Résumé visuel */}
-          <View style={{ backgroundColor: 'white', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, gap: 12 }}>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827' }}>Résumé</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
-                <Text style={{ fontSize: 28 }}>🔥</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.niveau || selectedProfile?.level || '—'}</Text>
-                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Niveau</Text>
-              </View>
-              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
-                <Text style={{ fontSize: 28 }}>🖐️</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.main || '—'}</Text>
-                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Main</Text>
-              </View>
-              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
-                <Text style={{ fontSize: 28 }}>🎯</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.cote || '—'}</Text>
-                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Côté</Text>
-              </View>
-              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
-                <Text style={{ fontSize: 28 }}>🏟️</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.club || '—'}</Text>
-                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Club</Text>
-              </View>
-              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
-                <Text style={{ fontSize: 28 }}>📍</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{formatRayon(selectedProfile?.rayon_km)}</Text>
-                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Rayon</Text>
-              </View>
-              <Pressable
-                onPress={() => {
-                  setShowProfileModal(false);
-                  setSelectedProfile(selectedProfile);
-                  setShowContactModal(true);
-                }}
-                style={({ pressed }) => [
-                  { width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' },
-                  pressed && { opacity: 0.7 }
-                ]}
-              >
-                <Text style={{ fontSize: 28 }}>📞</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.phone || '—'}</Text>
-                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Téléphone</Text>
-              </Pressable>
-            </View>
-          </View>
-          
-          <Pressable
-            onPress={() => setShowProfileModal(false)}
-            style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 16 }}
-          >
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-
-  const ContactModal = () => (
-    <Modal
-      visible={showContactModal}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => setShowContactModal(false)}
-    >
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
-          <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
-            Contacter {selectedProfile?.display_name || selectedProfile?.name || selectedProfile?.email || 'ce joueur'}
-          </Text>
-          
-          <View style={{ gap: 12 }}>
-            {selectedProfile?.phone && (
-              <Pressable
-                onPress={() => {
-                  Linking.openURL(`tel:${selectedProfile.phone}`);
-                  setShowContactModal(false);
-                }}
-                style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              >
-                <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
-              </Pressable>
-            )}
-            
-            {selectedProfile?.phone && (
-              <Pressable
-                onPress={() => {
-                  Linking.openURL(`sms:${selectedProfile.phone}`);
-                  setShowContactModal(false);
-                }}
-                style={{ backgroundColor: '#10b981', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              >
-                <Ionicons name="chatbubble" size={20} color="white" style={{ marginRight: 8 }} />
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un SMS</Text>
-              </Pressable>
-            )}
-            
-            {selectedProfile?.phone && (
-              <Pressable
-                onPress={() => {
-                  Linking.openURL(`whatsapp://send?phone=${selectedProfile.phone}`);
-                  setShowContactModal(false);
-                }}
-                style={{ backgroundColor: '#25d366', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              >
-                <Ionicons name="logo-whatsapp" size={20} color="white" style={{ marginRight: 8 }} />
-                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>WhatsApp</Text>
-              </Pressable>
-            )}
-            
-            <Pressable
-              onPress={() => {
-                Linking.openURL(`mailto:${selectedProfile?.email}`);
-                setShowContactModal(false);
-              }}
-              style={{ backgroundColor: '#3b82f6', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-            >
-              <Ionicons name="mail" size={20} color="white" style={{ marginRight: 8 }} />
-              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un email</Text>
-            </Pressable>
-          </View>
-          
-          <Pressable
-            onPress={() => setShowContactModal(false)}
-            style={{ backgroundColor: '#6b7280', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 12 }}
-          >
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#001831' }}>
-      <ProfileModal />
-      <ContactModal />
       {/* Week navigator */}
       <View
         style={{
@@ -3248,8 +3153,8 @@ const HourSlotRow = ({ item }) => {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 16,
-          marginBottom: 5,  // réduit l’espace sous la ligne
-          marginTop: -10,    // réduit l’espace au-dessus (entre le header et cette ligne)
+          marginBottom: 5,  // réduit l'espace sous la ligne
+          marginTop: -10,    // réduit l'espace au-dessus (entre le header et cette ligne)
         }}
       >
         <Pressable
@@ -3644,6 +3549,1079 @@ const HourSlotRow = ({ item }) => {
             )
           )}
                 </>
+      )}
+
+      {/* Icône flottante pour créer un match éclair */}
+      <Pressable
+        onPress={() => openFlashMatchDateModal()}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 20,
+          right: 20,
+          width: 64,
+          height: 64,
+          borderRadius: 32,
+          backgroundColor: '#e0ff00',
+          alignItems: 'center',
+          justifyContent: 'center',
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 4,
+          zIndex: 1000,
+        }}
+      >
+        <Ionicons name="flash" size={32} color="#000000" />
+      </Pressable>
+
+      {/* Modale de choix date/heure/durée */}
+      <Modal
+        visible={flashDateModalOpen && !flashDatePickerModalOpen && !flashTimePickerModalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFlashDateModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400 }}>
+            <Pressable
+              onPress={() => setFlashDateModalOpen(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Fermer"
+              style={{ position: 'absolute', top: 10, right: 10, padding: 6 }}
+            >
+              <Ionicons name="close" size={22} color="#111827" />
+            </Pressable>
+            <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginBottom: 20 }}>
+              Créer un match éclair ⚡️
+            </Text>
+
+            {/* Sélection de la date */}
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                Date
+              </Text>
+              <Pressable
+                onPress={() => {
+                  console.log('[FlashMatch] Opening date picker modal');
+                  setTempDate(new Date(flashStart));
+                  setFlashDatePickerModalOpen(true);
+                  console.log('[FlashMatch] flashDatePickerModalOpen set to:', true);
+                }}
+                style={{
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: 8,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: '#d1d5db',
+                }}
+              >
+                <Text style={{ fontSize: 16, color: '#111827' }}>
+                  {flashStart.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </Text>
+              </Pressable>
+              {flashInlineDateOpen && (
+                <View style={{ 
+                  marginTop: 10, 
+                  backgroundColor: '#f9fafb', 
+                  borderRadius: 8, 
+                  padding: 10,
+                  alignItems: 'center',
+                  minHeight: Platform.OS === 'web' ? 0 : 180,
+                }}>
+                  {Platform.OS === 'web' ? (
+                    <View style={{ width: '100%' }}>
+                      {Platform.OS === 'web' && typeof document !== 'undefined' && (
+                        <input
+                          type="date"
+                          value={flashStart.toISOString().split('T')[0]}
+                          min={new Date().toISOString().split('T')[0]}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              const newDate = new Date(e.target.value);
+                              newDate.setHours(flashStart.getHours());
+                              newDate.setMinutes(flashStart.getMinutes());
+                              setFlashStart(newDate);
+                              setFlashInlineDateOpen(false);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: 12,
+                            borderRadius: 8,
+                            border: '1px solid #d1d5db',
+                            fontSize: 16,
+                          }}
+                        />
+                      )}
+                    </View>
+                  ) : Platform.OS === 'ios' ? (
+                    <>
+                      <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>
+                        Fais défiler pour sélectionner
+                      </Text>
+                      <DateTimePicker
+                        value={flashStart}
+                        mode="date"
+                        display="spinner"
+                        minimumDate={new Date()}
+                        onChange={(event, selectedDate) => {
+                          if (selectedDate) {
+                            const newDate = new Date(selectedDate);
+                            newDate.setHours(flashStart.getHours());
+                            newDate.setMinutes(flashStart.getMinutes());
+                            setFlashStart(newDate);
+                          }
+                        }}
+                        style={{ 
+                          height: 200,
+                          width: '100%',
+                        }}
+                      />
+                      <Pressable
+                        onPress={() => setFlashInlineDateOpen(false)}
+                        style={{
+                          marginTop: 10,
+                          backgroundColor: COLORS.accent,
+                          paddingHorizontal: 24,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text style={{ color: '#ffffff', fontWeight: '700' }}>Valider</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <DateTimePicker
+                      value={flashStart}
+                      mode="date"
+                      display="default"
+                      minimumDate={new Date()}
+                      onChange={(event, selectedDate) => {
+                        setFlashInlineDateOpen(false);
+                        if (event?.type === 'set' && selectedDate) {
+                          const newDate = new Date(selectedDate);
+                          newDate.setHours(flashStart.getHours());
+                          newDate.setMinutes(flashStart.getMinutes());
+                          setFlashStart(newDate);
+                        }
+                      }}
+                    />
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Sélection de l'heure */}
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                Heure de début
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setTempTime({ 
+                    hours: flashStart.getHours(), 
+                    minutes: flashStart.getMinutes() 
+                  });
+                  setFlashTimePickerModalOpen(true);
+                }}
+                style={{
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: 8,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: '#d1d5db',
+                }}
+              >
+                <Text style={{ fontSize: 16, color: '#111827' }}>
+                  {flashStart.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </Pressable>
+              {flashInlineTimeOpen && (
+                <View style={{ 
+                  marginTop: 10, 
+                  backgroundColor: '#f9fafb', 
+                  borderRadius: 8, 
+                  padding: 10,
+                  alignItems: 'center',
+                  minHeight: Platform.OS === 'web' ? 0 : 180,
+                }}>
+                  {Platform.OS === 'web' ? (
+                    <View style={{ width: '100%' }}>
+                      {Platform.OS === 'web' && typeof document !== 'undefined' && (
+                        <input
+                          type="time"
+                          value={flashStart.toTimeString().slice(0, 5)}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              const [hours, minutes] = e.target.value.split(':');
+                              const newTime = new Date(flashStart);
+                              newTime.setHours(parseInt(hours, 10));
+                              newTime.setMinutes(parseInt(minutes, 10));
+                              setFlashStart(newTime);
+                              setFlashInlineTimeOpen(false);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: 12,
+                            borderRadius: 8,
+                            border: '1px solid #d1d5db',
+                            fontSize: 16,
+                          }}
+                        />
+                      )}
+                    </View>
+                  ) : Platform.OS === 'ios' ? (
+                    <>
+                      <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>
+                        Fais défiler pour sélectionner
+                      </Text>
+                      <DateTimePicker
+                        value={flashStart}
+                        mode="time"
+                        display="spinner"
+                        onChange={(event, selectedTime) => {
+                          if (selectedTime) {
+                            const newTime = new Date(flashStart);
+                            newTime.setHours(selectedTime.getHours());
+                            newTime.setMinutes(selectedTime.getMinutes());
+                            setFlashStart(newTime);
+                          }
+                        }}
+                        style={{ 
+                          height: 200,
+                          width: '100%',
+                        }}
+                      />
+                      <Pressable
+                        onPress={() => setFlashInlineTimeOpen(false)}
+                        style={{
+                          marginTop: 10,
+                          backgroundColor: COLORS.accent,
+                          paddingHorizontal: 24,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text style={{ color: '#ffffff', fontWeight: '700' }}>Valider</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <DateTimePicker
+                      value={flashStart}
+                      mode="time"
+                      display="default"
+                      onChange={(event, selectedTime) => {
+                        setFlashInlineTimeOpen(false);
+                        if (event?.type === 'set' && selectedTime) {
+                          const newTime = new Date(flashStart);
+                          newTime.setHours(selectedTime.getHours());
+                          newTime.setMinutes(selectedTime.getMinutes());
+                          setFlashStart(newTime);
+                        }
+                      }}
+                    />
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Toggles pour la durée */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                Durée
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <Pressable
+                  onPress={() => {
+                    setFlashDurationMin(60);
+                    const newEnd = new Date(flashStart);
+                    newEnd.setMinutes(newEnd.getMinutes() + 60);
+                    setFlashEnd(newEnd);
+                  }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: flashDurationMin === 60 ? COLORS.accent : '#e5e7eb',
+                    borderRadius: 8,
+                    padding: 16,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: flashDurationMin === 60 ? '#ffffff' : '#111827' }}>
+                    1h
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFlashDurationMin(90);
+                    const newEnd = new Date(flashStart);
+                    newEnd.setMinutes(newEnd.getMinutes() + 90);
+                    setFlashEnd(newEnd);
+                  }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: flashDurationMin === 90 ? COLORS.accent : '#e5e7eb',
+                    borderRadius: 8,
+                    padding: 16,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: flashDurationMin === 90 ? '#ffffff' : '#111827' }}>
+                    1h30
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Heure de fin estimée */}
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
+                Heure de fin estimée
+              </Text>
+              <Text style={{
+                backgroundColor: '#f3f4f6',
+                borderRadius: 8,
+                padding: 12,
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                fontSize: 16,
+                color: '#111827',
+              }}>
+                {(() => {
+                  try {
+                    const end = new Date(flashStart.getTime() + (flashDurationMin || 0) * 60000);
+                    return end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                  } catch {
+                    return '';
+                  }
+                })()}
+              </Text>
+            </View>
+
+            {/* Boutons */}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Pressable
+                onPress={() => setFlashDateModalOpen(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#b91c1c',
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                  Annuler
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onValidateFlashDate}
+                style={{
+                  flex: 1,
+                  backgroundColor: COLORS.accent,
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                  Valider
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modale de sélection de date */}
+      <Modal
+        visible={flashDatePickerModalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFlashDatePickerModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
+          <View style={{ 
+            backgroundColor: '#ffffff', 
+            borderTopLeftRadius: 20, 
+            borderTopRightRadius: 20, 
+            padding: 20,
+            maxHeight: '80%',
+          }}>
+            <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
+              Sélectionner la date
+            </Text>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 30 }}>
+              {/* Jour */}
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Jour</Text>
+                <ScrollView 
+                  style={{ height: 200, width: '100%' }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => {
+                    const isSelected = tempDate.getDate() === day;
+                    return (
+                      <Pressable
+                        key={day}
+                        onPress={() => {
+                          const newDate = new Date(tempDate);
+                          newDate.setDate(day);
+                          setTempDate(newDate);
+                        }}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
+                          borderRadius: 8,
+                          marginVertical: 2,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 18, 
+                          fontWeight: isSelected ? '800' : '400',
+                          color: isSelected ? '#ffffff' : '#111827',
+                        }}>
+                          {day}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Mois */}
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Mois</Text>
+                <ScrollView 
+                  style={{ height: 200, width: '100%' }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'].map((month, index) => {
+                    const isSelected = tempDate.getMonth() === index;
+                    return (
+                      <Pressable
+                        key={index}
+                        onPress={() => {
+                          const newDate = new Date(tempDate);
+                          newDate.setMonth(index);
+                          setTempDate(newDate);
+                        }}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 8,
+                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
+                          borderRadius: 8,
+                          marginVertical: 2,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 16, 
+                          fontWeight: isSelected ? '800' : '400',
+                          color: isSelected ? '#ffffff' : '#111827',
+                          textAlign: 'center',
+                        }}>
+                          {month.substring(0, 3)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Année */}
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Année</Text>
+                <ScrollView 
+                  style={{ height: 200, width: '100%' }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {Array.from({ length: 3 }, (_, i) => new Date().getFullYear() + i).map((year) => {
+                    const isSelected = tempDate.getFullYear() === year;
+                    return (
+                      <Pressable
+                        key={year}
+                        onPress={() => {
+                          const newDate = new Date(tempDate);
+                          newDate.setFullYear(year);
+                          setTempDate(newDate);
+                        }}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
+                          borderRadius: 8,
+                          marginVertical: 2,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 18, 
+                          fontWeight: isSelected ? '800' : '400',
+                          color: isSelected ? '#ffffff' : '#111827',
+                        }}>
+                          {year}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Pressable
+                onPress={() => setFlashDatePickerModalOpen(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#b91c1c',
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                  Annuler
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const newDate = new Date(tempDate);
+                  newDate.setHours(flashStart.getHours());
+                  newDate.setMinutes(flashStart.getMinutes());
+                  setFlashStart(newDate);
+                  setFlashDatePickerModalOpen(false);
+                }}
+                style={{
+                  flex: 1,
+                  backgroundColor: COLORS.accent,
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                  Valider
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modale de sélection d'heure */}
+      <Modal
+        visible={flashTimePickerModalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFlashTimePickerModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
+          <View style={{ 
+            backgroundColor: '#ffffff', 
+            borderTopLeftRadius: 20, 
+            borderTopRightRadius: 20, 
+            padding: 20,
+            maxHeight: '80%',
+          }}>
+            <Pressable
+              onPress={() => setFlashTimePickerModalOpen(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Fermer"
+              style={{ position: 'absolute', top: 10, right: 10, padding: 6 }}
+            >
+              <Ionicons name="close" size={22} color="#111827" />
+            </Pressable>
+            <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
+              Sélectionner l'heure
+            </Text>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 30 }}>
+              {/* Heures */}
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Heure de début</Text>
+                <ScrollView 
+                  style={{ height: 200, width: '100%' }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
+                    const isSelected = tempTime.hours === hour;
+                    return (
+                      <Pressable
+                        key={hour}
+                        onPress={() => setTempTime({ ...tempTime, hours: hour })}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
+                          borderRadius: 8,
+                          marginVertical: 2,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 18, 
+                          fontWeight: isSelected ? '800' : '400',
+                          color: isSelected ? '#ffffff' : '#111827',
+                        }}>
+                          {String(hour).padStart(2, '0')}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Minutes */}
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Minute</Text>
+                <ScrollView 
+                  style={{ height: 200, width: '100%' }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {[0, 30].map((minute) => {
+                    const isSelected = tempTime.minutes === minute;
+                    return (
+                      <Pressable
+                        key={minute}
+                        onPress={() => setTempTime({ ...tempTime, minutes: minute })}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
+                          borderRadius: 8,
+                          marginVertical: 2,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 18, 
+                          fontWeight: isSelected ? '800' : '400',
+                          color: isSelected ? '#ffffff' : '#111827',
+                        }}>
+                          {String(minute).padStart(2, '0')}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Pressable
+                onPress={() => setFlashTimePickerModalOpen(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: '#b91c1c',
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                  Annuler
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const newTime = new Date(flashStart);
+                  newTime.setHours(tempTime.hours);
+                  newTime.setMinutes(tempTime.minutes);
+                  setFlashStart(newTime);
+                  setFlashTimePickerModalOpen(false);
+                }}
+                style={{
+                  flex: 1,
+                  backgroundColor: COLORS.accent,
+                  borderRadius: 8,
+                  padding: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                  Valider
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modale de sélection des joueurs */}
+      <Modal
+        visible={flashPickerOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFlashPickerOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
+            <Pressable
+              onPress={() => setFlashPickerOpen(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Fermer"
+              style={{ position: 'absolute', top: 10, right: 10, padding: 6 }}
+            >
+              <Ionicons name="close" size={22} color="#111827" />
+            </Pressable>
+            <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginBottom: 20 }}>
+              Sélectionner 3 joueurs
+            </Text>
+
+            {flashLoading ? (
+              <ActivityIndicator size="large" color={COLORS.accent} />
+            ) : (
+              <>
+                {/* Barre de recherche */}
+                <TextInput
+                  value={flashQuery}
+                  onChangeText={setFlashQuery}
+                  placeholder="Rechercher un joueur..."
+                  style={{
+                    backgroundColor: '#f3f4f6',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 16,
+                    borderWidth: 1,
+                    borderColor: '#d1d5db',
+                  }}
+                />
+
+                {/* Avatars sélectionnés (bandeau) */}
+                {flashSelected.length > 0 && (
+                  <View style={{ marginBottom: 16 }}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4 }}>
+                      {flashMembers
+                        .filter(m => flashSelected.includes(String(m.id)))
+                        .map((member) => (
+                          <Pressable
+                            key={String(member.id)}
+                            onPress={() => setFlashSelected(prev => prev.filter(id => id !== String(member.id)))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Retirer ${member.name} de la sélection`}
+                            style={{ marginRight: 12 }}
+                          >
+                            <View style={{ position: 'relative' }}>
+                              <View
+                                style={{
+                                  width: 56,
+                                  height: 56,
+                                  borderRadius: 28,
+                                  backgroundColor: '#9ca3af',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderWidth: 3,
+                                  borderColor: '#22c55e', // anneau vert
+                                }}
+                              >
+                                <Text style={{ color: '#001831', fontWeight: '900', fontSize: 18 }}>
+                                  {(() => {
+                                    const name = (member.name || 'Joueur').trim();
+                                    const parts = name.split(/\s+/).filter(Boolean);
+                                    if (parts.length >= 2) {
+                                      return ((parts[0][0] || 'J') + (parts[1][0] || 'U')).toUpperCase();
+                                    }
+                                    return name.substring(0, 2).toUpperCase();
+                                  })()}
+                                </Text>
+                              </View>
+                              {member.niveau != null && member.niveau !== '' && (
+                                <View
+                                  style={{
+                                    position: 'absolute',
+                                    right: -2,
+                                    bottom: -2,
+                                    width: 22,
+                                    height: 22,
+                                    borderRadius: 11,
+                                    backgroundColor: colorForLevel(member.niveau),
+                                    borderWidth: 2,
+                                    borderColor: '#ffffff',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Text style={{ color: '#000000', fontWeight: '900', fontSize: 11 }}>
+                                    {String(member.niveau)}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          </Pressable>
+                        ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Liste des joueurs */}
+                {flashMembers.filter(m => (!flashQuery || (m.name || '').toLowerCase().includes(flashQuery.toLowerCase()))).length === 0 ? (
+                  <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 16 }}>
+                    Pas de joueurs disponibles sur ce créneau
+                  </Text>
+                ) : (
+                  <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+                    {flashMembers
+                      .filter(m => (
+                        !flashQuery || (m.name || '').toLowerCase().includes(flashQuery.toLowerCase())
+                      ))
+                      .map((member) => {
+                      const isSelected = flashSelected.includes(String(member.id));
+                      return (
+                        <Pressable
+                          key={String(member.id)}
+                          onPress={() => {
+                            if (isSelected) {
+                              setFlashSelected(flashSelected.filter(id => id !== String(member.id)));
+                            } else {
+                              if (flashSelected.length < 3) {
+                                setFlashSelected([...flashSelected, String(member.id)]);
+                              } else {
+                                Alert.alert('Maximum atteint', 'Tu ne peux sélectionner que 3 joueurs.');
+                              }
+                            }
+                          }}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            padding: 12,
+                            backgroundColor: isSelected ? '#e0ff00' : '#f9fafb',
+                            borderRadius: 8,
+                            marginBottom: 8,
+                            borderWidth: isSelected ? 2 : 1,
+                            borderColor: isSelected ? '#e0ff00' : '#e5e7eb',
+                          }}
+                        >
+                          <View style={{ position: 'relative', marginRight: 12 }}>
+                            <View style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: 24,
+                              backgroundColor: '#9ca3af',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}>
+                              <Text style={{ color: '#001831', fontWeight: '900', fontSize: 16 }}>
+                                {(() => {
+                                  const name = (member.name || 'Joueur').trim();
+                                  const parts = name.split(/\s+/).filter(Boolean);
+                                  if (parts.length >= 2) {
+                                    return ((parts[0][0] || 'J') + (parts[1][0] || 'U')).toUpperCase();
+                                  }
+                                  return name.substring(0, 2).toUpperCase();
+                                })()}
+                              </Text>
+                            </View>
+                            {member.niveau != null && member.niveau !== '' && (
+                              <View
+                                style={{
+                                  position: 'absolute',
+                                  right: -4,
+                                  bottom: -4,
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 10,
+                                  backgroundColor: colorForLevel(member.niveau),
+                                  borderWidth: 2,
+                                  borderColor: '#ffffff',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: '#000000',
+                                    fontWeight: '900',
+                                    fontSize: 10,
+                                  }}
+                                >
+                                  {String(member.niveau)}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={{ fontSize: 14, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#001831' : '#111827', flex: 1 }}>
+                            {member.name || 'Joueur inconnu'}
+                          </Text>
+                          {isSelected && (
+                            <Image source={racketIcon} style={{ width: 22, height: 22, tintColor: '#001831' }} />
+                          )}
+                        </Pressable>
+                      );
+                      })}
+                  </ScrollView>
+                )}
+
+                {/* Compteur de sélection */}
+                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 16, textAlign: 'center' }}>
+                  {flashSelected.length}/3 joueurs sélectionnés
+                </Text>
+
+                {/* Boutons */}
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <Pressable
+                    onPress={() => {
+                      // Retour à l'écran de choix date/heure sans perdre la sélection
+                      setFlashPickerOpen(false);
+                      setFlashDateModalOpen(true);
+                    }}
+                    style={{
+                      flex: 0.4,
+                      backgroundColor: '#e5e7eb',
+                      borderRadius: 8,
+                      padding: 14,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
+                      Retour
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={onCreateFlashMatch}
+                    disabled={flashSelected.length !== 3}
+                    style={{
+                      flex: 0.6,
+                      backgroundColor: flashSelected.length === 3 ? COLORS.accent : '#d1d5db',
+                      borderRadius: 8,
+                      padding: 14,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                      Créer un match
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* DateTimePickers - rendus au niveau racine après fermeture de la modale principale */}
+      {Platform.OS !== 'web' && !flashDateModalOpen && flashDatePickerOpen && (
+        <DateTimePicker
+          value={flashStart}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          minimumDate={new Date()}
+          onChange={(event, selectedDate) => {
+            console.log('[FlashMatch] Date picker onChange', event.type, selectedDate);
+            setFlashDatePickerOpen(false);
+            if (event.type === 'set' && selectedDate) {
+              const newDate = new Date(selectedDate);
+              newDate.setHours(flashStart.getHours());
+              newDate.setMinutes(flashStart.getMinutes());
+              setFlashStart(newDate);
+            }
+            // Rouvrir la modale principale après sélection
+            setTimeout(() => {
+              setFlashDateModalOpen(true);
+            }, 100);
+          }}
+        />
+      )}
+
+      {Platform.OS !== 'web' && !flashDateModalOpen && flashTimePickerOpen && (
+        <DateTimePicker
+          value={flashStart}
+          mode="time"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, selectedTime) => {
+            console.log('[FlashMatch] Time picker onChange', event.type, selectedTime);
+            setFlashTimePickerOpen(false);
+            if (event.type === 'set' && selectedTime) {
+              const newTime = new Date(flashStart);
+              newTime.setHours(selectedTime.getHours());
+              newTime.setMinutes(selectedTime.getMinutes());
+              setFlashStart(newTime);
+            }
+            // Rouvrir la modale principale après sélection
+            setTimeout(() => {
+              setFlashDateModalOpen(true);
+            }, 100);
+          }}
+        />
+      )}
+
+      {/* Modal iOS pour les pickers (spinner) */}
+      {Platform.OS === 'ios' && !flashDateModalOpen && (flashDatePickerOpen || flashTimePickerOpen) && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => {
+            setFlashDatePickerOpen(false);
+            setFlashTimePickerOpen(false);
+            setFlashDateModalOpen(true);
+          }}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <Pressable
+                  onPress={() => {
+                    setFlashDatePickerOpen(false);
+                    setFlashTimePickerOpen(false);
+                    setFlashDateModalOpen(true);
+                  }}
+                >
+                  <Text style={{ fontSize: 16, color: '#666' }}>Annuler</Text>
+                </Pressable>
+                <Text style={{ fontSize: 18, fontWeight: '700' }}>
+                  {flashDatePickerOpen ? 'Sélectionner une date' : 'Sélectionner une heure'}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setFlashDatePickerOpen(false);
+                    setFlashTimePickerOpen(false);
+                    setFlashDateModalOpen(true);
+                  }}
+                >
+                  <Text style={{ fontSize: 16, color: COLORS.accent, fontWeight: '700' }}>Valider</Text>
+                </Pressable>
+              </View>
+              {flashDatePickerOpen && (
+                <DateTimePicker
+                  value={flashStart}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={new Date()}
+                  onChange={(event, selectedDate) => {
+                    if (selectedDate) {
+                      const newDate = new Date(selectedDate);
+                      newDate.setHours(flashStart.getHours());
+                      newDate.setMinutes(flashStart.getMinutes());
+                      setFlashStart(newDate);
+                    }
+                  }}
+                  style={{ height: 200 }}
+                />
+              )}
+              {flashTimePickerOpen && (
+                <DateTimePicker
+                  value={flashStart}
+                  mode="time"
+                  display="spinner"
+                  onChange={(event, selectedTime) => {
+                    if (selectedTime) {
+                      const newTime = new Date(flashStart);
+                      newTime.setHours(selectedTime.getHours());
+                      newTime.setMinutes(selectedTime.getMinutes());
+                      setFlashStart(newTime);
+                    }
+                  }}
+                  style={{ height: 200 }}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
       )}
     </View>
   );

@@ -6,7 +6,7 @@ import "dayjs/locale/fr";
 import isoWeek from "dayjs/plugin/isoWeek";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveGroup } from "../../lib/activeGroup";
@@ -100,6 +100,7 @@ export default function Semaine() {
   const [loading, setLoading] = useState(false);
   const [meId, setMeId] = useState(null);
   const [persistedGroupId, setPersistedGroupId] = useState(null);
+  const [groupMembers, setGroupMembers] = useState([]); // membres du groupe actuel
   const isPortrait = height > width;
   // ---- (plus de mode peinture global) ----
 
@@ -131,6 +132,31 @@ export default function Semaine() {
       setMeId(u?.user?.id ?? null);
     })();
   }, []);
+
+  // Charger les membres du groupe actuel
+  const loadGroupMembers = useCallback(async (groupId) => {
+    if (!groupId) {
+      setGroupMembers([]);
+      return;
+    }
+    try {
+      const { data: gms, error: eGM } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", groupId);
+      if (eGM) throw eGM;
+
+      const memberIds = (gms ?? []).map((gm) => gm.user_id);
+      setGroupMembers(memberIds);
+    } catch (e) {
+      console.warn('[Semaine] Erreur chargement membres:', e?.message ?? String(e));
+      setGroupMembers([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadGroupMembers(groupId);
+  }, [groupId, loadGroupMembers]);
 
   const params = useLocalSearchParams();
 
@@ -296,17 +322,63 @@ export default function Semaine() {
   const keySlot = (d, hour, minute) =>
     dayjs(d).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
 
+  // Compte unique des disponibles pour un tableau people [{user_id, status}]
+  function uniqueAvailableCount(peopleArr = []) {
+    const seen = new Set();
+    let c = 0;
+    for (const p of peopleArr) {
+      if (!p || !p.user_id) continue;
+      if (String(p.status || 'neutral').toLowerCase() === 'available') {
+        if (!seen.has(p.user_id)) {
+          seen.add(p.user_id);
+          c++;
+        }
+      }
+    }
+    return c;
+  }
+
   // Map disponibilités: clé = start ISO, valeur = [{ user_id, status }]
+  // Filtrer uniquement les membres du groupe actuel ET du même group_id
+  // Dédupliquer par user_id (si plusieurs lignes existent pour le même créneau)
   const mapDispos = useMemo(() => {
-    const map = new Map();
-    (slots || []).forEach((s) => {
-      const k = dayjs(s.start).toISOString();
-      const arr = map.get(k) || [];
-      arr.push({ user_id: s.user_id, status: s.status || "available" });
-      map.set(k, arr);
+    // Trier les slots par timestamp décroissant (les plus récents en premier)
+    // Cela garantit qu'on prend la dernière entrée pour chaque user
+    const sortedSlots = [...(slots || [])].sort((a, b) => {
+      const ta = dayjs(a.created_at || a.updated_at || a.start).valueOf();
+      const tb = dayjs(b.created_at || b.updated_at || b.start).valueOf();
+      return tb - ta; // décroissant
     });
-    return map;
-  }, [slots]);
+    
+    const byStart = new Map(); // startIso -> Map(user_id -> 'available' | 'neutral')
+    
+    // Parcourir les slots triés : on garde la première (la plus récente) pour chaque user/start
+    // Afficher TOUS les joueurs disponibles du groupe (pas seulement les membres)
+    for (const s of sortedSlots) {
+      if (s.group_id === groupId) {
+        const k = dayjs(s.start).toISOString();
+        let usersMap = byStart.get(k);
+        if (!usersMap) {
+          usersMap = new Map();
+          byStart.set(k, usersMap);
+        }
+        // Si l'user n'existe pas encore pour ce créneau, on l'ajoute
+        // Comme on trie par date décroissante, on garde la version la plus récente
+        if (!usersMap.has(s.user_id)) {
+          const isAvail = String(s.status || 'available').toLowerCase() === 'available';
+          usersMap.set(s.user_id, isAvail ? 'available' : 'neutral');
+        }
+      }
+    }
+    
+    const out = new Map();
+    byStart.forEach((usersMap, k) => {
+      const arr = [];
+      usersMap.forEach((status, user_id) => arr.push({ user_id, status }));
+      out.set(k, arr);
+    });
+    return out;
+  }, [slots, groupMembers, groupId]);
 
   // Index matches par start
   const mapMatches = useMemo(() => {
@@ -583,7 +655,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
             {hoursOfDay.map(({ hour, minute }, idx) => {
                 const startIso = keySlot(day, hour, minute);
                 const people = mapDispos.get(startIso) || [];
-                const availableCount = people.filter((p) => p.status === 'available').length;
+                const availableCount = uniqueAvailableCount(people);
                 const match = mapMatches.get(startIso);
 
                 const myStatus = myStatusByStart.get(startIso);
@@ -591,15 +663,22 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 let cellBorder = '#1f2937';
                 let textColor = '#0b2240';
 
-                if (match) {
-                  cellBg = match.status === 'confirmed' ? '#ecfdf5' : '#fee2e2';
-                  cellBorder = match.status === 'confirmed' ? '#10b981' : '#fca5a5';
+                // Mapping uniforme selon le nombre de dispos
+                if (availableCount <= 0) {
+                  cellBg = '#fee2e2';
+                  cellBorder = '#fecaca';
+                } else if (availableCount === 1) {
+                  cellBg = '#ffedd5';
+                  cellBorder = '#fed7aa';
+                } else if (availableCount === 2) {
+                  cellBg = '#fef9c3';
+                  cellBorder = '#fde68a';
+                } else if (availableCount === 3) {
+                  cellBg = '#d1fae5';
+                  cellBorder = '#a7f3d0';
                 } else {
-                  if (myStatus === 'available') {
-                    cellBg = '#2fc249';
-                    cellBorder = '#2fc249';
-                    textColor = '#0b2240';
-                  }
+                  cellBg = '#2fc249';
+                  cellBorder = '#2fc249';
                 }
 
                 // Aperçu de début de plage (premier long press) :
@@ -638,9 +717,22 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
 
                 let badgeBg = '#e5e7eb';
                 let badgeColor = '#0f172a';
-                if (availableCount === 0) { badgeBg = '#e5e7eb'; badgeColor = '#0f172a'; }
-                else if (availableCount >= 1 && availableCount <= 3) { badgeBg = '#FF751F'; badgeColor = '#ffffff'; }
-                else if (availableCount >= 4) { badgeBg = '#15803d'; badgeColor = '#ffffff'; }
+                if (availableCount <= 0) {
+                  badgeBg = '#e5e7eb';
+                  badgeColor = '#0f172a';
+                } else if (availableCount === 1) {
+                  badgeBg = '#ffedd5';
+                  badgeColor = '#0f172a';
+                } else if (availableCount === 2) {
+                  badgeBg = '#fef9c3';
+                  badgeColor = '#0f172a';
+                } else if (availableCount === 3) {
+                  badgeBg = '#d1fae5';
+                  badgeColor = '#0f172a';
+                } else {
+                  badgeBg = '#15803d';
+                  badgeColor = '#ffffff';
+                }
 
                 const isActiveHour = !!match || myStatus === 'available';
                 const timeWeight = isActiveHour ? '800' : '700';
@@ -917,7 +1009,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           const di = day.diff(weekStart, 'day');
           const startIso = keySlot(day, hour, minute);
           const people = mapDispos.get(startIso) || [];
-          const availableCount = people.filter((p) => p.status === 'available').length;
+          const availableCount = uniqueAvailableCount(people);
           const match = mapMatches.get(startIso);
           const myStatus = myStatusByStart.get(startIso);
 
@@ -925,15 +1017,22 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           let cellBorder = '#1f2937';
           let textColor = '#0b2240';
 
-          if (match) {
-            cellBg = match.status === 'confirmed' ? '#ecfdf5' : '#fee2e2';
-            cellBorder = match.status === 'confirmed' ? '#10b981' : '#fca5a5';
+          // Mapping uniforme selon le nombre de dispos
+          if (availableCount <= 0) {
+            cellBg = '#fee2e2';
+            cellBorder = '#fecaca';
+          } else if (availableCount === 1) {
+            cellBg = '#ffedd5';
+            cellBorder = '#fed7aa';
+          } else if (availableCount === 2) {
+            cellBg = '#fef9c3';
+            cellBorder = '#fde68a';
+          } else if (availableCount === 3) {
+            cellBg = '#d1fae5';
+            cellBorder = '#a7f3d0';
           } else {
-            if (myStatus === 'available') {
-              cellBg = '#2fc249';
-              cellBorder = '#2fc249';
-              textColor = '#0b2240';
-            }
+            cellBg = '#2fc249';
+            cellBorder = '#2fc249';
           }
 
           // Surbrillance de la plage en cours (prévisualisation)
@@ -955,9 +1054,22 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
 
           let badgeBg = '#e5e7eb';
           let badgeColor = '#0f172a';
-          if (availableCount === 0) { badgeBg = '#e5e7eb'; badgeColor = '#0f172a'; }
-          else if (availableCount >= 1 && availableCount <= 3) { badgeBg = '#FF751F'; badgeColor = '#ffffff'; }
-          else if (availableCount >= 4) { badgeBg = '#15803d'; badgeColor = '#ffffff'; }
+          if (availableCount <= 0) {
+            badgeBg = '#e5e7eb';
+            badgeColor = '#0f172a';
+          } else if (availableCount === 1) {
+            badgeBg = '#ffedd5';
+            badgeColor = '#0f172a';
+          } else if (availableCount === 2) {
+            badgeBg = '#fef9c3';
+            badgeColor = '#0f172a';
+          } else if (availableCount === 3) {
+            badgeBg = '#d1fae5';
+            badgeColor = '#0f172a';
+          } else {
+            badgeBg = '#15803d';
+            badgeColor = '#ffffff';
+          }
 
           return (
             <Pressable
