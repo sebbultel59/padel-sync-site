@@ -102,15 +102,53 @@ const LEVEL_COLORS = {
 const colorForLevel = (n) => LEVEL_COLORS[n] || '#9ca3af';
 
 
-function Avatar({ url, fallback, size = 48, level = null, onPress, ...rest }) {
+// Helper: base64 -> ArrayBuffer (sans atob, compatible Hermes)
+function base64ToArrayBuffer(base64) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let bytes = [];
+  let i = 0;
+  while (i < base64.length) {
+    const c1 = chars.indexOf(base64.charAt(i++));
+    const c2 = chars.indexOf(base64.charAt(i++));
+    const c3 = chars.indexOf(base64.charAt(i++));
+    const c4 = chars.indexOf(base64.charAt(i++));
+    const b1 = (c1 << 2) | (c2 >> 4);
+    const b2 = ((c2 & 15) << 4) | (c3 >> 2);
+    const b3 = ((c3 & 3) << 6) | c4;
+    bytes.push(b1 & 0xff);
+    if (c3 !== 64) bytes.push(b2 & 0xff);
+    if (c4 !== 64) bytes.push(b3 & 0xff);
+  }
+  return new Uint8Array(bytes).buffer;
+}
+
+
+function Avatar({ url, fallback, size = 48, level = null, onPress, profile, onLongPressProfile, ...rest }) {
   const S = Math.round(size * 1.2);
   const initials = computeInitials(fallback || "?");
+  
+  const handlePress = () => {
+    // Clic court: ne pas ouvrir la modale; respecter onPress si fourni
+    if (onPress) {
+      onPress();
+    }
+  };
+
+  const handleLongPress = () => {
+    // Clic long: ouvrir la modale de profil si disponible
+    if (profile && onLongPressProfile) {
+      onLongPressProfile(profile);
+    }
+  };
+  
   return (
     <Pressable
-      onPress={press("avatar", onPress)}
-      disabled={!onPress}
+      onPress={handlePress}
+      onLongPress={handleLongPress}
+      delayLongPress={450}
+      disabled={!onPress && !onLongPressProfile}
       style={[
-        Platform.OS === "web" && { cursor: onPress ? "pointer" : "default" }
+        Platform.OS === "web" && { cursor: (onPress || onLongPressProfile) ? "pointer" : "default" }
       ]}
     >
       <View style={{ width: S, height: S }}>
@@ -207,12 +245,28 @@ export default function GroupesScreen() {
 
   const [members, setMembers] = useState([]);
   const [membersModalVisible, setMembersModalVisible] = useState(false);
+  const [contactProfile, setContactProfile] = useState(null);
+  const [contactVisible, setContactVisible] = useState(false);
+  const [profileProfile, setProfileProfile] = useState(null);
+  const [profileVisible, setProfileVisible] = useState(false);
 
   const [qrVisible, setQrVisible] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
+
+  const openContactForProfile = useCallback((p) => {
+    console.log('[openContactForProfile] Called with profile:', p?.name, p?.phone, p?.email);
+    setContactProfile(p || null);
+    setContactVisible(true);
+  }, []);
+
+  const openProfileForProfile = useCallback((p) => {
+    console.log('[openProfileForProfile] Called with profile:', p?.name, p?.email);
+    setProfileProfile(p || null);
+    setProfileVisible(true);
+  }, []);
 
   const loadGroups = useCallback(async () => {
     try {
@@ -444,30 +498,30 @@ export default function GroupesScreen() {
       return;
     }
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission requise", "Autorise l'accès aux photos pour choisir un avatar.");
-        return;
-      }
+      console.log('[Avatar] picker:open');
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        // Ouvre l'éditeur natif de recadrage avec ratio carré
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.9,
       });
+      console.log('[Avatar] launchImageLibraryAsync:result', { canceled: res?.canceled, assetsLen: res?.assets?.length });
       if (res.canceled || !res.assets?.[0]?.uri) return;
 
-      const uri = res.assets[0].uri;
-      const fr = await fetch(uri);
-      const blob = await fr.blob();
-      const arrayBuffer = blob.arrayBuffer
-        ? await blob.arrayBuffer()
-        : await new Response(blob).arrayBuffer();
+      const asset = res.assets[0];
+      const uri = asset.uri;
+      console.log('[Avatar] picker:uri', uri);
+      // Utiliser directement l’URI recadrée par le picker (carré)
+      const finalUri = uri;
+      console.log('[Avatar] final uri', finalUri);
+      const arrayBuffer = await (await fetch(finalUri)).arrayBuffer();
 
       const ts = Date.now();
       const path = `${activeGroup.id}/avatar-${ts}.jpg`;
-      const contentType = blob.type || "image/jpeg";
+      const contentType = "image/jpeg";
 
+      console.log('[Avatar] upload:start', path);
       const { error: upErr } = await supabase.storage
         .from("group-avatars")
         .upload(path, arrayBuffer, { contentType, upsert: true });
@@ -477,18 +531,21 @@ export default function GroupesScreen() {
       const publicUrl = pub?.publicUrl ?? null;
       if (!publicUrl) throw new Error("Impossible d'obtenir l'URL publique.");
 
+      console.log('[Avatar] update group row with publicUrl');
       const { error: eUpd } = await supabase
         .from("groups")
         .update({ avatar_url: publicUrl })
         .eq("id", activeGroup.id);
       if (eUpd) throw eUpd;
 
+      console.log('[Avatar] reload groups and set active');
       await loadGroups();
       const refreshed = (groups.mine ?? []).find((g) => g.id === activeGroup.id);
       if (refreshed) setActiveGroup(refreshed);
 
       Alert.alert("OK", "Avatar du groupe mis à jour.");
     } catch (e) {
+      console.log('[Avatar] error', e);
       Alert.alert("Erreur avatar", e?.message ?? String(e));
     }
   }, [activeGroup?.id, isAdmin, groups, loadGroups, setActiveGroup]);
@@ -683,6 +740,138 @@ export default function GroupesScreen() {
 
   return (
     <View style={{ flex: 1, position: "relative", backgroundColor: "#001831" }}>
+      {/* Contact Modal */}
+      <Modal
+        visible={contactVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setContactVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
+              Contacter {contactProfile?.display_name || contactProfile?.name || contactProfile?.email || 'ce membre'}
+            </Text>
+            <View style={{ gap: 12 }}>
+              {contactProfile?.phone && (
+                <Pressable
+                  onPress={() => { Linking.openURL(`tel:${contactProfile.phone}`); setContactVisible(false); }}
+                  style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+                >
+                  <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
+                  <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
+                </Pressable>
+              )}
+              {contactProfile?.email && (
+                <Pressable
+                  onPress={() => { Linking.openURL(`mailto:${contactProfile.email}`); setContactVisible(false); }}
+                  style={{ backgroundColor: '#3b82f6', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+                >
+                  <Ionicons name="mail" size={20} color="white" style={{ marginRight: 8 }} />
+                  <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un email</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => setContactVisible(false)}
+                style={{ backgroundColor: '#6b7280', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }}
+              >
+                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Profile Modal */}
+      <Modal
+        visible={profileVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setProfileVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
+            {/* Avatar + Nom */}
+            <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
+              {profileProfile?.avatar_url ? (
+                <Image 
+                  source={{ uri: profileProfile.avatar_url }} 
+                  style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#f3f4f6' }}
+                />
+              ) : (
+                <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1a4b97' }}>
+                  <Text style={{ fontSize: 32, fontWeight: '800', color: '#1a4b97' }}>
+                    {(profileProfile?.display_name || profileProfile?.name || profileProfile?.email || 'J').substring(0, 2).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1a4b97', textAlign: 'center' }}>
+                {profileProfile?.display_name || profileProfile?.name || profileProfile?.email || 'Joueur'}
+              </Text>
+              <Pressable onPress={() => Linking.openURL(`mailto:${profileProfile?.email}`)}>
+                <Text style={{ fontSize: 13, color: '#3b82f6', textAlign: 'center', textDecorationLine: 'underline' }}>
+                  {profileProfile?.email}
+                </Text>
+              </Pressable>
+            </View>
+            
+            {/* Résumé visuel */}
+            <View style={{ backgroundColor: 'white', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, gap: 12 }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827' }}>Résumé</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+                <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                  <Text style={{ fontSize: 28 }}>🔥</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{profileProfile?.niveau || profileProfile?.level || '—'}</Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Niveau</Text>
+                </View>
+                <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                  <Text style={{ fontSize: 28 }}>🖐️</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{profileProfile?.main || '—'}</Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Main</Text>
+                </View>
+                <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                  <Text style={{ fontSize: 28 }}>🎯</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{profileProfile?.cote || '—'}</Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Côté</Text>
+                </View>
+                <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                  <Text style={{ fontSize: 28 }}>🏟️</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{profileProfile?.club || '—'}</Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Club</Text>
+                </View>
+                <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                  <Text style={{ fontSize: 28 }}>📍</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{profileProfile?.rayon_km ? `${profileProfile.rayon_km} km` : '—'}</Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Rayon</Text>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setProfileVisible(false);
+                    setContactProfile(profileProfile);
+                    setContactVisible(true);
+                  }}
+                  style={({ pressed }) => [
+                    { width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' },
+                    pressed && { opacity: 0.7 }
+                  ]}
+                >
+                  <Text style={{ fontSize: 28 }}>📞</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{profileProfile?.phone || '—'}</Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Téléphone</Text>
+                </Pressable>
+              </View>
+            </View>
+            
+            <Pressable
+              onPress={() => setProfileVisible(false)}
+              style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 16 }}
+            >
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <ScrollView
         contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: Math.max(24, insets.bottom + 140) }}
         scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 70) }}
@@ -722,7 +911,8 @@ export default function GroupesScreen() {
                       fallback={m.name}
                       level={m.niveau}
                       size={36}
-                      onPress={press("open-profile", () => router.push(`/profiles/${m.id}`))}
+                      profile={m}
+                      onLongPressProfile={openProfileForProfile}
                     />
                   ))}
                   {members.length > 20 ? (
@@ -966,7 +1156,7 @@ export default function GroupesScreen() {
             <ScrollView style={{ maxHeight: 360 }}>
               {members.map((m) => (
                 <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
-                  <Avatar url={m.avatar_url} fallback={m.name} size={36} level={m.niveau} onPress={press("open-profile", () => router.push(`/profiles/${m.id}`))} />
+                  <Avatar url={m.avatar_url} fallback={m.name} size={36} level={m.niveau} profile={m} onLongPressProfile={openProfileForProfile} />
                   <Text style={{ flex: 1, fontWeight: "600" }}>{m.name}</Text>
                   {m.is_admin && <Text style={{ color: BRAND, fontWeight: "800", marginRight: 8 }}>Admin</Text>}
                   <Pressable

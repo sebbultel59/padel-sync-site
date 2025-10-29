@@ -1,5 +1,1143 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from 'expo-router';
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  SectionList,
+  Text,
+  View
+} from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import clickIcon from '../../../assets/icons/click.png';
+import racketIcon from '../../../assets/icons/racket.png';
+import { useActiveGroup } from "../../../lib/activeGroup";
+import { supabase } from "../../../lib/supabase";
+import { press } from "../../../lib/uiSafe";
+
+const COLORS = {
+  primary: '#156bc9',   // bleu charte
+  accent:  '#ff751f',   // orange charte
+  ink:     '#111827',
+  gray:    '#e5e7eb',
+  grayBg:  '#aaaaaa',
+};
+
+const TINTS = {
+  primaryBg: '#eaf4ff',
+  accentBg:  '#fff3e9',
+};
+
+// Helper pour pluralisation
+const matchWord = (n) => (n <= 1 ? 'match' : 'matchs');
+const possibleWord = (n) => (n <= 1 ? 'possible' : 'possibles');
+const valideWord = (n) => (n <= 1 ? 'validé' : 'validés');
+
+// Helper pour la durée en minutes
+function durationMinutes(startIso, endIso) {
+  try {
+    const s = new Date(startIso).getTime();
+    const e = new Date(endIso).getTime();
+    return Math.round((e - s) / 60000);
+  } catch {
+    return 0;
+  }
+}
+
+// Week helpers
+function startOfWeek(d) {
+  const date = new Date(d);
+  const day = (date.getDay() + 6) % 7;
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - day);
+  return date;
+}
+
+function endOfWeek(d) {
+  const s = startOfWeek(d);
+  const e = new Date(s);
+  e.setDate(s.getDate() + 6);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
+function addDays(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function weekBoundsFromOffset(offset) {
+  const today = new Date();
+  const base = addDays(today, offset * 7);
+  return { ws: startOfWeek(base), we: endOfWeek(base) };
+}
+
+function isInWeekRange(sIso, eIso, ws, we) {
+  if (!sIso || !eIso) return false;
+  const s = new Date(sIso);
+  const e = new Date(eIso);
+  return (s <= we) && (e >= ws);
+}
+
+function formatWeekRangeLabel(ws, we) {
+  const makeLabel = (d, withYear = false) => {
+    let s = d.toLocaleDateString('fr-FR', {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      ...(withYear ? { year: 'numeric' } : {}),
+    });
+    s = s.replace(/^([a-zA-Zéû]{3})\.(\s)/, (_, w, sp) => w.charAt(0).toUpperCase() + w.slice(1) + sp);
+    s = s.replace(/^([a-zA-Zéû]{3})(\s)/, (_, w, sp) => w.charAt(0).toUpperCase() + w.slice(1) + sp);
+    return s;
+  };
+  const d1 = makeLabel(ws, false);
+  const d2 = makeLabel(we, true);
+  return `${d1} – ${d2}`;
+}
+
+function formatRange(sIso, eIso) {
+  if (!sIso || !eIso) return '';
+  const s = new Date(sIso);
+  const e = new Date(eIso);
+  const WD = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+  const MO = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+  const wd = WD[s.getDay()] || '';
+  const dd = String(s.getDate()).padStart(2, '0');
+  const mo = MO[s.getMonth()] || '';
+  const timeOpts = { hour: '2-digit', minute: '2-digit' };
+  const sh = s.toLocaleTimeString('fr-FR', timeOpts);
+  const eh = e.toLocaleTimeString('fr-FR', timeOpts);
+  return `${wd} ${dd} ${mo} - ${sh} à ${eh}`;
+}
+
+function colorForLevel(level) {
+  const n = parseInt(level, 10);
+  switch (n) {
+    case 1: return "#a3e635";
+    case 2: return "#86efac";
+    case 3: return "#60a5fa";
+    case 4: return "#22d3ee";
+    case 5: return "#fbbf24";
+    case 6: return "#f59e0b";
+    case 7: return "#fb7185";
+    case 8: return "#a78bfa";
+    default: return "#d1d5db";
+  }
+}
+
 export default function MatchesScreen() {
-useEffect(() => {
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { activeGroup } = useActiveGroup();
+  const groupId = activeGroup?.id ?? null;
+
+  // États principaux
+  const [meId, setMeId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('proposes');
+  const [mode, setMode] = useState('long');
+  const [rsvpMode, setRsvpMode] = useState('long');
+  const [confirmedMode, setConfirmedMode] = useState('long');
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [ready, setReady] = useState([]);
+  const [hot, setHot] = useState([]);
+  const [longReady, setLongReady] = useState([]);
+  const [hourReady, setHourReady] = useState([]);
+  const [matchesPending, setMatchesPending] = useState([]);
+  const [matchesConfirmed, setMatchesConfirmed] = useState([]);
+  
+  // États pour les modales
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
+  
+  const [rsvpsByMatch, setRsvpsByMatch] = useState({});
+  const [profilesById, setProfilesById] = useState({});
+  const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
+
+  // Flash Match states
+  const [flashMembers, setFlashMembers] = useState([]);
+  const [flashLoading, setFlashLoading] = useState(false);
+  const [flashSelected, setFlashSelected] = useState([]);
+  const [flashPickerOpen, setFlashPickerOpen] = useState(false);
+  const [flashQuery, setFlashQuery] = useState('');
+  const [flashWhenOpen, setFlashWhenOpen] = useState(false);
+  const [flashStart, setFlashStart] = useState(() => {
+    const now = new Date();
+    const ms = 30 * 60 * 1000;
+    const t = new Date(Math.ceil(now.getTime() / ms) * ms);
+    t.setMinutes(t.getMinutes() + 30);
+    return t;
+  });
+  const [flashEnd, setFlashEnd] = useState(() => {
+    const s = new Date();
+    const ms = 30 * 60 * 1000;
+    const t = new Date(Math.ceil(s.getTime() / ms) * ms);
+    t.setMinutes(t.getMinutes() + 90);
+    return t;
+  });
+  const [flashDurationMin, setFlashDurationMin] = useState(90);
+
+// Bornes de la semaine visible
+const { ws: currentWs, we: currentWe } = React.useMemo(
+  () => {
+    const bounds = weekBoundsFromOffset(weekOffset);
+    console.log('[Matches] Week bounds:', 'offset:', weekOffset, 'from:', bounds.ws.toISOString().split('T')[0], 'to:', bounds.we.toISOString().split('T')[0]);
+    return bounds;
+  },
+  [weekOffset]
+);
+
+  // Calcul du padding bottom
+  const bottomPad = React.useMemo(() => Math.max(140, insets.bottom + 140), [insets.bottom]);
+
+// Listes filtrées sur la semaine visible et non périmées
+const longReadyWeek = React.useMemo(
+    () => {
+      console.log('========================================');
+      console.log('[longReadyWeek] 🔍 DÉBUT FILTRAGE');
+      console.log('[longReadyWeek] longReady total:', longReady?.length);
+      console.log('[longReadyWeek] currentWs:', currentWs, '(semaine début)');
+      console.log('[longReadyWeek] currentWe:', currentWe, '(semaine fin)');
+      
+      if (!longReady || longReady.length === 0) {
+        console.log('[longReadyWeek] ⚠️ longReady est vide');
+        return [];
+      }
+      
+      // Log des 5 premiers créneaux pour debug
+      console.log('[longReadyWeek] Exemples de créneaux (5 premiers):');
+      longReady.slice(0, 5).forEach(it => {
+        console.log('  - time_slot_id:', it.time_slot_id);
+        console.log('    starts_at:', it.starts_at);
+        console.log('    ends_at:', it.ends_at);
+      });
+      
+      // Limiter aux créneaux FUTURS uniquement ET à la semaine visible
+      const now = new Date();
+      const filtered = (longReady || []).filter(it => {
+        if (!it.starts_at || !it.ends_at) return false;
+        const endTime = new Date(it.ends_at);
+        return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+      });
+      
+      // Log les créneaux valides
+      filtered.slice(0, 5).forEach(it => {
+        console.log('[longReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
+      });
+      console.log('[longReadyWeek] Créneaux après filtrage:', filtered.length, 'sur', longReady?.length || 0);
+      return filtered;
+    },
+    [longReady, currentWs, currentWe]
+  );
+  
+const hourReadyWeek = React.useMemo(
+    () => {
+      console.log('========================================');
+      console.log('[hourReadyWeek] 🔍 DÉBUT FILTRAGE');
+      console.log('[hourReadyWeek] hourReady total:', hourReady?.length);
+      console.log('[hourReadyWeek] currentWs:', currentWs, '(semaine début)');
+      console.log('[hourReadyWeek] currentWe:', currentWe, '(semaine fin)');
+      
+      if (!hourReady || hourReady.length === 0) {
+        console.log('[hourReadyWeek] ⚠️ hourReady est vide');
+        return [];
+      }
+      
+      // Log des créneaux pour debug
+      console.log('[hourReadyWeek] Exemples de créneaux:');
+      hourReady.slice(0, 3).forEach(it => {
+        console.log('  - time_slot_id:', it.time_slot_id);
+        console.log('    starts_at:', it.starts_at);
+        console.log('    ends_at:', it.ends_at);
+      });
+      
+      // Limiter aux créneaux FUTURS uniquement ET à la semaine visible
+      const now = new Date();
+      const filtered = (hourReady || []).filter(it => {
+        if (!it.starts_at || !it.ends_at) return false;
+        const endTime = new Date(it.ends_at);
+        return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+      });
+      
+      // Log les créneaux valides
+      filtered.forEach(it => {
+        console.log('[hourReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
+      });
+      console.log('[hourReadyWeek] Créneaux après filtrage:', filtered.length, 'sur', hourReady?.length || 0);
+      return filtered;
+    },
+  [hourReady, currentWs, currentWe]
+);
+  
+// Fonction helper pour vérifier si un match n'est pas périmé
+const isNotPast = (m) => {
+  if (!m?.time_slots?.ends_at) {
+    console.log('[isNotPast] Match sans time_slots (conserver):', m.id);
+    return true; // Conserver les matches sans time_slots
+  }
+  const endTime = new Date(m.time_slots.ends_at);
+  const isNotPast = endTime > new Date();
+  if (!isNotPast) {
+    console.log('[isNotPast] Match périmé (exclure):', m.id, 'ends_at:', m.time_slots.ends_at);
+  }
+  return isNotPast;
+};
+
+const pendingWeek = React.useMemo(
+    () => (matchesPending || []).filter(isNotPast),
+    [matchesPending]
+  );
+  
+const confirmedWeek = React.useMemo(
+    () => {
+      const filtered = (matchesConfirmed || []).filter(isNotPast);
+      console.log('[Matches] ConfirmedWeek:', filtered.length, 'matches');
+      if (filtered.length > 0) {
+        console.log('[Matches] First confirmedWeek match:', filtered[0].id, 'time_slots exists:', !!filtered[0].time_slots, 'time_slots data:', filtered[0].time_slots);
+      }
+      return filtered;
+    },
+    [matchesConfirmed]
+  );
+  
+const pendingHourWeek = React.useMemo(
+  () => pendingWeek.filter(m =>
+    durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60
+  ),
+  [pendingWeek]
+);
+  
+const pendingLongWeek = React.useMemo(
+  () => pendingWeek.filter(m =>
+    durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) > 60
+  ),
+  [pendingWeek]
+);
+
+const confirmedHourWeek = React.useMemo(
+  () => confirmedWeek.filter(m =>
+    durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60
+  ),
+  [confirmedWeek]
+);
+  
+const confirmedLongWeek = React.useMemo(
+  () => confirmedWeek.filter(m =>
+    durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) > 60
+  ),
+  [confirmedWeek]
+);
+
+  const confirmedHour = React.useMemo(
+    () => {
+      const filtered = confirmedWeek.filter(m => {
+        const duration = durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at);
+        const isHour = duration <= 60;
+        if (!isHour) {
+          console.log('[Matches] Match filtered out from Hour (duration > 60):', m.id, 'duration:', duration, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at);
+        }
+        return isHour;
+      });
+      console.log('[Matches] ConfirmedHour matches:', filtered.length);
+      return filtered;
+    },
+    [confirmedWeek]
+  );
+  
+  const confirmedLong = React.useMemo(
+    () => {
+      const filtered = confirmedWeek.filter(m => {
+        const duration = durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at);
+        // Si pas de time_slots ou durée invalide, inclure dans Long par défaut
+        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at || isNaN(duration)) {
+          console.log('[Matches] Match sans time_slots valides (inclus dans Long):', m.id);
+          return true;
+        }
+        const isLong = duration > 60;
+        if (!isLong && m?.time_slots?.starts_at) {
+          console.log('[Matches] Match filtered out from Long (duration <= 60):', m.id, 'duration:', duration);
+        }
+        return isLong;
+      });
+      console.log('[Matches] ConfirmedLong matches:', filtered.length);
+      return filtered;
+    },
+    [confirmedWeek]
+  );
+
+// Sections jour → créneaux 1h30 (filtrées semaine)
+const longSectionsWeek = React.useMemo(() => {
+  const byDay = new Map();
+  for (const it of longReadyWeek) {
+    const d = new Date(it.starts_at);
+    const dayKey = d.toLocaleDateString('fr-FR', { weekday: "long", year: "numeric", month: "2-digit", day: "2-digit" });
+    // Garder tous les champs de l'objet original
+    const row = { 
+      key: it.time_slot_id + "-long", 
+      ...it, // Copier tous les champs de l'objet original
+    };
+    const arr = byDay.get(dayKey) || [];
+    arr.push(row);
+    byDay.set(dayKey, arr);
+  }
+  const sections = Array.from(byDay.entries()).map(([title, data]) => ({ title, data: data.sort((a,b)=> new Date(a.starts_at)-new Date(b.starts_at)) }));
+  sections.sort((A, B) => {
+    const a0 = A.data[0]?.starts_at || A.title;
+    const b0 = B.data[0]?.starts_at || B.title;
+    return new Date(a0) - new Date(b0);
+  });
+  console.log('[longSectionsWeek] Sections créées:', sections.length);
+  return sections;
+}, [longReadyWeek]);
+
+// Helper functions
+
+// --- Conflicts: prevent creating overlapping matches for already reserved players (accepted/maybe) ---
+async function findConflictingUsers({ groupId, startsAt, endsAt, userIds = [] }) {
+  const ids = Array.from(new Set((userIds || []).map(String))).filter(Boolean);
+  if (!groupId || !startsAt || !endsAt || ids.length === 0) return new Set();
+
+  const overlaps = (aStart, aEnd, bStart, bEnd) => {
+    if (!aStart || !aEnd || !bStart || !bEnd) return false;
+    const as = new Date(aStart).getTime();
+    const ae = new Date(aEnd).getTime();
+    const bs = new Date(bStart).getTime();
+    const be = new Date(bEnd).getTime();
+    return as < be && ae > bs;
+  };
+
+  // 1) Load pending/confirmed matches for the group with their time slots
+  const { data: matches, error: mErr } = await supabase
+    .from('matches')
+    .select('id, status, time_slot_id, time_slots(*)')
+    .eq('group_id', groupId);
+  if (mErr || !Array.isArray(matches) || matches.length === 0) return new Set();
+
+  const relevant = matches.filter(m => {
+    const st = String(m.status || '').toLowerCase();
+    const ms = m?.time_slots?.starts_at || null;
+    const me = m?.time_slots?.ends_at || null;
+    return (st === 'pending' || st === 'confirmed') && overlaps(startsAt, endsAt, ms, me);
+  });
+  if (relevant.length === 0) return new Set();
+
+  // 2) Load RSVPs for these matches
+  const matchIds = relevant.map(m => m.id);
+  const { data: rsvps } = await supabase
+    .from('match_rsvps')
+    .select('match_id, user_id, status')
+    .in('match_id', matchIds);
+
+  const blocked = new Set();
+  (rsvps || []).forEach(r => {
+    const st = String(r.status || '').toLowerCase();
+    if (st === 'accepted' || st === 'maybe') {
+      const uid = String(r.user_id);
+      if (ids.includes(uid)) blocked.add(uid);
+    }
+  });
+  return blocked;
+}
+function normalizeRsvp(s) {
+  const t = String(s || '').trim().toLowerCase();
+  if (t === 'accepté' || t === 'accepted') return 'accepted';
+  if (t === 'peut-être' || t === 'peut etre' || t === 'maybe') return 'maybe';
+  if (t === 'non' || t === 'no' || t === 'refusé' || t === 'declined') return 'no';
+  return t;
+}
+
+function computeAvailableUsersForInterval(startsAt, endsAt, availabilityData) {
+  if (!availabilityData || availabilityData.length === 0) {
+    return [];
+  }
+  
+  // Filtrer les disponibilités qui chevauchent avec l'intervalle demandé
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  
+  const availableUserIds = availabilityData
+    .filter(avail => {
+      const availStart = new Date(avail.start);
+      const availEnd = new Date(avail.end);
+      
+      // Vérifier si les intervalles se chevauchent
+      // Chevauchement : availStart < end AND availEnd > start
+      const overlaps = availStart < end && availEnd > start;
+      
+      return overlaps;
+    })
+    .map(avail => avail.user_id)
+    .filter((value, index, self) => self.indexOf(value) === index); // Déduplication
+  
+  return availableUserIds;
+}
+
+async function computeAvailableUserIdsForInterval(groupId, startsAt, endsAt) {
+  try {
+    console.log('[computeAvailableUserIdsForInterval] Querying availability for:', { groupId, startsAt, endsAt });
+    
+    // Charger toutes les disponibilités du groupe
+    const { data: availabilityData, error } = await supabase
+      .from('availability')
+      .select('user_id, start, end')
+      .eq('group_id', groupId)
+      .eq('status', 'available');
+    
+    if (error) {
+      console.error('[computeAvailableUserIdsForInterval] Query error:', error);
+      return [];
+    }
+    
+    if (!availabilityData || availabilityData.length === 0) {
+      console.log('[computeAvailableUserIdsForInterval] No availability data found');
+    return [];
+    }
+    
+    console.log('[computeAvailableUserIdsForInterval] Total availability records:', availabilityData.length);
+    
+    return computeAvailableUsersForInterval(startsAt, endsAt, availabilityData);
+  } catch (e) {
+    console.error('[computeAvailableUserIdsForInterval] Exception:', e);
+    return [];
+  }
+}
+
+async function seedMaybeRsvps({ matchId, groupId, startsAt, endsAt, excludeUserId }) {
+  // Seed 'maybe' RSVPs for available players
+  try {
+    const availableIds = await computeAvailableUserIdsForInterval(groupId, startsAt, endsAt);
+    const toSeed = availableIds.filter(id => id !== excludeUserId);
+    
+    if (toSeed.length > 0) {
+      const rows = toSeed.map(uid => ({
+        match_id: matchId,
+        user_id: uid,
+        status: 'maybe',
+      }));
+      
+      await supabase.from('match_rsvps').upsert(rows, { onConflict: 'match_id,user_id' });
+    }
+  } catch (e) {
+    console.warn('[seedMaybeRsvps] failed:', e);
+  }
+}
+
+const cardStyle = {
+  backgroundColor: '#ffffff',
+  padding: 16,
+  borderRadius: 12,
+  marginBottom: 12,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  elevation: 3,
+};
+
+// Composants utilitaires simples
+const MetaLine = ({ m }) => (
+  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+    <Text style={{ color: '#6b7280', fontSize: 14 }}>
+      Créé le {new Date(m.created_at).toLocaleDateString('fr-FR')}
+    </Text>
+    </View>
+  );
+
+const Divider = ({ m = 8 }) => (
+  <View style={{ height: 1, backgroundColor: '#e5e7eb', marginVertical: m }} />
+);
+
+const Badge = ({ tone = 'blue', text }) => (
+  <View
+    style={{
+      backgroundColor: tone === 'amber' ? '#f59e0b' : '#3b82f6',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+      alignSelf: 'flex-start',
+    }}
+  >
+    <Text style={{ color: 'white', fontWeight: '700', fontSize: 12 }}>
+      {text}
+    </Text>
+  </View>
+);
+
+const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected, profile }) => {
+  // Extraire les initiales (2 lettres)
+  let initials = 'U';
+  if (fallback) {
+    const parts = fallback.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      initials = (parts[0][0] || 'U') + (parts[1][0] || 'U');
+    } else if (parts[0]) {
+      initials = parts[0].substring(0, 2).toUpperCase();
+    }
+  }
+  
+  const borderColor = rsvpStatus === 'accepted' ? '#10b981' : rsvpStatus === 'no' ? '#ef4444' : '#f59e0b';
+  const [imageError, setImageError] = React.useState(false);
+  
+  const handlePress = () => {
+    if (onPress) {
+      // Priorité au onPress (sélection de joueur dans matchs possibles)
+      onPress();
+    } else if (profile) {
+      // Navigation vers la page de profil seulement si pas de onPress
+      const { router } = require('expo-router');
+      router.push(`/profiles/${profile.id}`);
+    }
+  };
+
+  const handleLongPress = () => {
+    if (profile) {
+      setSelectedProfile(profile);
+      setShowProfileModal(true);
+    }
+  };
+  
+  return (
+    <Pressable
+      onPress={handlePress}
+      onLongPress={handleLongPress}
+      style={{
+    width: size,
+    height: size,
+    borderRadius: size / 2,
+        backgroundColor: '#d1d5db',
+        borderWidth: 2,
+        borderColor: selected ? '#15803d' : borderColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+      }}
+    >
+      {uri && !imageError ? (
+    <Image
+      source={{ uri }}
+          style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
+          onError={() => setImageError(true)}
+    />
+  ) : (
+        <Text style={{ 
+          fontSize: size < 40 ? size / 2.5 : size / 3, 
+          fontWeight: '900', 
+          color: '#374151',
+          textAlign: 'center',
+        }}>
+          {initials}
+    </Text>
+      )}
+    </Pressable>
+  );
+};
+
+  // Compteurs pour les onglets (filtrer par semaine aussi)
+  const proposedTabCount = React.useMemo(() => 
+    (hourReadyWeek || []).filter(it => {
+      const endTime = new Date(it.ends_at);
+      return endTime > new Date();
+    }).length + (longReadyWeek || []).filter(it => {
+      const endTime = new Date(it.ends_at);
+      return endTime > new Date();
+    }).length
+  , [hourReadyWeek, longReadyWeek]);
+  
+  const rsvpTabCount = React.useMemo(() => 
+    (pendingWeek || []).filter(m => m?.time_slots?.starts_at && m?.time_slots?.ends_at && isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)).length
+  , [pendingWeek, currentWs, currentWe]);
+  
+  const confirmedTabCount = React.useMemo(() => {
+    const filtered = (confirmedWeek || []).filter(m => {
+      // Si pas de time_slots, inclure dans le compteur (sera affiché dans les listes)
+      if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
+        console.log('[ConfirmedTabCount] Match sans time_slots (inclus):', m.id);
+        return true;
+      }
+      const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+      if (!inRange) {
+        console.log('[ConfirmedTabCount] Match hors semaine:', m.id, 'starts_at:', m.time_slots.starts_at, 'ends_at:', m.time_slots.ends_at);
+      }
+      return inRange;
+    });
+    console.log('[Matches] ConfirmedTabCount (with week filter):', filtered.length, 'matches');
+    return filtered.length;
+  }, [confirmedWeek, currentWs, currentWe]);
+  
+  // Version pour forcer le re-render quand RSVPs changent
+  const rsvpsVersion = React.useMemo(() => {
+    return Object.values(rsvpsByMatch || {}).reduce(
+      (n, v) => n + (Array.isArray(v) ? v.length : 0),
+      0
+    );
+  }, [rsvpsByMatch]);
+
+  // Fonction pour charger les données
+  const fetchData = useCallback(async () => {
+    if (!groupId) return;
+    setLoading(true);
+    try {
+      console.log('[Matches] fetchData called for group:', groupId);
+      // Compute week bounds for limiting virtual slot generation to the visible week
+      const { ws: wsBound, we: weBound } = weekBoundsFromOffset(weekOffset);
+      const weekStartMs = new Date(wsBound).setHours(0,0,0,0);
+      const weekEndMs = new Date(weBound).setHours(23,59,59,999);
+      const nowMs = Date.now();
+      
+      // Charger les créneaux disponibles (time_slots) pour ce groupe
+      // Charger d'abord les time_slots et construire la map
+      // Charger les créneaux disponibles (time_slots) pour ce groupe
+      const { data: timeSlotsData } = await supabase
+        .from('time_slots')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('starts_at');
+
+      // Map for quick lookup of time_slots by id
+      const timeSlotById = new Map((timeSlotsData || []).map(ts => [ts.id, ts]));
+
+      // Charger les matches AVANT pour savoir lesquels time_slots ont déjà un match bloquant (pending/confirmed futur)
+      const { data: matchesDataPreload } = await supabase
+        .from('matches')
+        .select('id, time_slot_id, status')
+        .eq('group_id', groupId);
+
+      // Créer un Set des time_slot_id qui ont déjà un match PENDING/CONFIRMED **à venir**
+      const timeSlotsWithMatch = new Set(
+        (matchesDataPreload || [])
+          .filter((m) => {
+            const st = String(m.status || '').toLowerCase();
+            if (st !== 'confirmed') return false;
+            const ts = m.time_slot_id ? timeSlotById.get(m.time_slot_id) : null;
+            if (!ts || !ts.ends_at) return false;
+            return new Date(ts.ends_at).getTime() > nowMs; // on ne bloque que les matches futurs
+          })
+          .map((m) => m.time_slot_id)
+          .filter(Boolean)
+      );
+      console.log('[Matches] Time_slots avec match bloquant (futur):', timeSlotsWithMatch.size);
+
+      // Déclarer ready EN VRAI en dehors du if pour être accessible partout
+      let ready = [];
+
+      if (timeSlotsData) {
+        // Filtrer les time_slots qui n'ont pas encore de match BLOQUANT et qui sont dans la semaine visible et le futur
+        const availableTimeSlots = (timeSlotsData || [])
+          .filter((ts) => !timeSlotsWithMatch.has(ts.id))
+          .filter((ts) => {
+            const endMs = ts?.ends_at ? new Date(ts.ends_at).getTime() : 0;
+            return endMs > nowMs && isInWeekRange(ts.starts_at, ts.ends_at, wsBound, weBound);
+          });
+        console.log('[Matches] Time_slots disponibles:', availableTimeSlots.length, 'sur', timeSlotsData.length);
+        
+        // Charger UNE FOIS toutes les disponibilités du groupe pour éviter trop de requêtes
+        const { data: availabilityData, error: availabilityError } = await supabase
+          .from('availability')
+          .select('user_id, start, end')
+          .eq('group_id', groupId)
+          .eq('status', 'available');
+        
+        console.log('[Matches] Disponibilités chargées:', availabilityData?.length || 0, 'erreur:', availabilityError);
+        if (availabilityData && availabilityData.length > 0) {
+          console.log('[Matches] Exemple de disponibilité:', availabilityData[0]);
+        }
+        
+        // D'abord, traiter les time_slots existants
+        for (const ts of availableTimeSlots) {
+          const availUserIds = computeAvailableUsersForInterval(ts.starts_at, ts.ends_at, availabilityData);
+          const availCount = availUserIds ? availUserIds.length : 0;
+          
+          if (availCount >= 4) {
+            console.log('[Matches] ✅ Créneau avec 4+ joueurs:', ts.id, 'starts_at:', ts.starts_at, 'joueurs:', availCount);
+          }
+          
+          // Afficher tous les créneaux, même avec moins de 4 joueurs
+          ready.push({
+            time_slot_id: ts.id,
+            starts_at: ts.starts_at,
+            ends_at: ts.ends_at,
+            ready_user_ids: availUserIds || [],
+            hot_user_ids: [],
+          });
+        }
+        
+        // Créer des créneaux virtuels à partir des disponibilités
+        if (availabilityData && availabilityData.length > 0) {
+          console.log('[Matches] 🎯 Création de créneaux virtuels à partir des disponibilités');
+
+          // Collecter tous les slots possibles **toutes les 30 min** sur la semaine visible
+          const allSlots = new Set();
+          for (const avail of availabilityData) {
+            let aStart = new Date(avail.start);
+            const aEnd = new Date(avail.end);
+
+            // Limiter à la semaine visible et au futur
+            const windowStartMs = Math.max(nowMs, weekStartMs, aStart.getTime());
+            const windowEndMs = Math.min(weekEndMs, aEnd.getTime());
+            if (windowEndMs <= windowStartMs) continue;
+
+            // Arrondir le curseur au prochain multiple de 30 min
+            const stepMs = 30 * 60 * 1000;
+            let cursor = new Date(Math.ceil(windowStartMs / stepMs) * stepMs);
+            while (cursor.getTime() < windowEndMs) {
+              allSlots.add(cursor.toISOString());
+              cursor = new Date(cursor.getTime() + stepMs);
+            }
+          }
+
+          console.log('[Matches] 🎯 Nombre de slots (ticks 30min) dans la semaine:', allSlots.size);
+
+          // Pour chaque tick de départ, créer des créneaux si 4+ joueurs disponibles
+          for (const slotStartISO of allSlots) {
+            const slotStart = new Date(slotStartISO);
+            const slotEnd60 = new Date(slotStart.getTime() + 60 * 60 * 1000);
+            const slotEnd90 = new Date(slotStart.getTime() + 90 * 60 * 1000);
+
+            // Compter les joueurs qui CHEVAUCHENT avec ce créneau (union, pas intersection)
+            const players60 = availabilityData
+              .filter(a => {
+                const aStart = new Date(a.start);
+                const aEnd = new Date(a.end);
+                // Chevauchement simple
+                return aStart < slotEnd60 && aEnd > slotStart;
+              })
+              .map(a => a.user_id);
+
+            const players90 = availabilityData
+              .filter(a => {
+                const aStart = new Date(a.start);
+                const aEnd = new Date(a.end);
+                // Chevauchement simple
+                return aStart < slotEnd90 && aEnd > slotStart;
+              })
+              .map(a => a.user_id);
+
+            const uniquePlayers60 = [...new Set(players60)];
+            const uniquePlayers90 = [...new Set(players90)];
+
+            // Vérifier si ce créneau virtuel chevauche avec un time_slot existant
+            const overlapsWithExistingSlot = (startsAt, endsAt) => {
+              return (timeSlotsData || []).some(ts => {
+                const tsStart = new Date(ts.starts_at);
+                const tsEnd = new Date(ts.ends_at);
+                return tsStart < endsAt && tsEnd > startsAt;
+              });
+            };
+
+            if (uniquePlayers60.length >= 4) {
+              const slotStartISO = slotStart.toISOString();
+              const slotEnd60ISO = slotEnd60.toISOString();
+              
+              if (!overlapsWithExistingSlot(slotStart, slotEnd60)) {
+                ready.push({
+                  time_slot_id: `virtual-60-${slotStart.getTime()}`,
+                  starts_at: slotStartISO,
+                  ends_at: slotEnd60ISO,
+                  ready_user_ids: uniquePlayers60,
+                  hot_user_ids: [],
+                });
+                console.log('[Matches] ✅ Créneau virtuel 1h:', slotStartISO, 'avec', uniquePlayers60.length, 'joueurs');
+              } else {
+                console.log('[Matches] ⚠️ Créneau virtuel 1h ignoré (chevauche avec time_slot existant):', slotStartISO);
+              }
+            }
+
+            if (uniquePlayers90.length >= 4) {
+              const slotStartISO = slotStart.toISOString();
+              const slotEnd90ISO = slotEnd90.toISOString();
+              
+              if (!overlapsWithExistingSlot(slotStart, slotEnd90)) {
+                ready.push({
+                  time_slot_id: `virtual-90-${slotStart.getTime()}`,
+                  starts_at: slotStartISO,
+                  ends_at: slotEnd90ISO,
+                  ready_user_ids: uniquePlayers90,
+                  hot_user_ids: [],
+                });
+                console.log('[Matches] ✅ Créneau virtuel 1h30:', slotStartISO, 'avec', uniquePlayers90.length, 'joueurs');
+              } else {
+                console.log('[Matches] ⚠️ Créneau virtuel 1h30 ignoré (chevauche avec time_slot existant):', slotStartISO);
+              }
+            }
+          }
+        }
+      } // Fin du if (timeSlotsData)
+      
+      // Définir ready pour stocker temporairement
+      let tempReady = ready;
+      
+      console.log('[Matches] Créneaux avant post-processing:', tempReady.length);
+
+      // Charger les matches
+      const { data: matchesData, error: matchesError } = await supabase
+        .from('matches')
+        .select('*, time_slots(*)')
+        .eq('group_id', groupId)
+        .order('created_at', { ascending: false });
+      
+      if (matchesError) {
+        console.error('[Matches] Error loading matches:', matchesError);
+      }
+      
+      if (matchesData && matchesData.length > 0) {
+        console.log('[Matches] Total matches loaded:', matchesData.length);
+        console.log('[Matches] First match sample:', JSON.stringify(matchesData[0], null, 2));
+        
+        // Vérifier tous les matches confirmés
+        const confirmed = matchesData.filter(m => m.status === 'confirmed');
+        console.log('[Matches] Confirmed matches:', confirmed.length);
+        confirmed.forEach((m, idx) => {
+          console.log(`[Matches] Confirmed ${idx + 1}: id=${m.id}, time_slot_id=${m.time_slot_id}, time_slots=`, m.time_slots);
+        });
+      }
+
+      if (matchesData) {
+        // Log les champs de tous les matches confirmés
+        const confirmed2 = matchesData.filter(m => m.status === 'confirmed');
+        console.log('[Matches] 🔍 DEBUG Confirmed matches, affichage de TOUS les champs:');
+        confirmed2.forEach((m, idx) => {
+          console.log(`[Matches] Confirmed ${idx + 1} - TOUS LES CHAMPS:`, Object.keys(m));
+          console.log(`[Matches] Confirmed ${idx + 1} - OBJET COMPLET:`, m);
+        });
+      }
+
+      if (matchesData) {
+        const pending = matchesData.filter(m => m.status === 'open' || m.status === 'pending');
+        const confirmed = matchesData.filter(m => m.status === 'confirmed');
+        console.log('[Matches] Pending matches:', pending.length, 'Confirmed matches:', confirmed.length);
+        
+        // Debug: vérifier si des matches ont 4 RSVPs acceptés
+        pending.forEach(m => {
+          const rsvps = rsvpsByMatch[m.id] || [];
+          const accepted = rsvps.filter(r => String(r.status || '').toLowerCase() === 'accepted');
+          console.log('[Matches] Pending match:', m.id, 'status:', m.status, 'RSVPs acceptés:', accepted.length);
+        });
+        
+        // Log tous les matches confirmés avec leurs dates
+        confirmed.forEach((m, idx) => {
+          const hasTimeSlots = !!(m.time_slots?.starts_at && m.time_slots?.ends_at);
+          const endDate = m.time_slots?.ends_at;
+          const isPast = endDate ? new Date(endDate) < new Date() : true;
+          console.log(`[Matches] Confirmed ${idx}: ${m.id}, hasTimeSlots: ${hasTimeSlots}, ends_at: ${endDate}, isPast: ${isPast}, time_slot_id: ${m.time_slot_id}`);
+        });
+        
+        // Log tous les champs d'un match pour debug
+        if (confirmed.length > 0) {
+          console.log('[Matches] Sample confirmed match fields:', Object.keys(confirmed[0]));
+          console.log('[Matches] Sample confirmed match:', JSON.stringify(confirmed[0], null, 2));
+        }
+        
+        setMatchesPending(pending);
+        setMatchesConfirmed(confirmed);
+      }
+
+      // Charger les RSVPs via les matchs du groupe
+      let rsvpsData = [];
+      if (matchesData && matchesData.length > 0) {
+        const matchIds = matchesData.map(m => m.id).filter(Boolean);
+        if (matchIds.length > 0) {
+          const { data: rsvps, error: rsvpsError } = await supabase
+          .from('match_rsvps')
+            .select('*')
+          .in('match_id', matchIds);
+
+          if (rsvpsError) {
+            console.error('[Matches] Error loading RSVPs:', rsvpsError);
+          } else if (rsvps) {
+            rsvpsData = rsvps;
+          }
+        }
+      }
+
+      // Déclarer grouped EN VRAI en dehors du if pour être accessible partout
+      const grouped = {};
+
+      if (rsvpsData.length > 0) {
+        console.log('[Matches] Loaded', rsvpsData.length, 'RSVPs');
+        if (rsvpsData[0]) console.log('[Matches] Sample RSVP:', rsvpsData[0]);
+        for (const rsvp of rsvpsData) {
+          if (!grouped[rsvp.match_id]) grouped[rsvp.match_id] = [];
+          grouped[rsvp.match_id].push(rsvp);
+        }
+        console.log('[Matches] RSVPs grouped by', Object.keys(grouped).length, 'matches');
+        setRsvpsByMatch(grouped);
+        // Filter relevant matches: only pending/confirmed, valid interval, not finished
+        const nowTs = Date.now();
+        const relevantMatches = (matchesData || []).filter(m => {
+          const st = String(m.status || '').toLowerCase();
+          const ms = m?.time_slots?.starts_at || null;
+          const me = m?.time_slots?.ends_at || null;
+          // consider only pending/confirmed, with valid interval, and not finished
+          return (st === 'pending' || st === 'confirmed')
+            && !!ms && !!me
+            && new Date(me).getTime() > nowTs;
+        });
+      }
+
+      // Charger les profils - Tous les membres du groupe
+      const { data: membersData, error: membersError } = await supabase
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', groupId);
+
+      console.log('[Matches] Group members:', membersData?.length || 0);
+
+      if (membersData && membersData.length > 0) {
+        const memberIds = membersData.map(m => m.user_id).filter(Boolean);
+        console.log('[Matches] Member IDs:', memberIds);
+        setAllGroupMemberIds(memberIds);
+
+        if (memberIds.length > 0) {
+          const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+            .select('*')
+            .in('id', memberIds);
+
+          if (profilesError) {
+            console.error('[Matches] Error loading profiles:', profilesError);
+          }
+
+          if (profilesData && profilesData.length > 0) {
+            const profilesMap = {};
+            profilesData.forEach(p => {
+              const key = String(p.id);
+              profilesMap[key] = p;
+              console.log('[Matches] Profile loaded:', key, p.display_name || p.name || p.email || 'sans nom');
+            });
+            console.log('[Matches] Loaded', profilesData.length, 'profiles into map');
+            setProfilesById(profilesMap);
+      } else {
+            console.warn('[Matches] No profiles loaded for members');
+          }
+        }
+      } else {
+        console.warn('[Matches] No members found for group');
+      }
+
+      // --- Post-process propositions: remove players already booked on overlapping pending/confirmed matches ---
+      // IMPORTANT: On le fait ici car on a maintenant matchesData et grouped chargés
+      try {
+        const overlaps = (aStart, aEnd, bStart, bEnd) => {
+          if (!aStart || !aEnd || !bStart || !bEnd) return false;
+          const as = new Date(aStart).getTime();
+          const ae = new Date(aEnd).getTime();
+          const bs = new Date(bStart).getTime();
+          const be = new Date(bEnd).getTime();
+          return as < be && ae > bs; // strict overlap
+        };
+
+        const reservedUsersForMatch = (mid) => {
+          const arr = grouped[mid] || [];
+          return new Set(
+            arr
+              .filter(r => {
+                const st = String(r.status || '').toLowerCase();
+                return st === 'accepted' || st === 'maybe'; // traiter aussi les "maybe" comme réservés
+              })
+              .map(r => String(r.user_id))
+          );
+        };
+
+        // Helper pour vérifier si deux dates sont le même jour
+        const isSameDay = (date1, date2) => {
+          if (!date1 || !date2) return false;
+          const d1 = new Date(date1);
+          const d2 = new Date(date2);
+          return d1.getFullYear() === d2.getFullYear() &&
+                 d1.getMonth() === d2.getMonth() &&
+                 d1.getDate() === d2.getDate();
+        };
+        
+        // Collect booked users per overlapping interval from pending/confirmed matches
+        // IMPORTANT: Uniquement si même jour ET horaires qui chevauchent
+        const bookedUsersForInterval = (startsAt, endsAt) => {
+          const booked = new Set();
+          (matchesData || []).forEach(m => {
+            const st = String(m.status || '').toLowerCase();
+            if (st !== 'pending' && st !== 'confirmed') return;
+            const ms = m?.time_slots?.starts_at || null;
+            const me = m?.time_slots?.ends_at || null;
+            if (!ms || !me) return;
+            const now = new Date();
+            if (new Date(me) <= now) return; // ignorer les matches passés
+            
+            // Vérifier d'abord si c'est le même jour
+            if (!isSameDay(startsAt, ms)) {
+              return; // Skip si pas le même jour
+            }
+            
+            // Puis vérifier si les horaires se chevauchent (même jour)
+            if (!overlaps(startsAt, endsAt, ms, me)) return;
+            
+            reservedUsersForMatch(m.id).forEach(uid => booked.add(uid));
+            console.log('[Matches] Joueur "maybe/accepted" trouvé sur créneau qui chevauche (même jour):', ms);
+          });
+          return booked;
+        };
+
+        // Create a deep-adjusted list, removing booked users from ready_user_ids
+        let adjusted = tempReady.map(slot => {
+          const booked = bookedUsersForInterval(slot.starts_at, slot.ends_at);
+          // If none of the booked users are part of this proposition, leave it untouched
+          const hasConcerned = (slot.ready_user_ids || []).some(uid => booked.has(String(uid)));
+          if (!hasConcerned) {
+            return slot; // no change for non-concerned slots
+          }
+          const nextIds = (slot.ready_user_ids || []).map(String).filter(uid => !booked.has(uid));
+          return { ...slot, ready_user_ids: nextIds };
+        });
+
+        // Keep only slots with >=4 remaining players
+        adjusted = adjusted.filter(slot => Array.isArray(slot.ready_user_ids) && slot.ready_user_ids.length >= 4);
+
+        console.log('[Matches] Après filtrage par conflits (joueurs déjà engagés):', adjusted.length, 'créneaux');
+
+        // Final split by duration
+        const longReadyFiltered = adjusted.filter(s => durationMinutes(s.starts_at, s.ends_at) > 60);
+        const hourReadyFiltered = adjusted.filter(s => durationMinutes(s.starts_at, s.ends_at) <= 60);
+
+        setReady(adjusted);
+        setLongReady(longReadyFiltered);
+        setHourReady(hourReadyFiltered);
+      } catch (e) {
+        console.warn('[Matches] Post-process propositions failed, falling back to raw ready list:', e?.message || e);
+        const longReadyFiltered = (tempReady || []).filter(s => durationMinutes(s.starts_at, s.ends_at) > 60);
+        const hourReadyFiltered = (tempReady || []).filter(s => durationMinutes(s.starts_at, s.ends_at) <= 60);
+        setReady(tempReady || []);
+        setLongReady(longReadyFiltered);
+        setHourReady(hourReadyFiltered);
+      }
+      
+      console.log('[Matches] fetchData completed');
+    } catch (e) {
+      console.error('[Matches] fetchData error:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [groupId, weekOffset]);
+
+  // Charger les données au montage ou quand le groupe change
+  useEffect(() => {
+    console.log('[Matches] useEffect called, groupId:', groupId, 'weekOffset:', weekOffset);
+    if (groupId) {
+      fetchData();
+    } else {
+      setLoading(false);
+    }
+  }, [groupId, weekOffset]); // ✅ relance aussi quand la semaine visible change
+
+  useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
       setMeId(data?.user?.id ?? null);
@@ -124,6 +1262,7 @@ useEffect(() => {
                 if (i >= 0) arr[i] = { ...arr[i], ...item };
                 else arr.push(item);
                 next[matchId] = arr;
+                fetchData(); // ✅ ici : relance recalcul des créneaux possibles
                 return next;
               }
 
@@ -133,6 +1272,7 @@ useEffect(() => {
                   arr.splice(i, 1);
                   next[matchId] = arr;
                 }
+                fetchData(); // ✅ ici aussi
                 return next;
               }
 
@@ -370,6 +1510,39 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
   const onCreateMatch = useCallback(
     async (time_slot_id, selectedUserIds = []) => {
       if (!groupId) return;
+      // Preflight: prevent overlapping creation with same players
+      try {
+        // Resolve the time range of the selected time_slot
+        const { data: slotRow } = await supabase
+          .from('time_slots')
+          .select('starts_at, ends_at')
+          .eq('id', time_slot_id)
+          .maybeSingle();
+        if (slotRow?.starts_at && slotRow?.ends_at && Array.isArray(selectedUserIds) && selectedUserIds.length) {
+          const conflicts = await findConflictingUsers({
+            groupId,
+            startsAt: slotRow.starts_at,
+            endsAt: slotRow.ends_at,
+            userIds: selectedUserIds,
+          });
+          if (conflicts.size > 0) {
+            // Auto-resolve: remove conflicting users from selection instead of blocking
+            const conflictIds = new Set(Array.from(conflicts).map(String));
+            const filteredUserIds = (selectedUserIds || [])
+              .map(String)
+              .filter((id) => !conflictIds.has(id));
+
+            if (filteredUserIds.length < 4) {
+              const txt = `Conflit: ${conflicts.size} joueur(s) déjà réservé(s) sur un créneau qui chevauche.\nIl ne reste pas 4 joueurs disponibles pour ce créneau.`;
+              if (Platform.OS === 'web') window.alert(txt); else Alert.alert('Conflit', txt);
+              return;
+            }
+
+            // Use the filtered list for the rest of the creation flow
+            selectedUserIds = filteredUserIds;
+          }
+        }
+      } catch {}
       try {
         const { error } = await supabase.rpc("create_match_from_slot", {
           p_group: groupId,
@@ -445,27 +1618,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             }
           } catch {}
 
-          // Seed default 'maybe' for other available players covering the slot
-          try {
-            if (createdMatch?.id) {
-              const { data: slotRow } = await supabase
-                .from('time_slots')
-                .select('starts_at, ends_at')
-                .eq('id', time_slot_id)
-                .maybeSingle();
-              if (slotRow?.starts_at && slotRow?.ends_at) {
-                await seedMaybeRsvps({
-                  matchId: createdMatch.id,
-                  groupId,
-                  startsAt: slotRow.starts_at,
-                  endsAt: slotRow.ends_at,
-                  excludeUserId: uid,
-                });
-              }
-            }
-          } catch (seedErr) {
-            console.warn('[Matches] seedMaybeRsvps (slot) failed:', seedErr?.message || seedErr);
-          }
         } catch (autoErr) {
           // on ne bloque pas la création si l'auto-RSVP échoue
           console.warn('[Matches] auto-RSVP failed:', autoErr?.message || autoErr);
@@ -490,6 +1642,33 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
   const onCreateIntervalMatch = useCallback(
     async (starts_at_iso, ends_at_iso, selectedUserIds = []) => {
       if (!groupId) return;
+      // Preflight: prevent overlapping creation with same players
+      try {
+        if (Array.isArray(selectedUserIds) && selectedUserIds.length) {
+          const conflicts = await findConflictingUsers({
+            groupId,
+            startsAt: starts_at_iso,
+            endsAt: ends_at_iso,
+            userIds: selectedUserIds,
+          });
+          if (conflicts.size > 0) {
+            // Auto-resolve: remove conflicting users from selection instead of blocking
+            const conflictIds = new Set(Array.from(conflicts).map(String));
+            const filteredUserIds = (selectedUserIds || [])
+              .map(String)
+              .filter((id) => !conflictIds.has(id));
+
+            if (filteredUserIds.length < 4) {
+              const txt = `Conflit: ${conflicts.size} joueur(s) déjà réservé(s) sur un créneau qui chevauche.\nIl ne reste pas 4 joueurs disponibles pour cet intervalle.`;
+              if (Platform.OS === 'web') window.alert(txt); else Alert.alert('Conflit', txt);
+              return;
+            }
+
+            // Use the filtered list for the rest of the creation flow
+            selectedUserIds = filteredUserIds;
+          }
+        }
+      } catch {}
       try {
         // 1) Primary path: RPC returns the created match id (uuid) directly
         let newMatchId = null;
@@ -500,6 +1679,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             p_starts_at: starts_at_iso,
             p_ends_at: ends_at_iso,
           });
+          console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
           if (error) rpcErr = error; else newMatchId = data;
         } catch (e) {
           rpcErr = e;
@@ -556,11 +1736,12 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             // Create the match by reusing the existing slot
             const { data: ins, error: eIns } = await supabase
               .from('matches')
-              .insert({ group_id: groupId, time_slot_id: slot.id, status: 'open' })
-              .select('id')
+              .insert({ group_id: groupId, time_slot_id: slot.id, status: 'pending' })
+              .select('id, status')
               .single();
             if (eIns) throw eIns;
             newMatchId = ins?.id || null;
+            console.log('[onCreateIntervalMatch] Match créé:', newMatchId, 'status:', ins?.status);
             // Ensure ends_at we propagate below is coherent with the slot row
             if (slot?.starts_at && slot?.ends_at) {
               starts_at_iso = slot.starts_at;
@@ -583,6 +1764,26 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             Alert.alert('Action impossible', 'Aucun match créé pour cet intervalle.');
           }
           return;
+        }
+        
+        // Vérifier et mettre à jour le statut si nécessaire pour qu'il soit 'pending'
+        try {
+          const { data: matchCheck } = await supabase
+            .from('matches')
+            .select('id, status')
+            .eq('id', newMatchId)
+            .maybeSingle();
+          console.log('[onCreateIntervalMatch] Match status after RPC:', matchCheck?.status);
+          
+          if (matchCheck && matchCheck.status !== 'pending') {
+            console.log('[onCreateIntervalMatch] Updating status from', matchCheck.status, 'to pending');
+            await supabase
+              .from('matches')
+              .update({ status: 'pending' })
+              .eq('id', newMatchId);
+          }
+        } catch (e) {
+          console.warn('[onCreateIntervalMatch] Error checking/updating match status:', e);
         }
 
         // 2) Auto-RSVP: mark current user as 'accepted'
@@ -640,21 +1841,20 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
           }
         } catch {}
 
-        // 3) Seed default 'maybe' for other available players across the whole interval
-        try {
-          await seedMaybeRsvps({
-            matchId: newMatchId,
-            groupId,
-            startsAt: starts_at_iso,
-            endsAt: ends_at_iso,
-            excludeUserId: uid,
-          });
-        } catch (seedErr) {
-          console.warn('[Matches] seedMaybeRsvps (interval) failed:', seedErr?.message || seedErr);
-        }
 
-        // 4) Refresh lists and notify UX
+        // 4) Verify the match was created with correct status
+        if (newMatchId) {
+          const { data: checkMatch } = await supabase
+            .from('matches')
+            .select('id, status')
+            .eq('id', newMatchId)
+            .maybeSingle();
+          console.log('[onCreateIntervalMatch] Match créé check:', checkMatch);
+        }
+        
+        // 5) Refresh lists and notify UX
         await fetchData();
+        
         if (Platform.OS === 'web') {
           window.alert('Match créé 🎾\nLe créneau a été transformé en match.');
         } else {
@@ -1033,6 +2233,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
           phone={phone}
           onPress={onPress}
           selected={selected}
+          profile={profile}
         />
         {level != null && level !== '' && (
           <View
@@ -1079,7 +2280,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     const canCreate = type === 'ready' && selectedIds.length === 4;
     return (
       <View style={[cardStyle, { minHeight: 120 }]}>
-        <Text style={{ fontWeight: "800", color: "#111827", fontSize: 18, marginBottom: 6 }}>
+        <Text style={{ fontWeight: "800", color: "#111827", fontSize: 16, marginBottom: 6 }}>
           {formatRange(item.starts_at, item.ends_at)}
         </Text>
         <Divider m={8} />
@@ -1121,7 +2322,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
                 {canCreate && (
                   <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
                 )}
-                <Text style={{ color: "white", fontWeight: "800", fontSize: 20 }}>
+                <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
                   {canCreate ? "Créer un match" : "Sélectionne 4 joueurs"}
                 </Text>
               </View>
@@ -1134,42 +2335,9 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 
 // --- 1h30 ---
 const LongSlotRow = ({ item }) => {
-  const directIds = item.long_user_ids || [];
-
-  // Fallback: calcul local si la vue ne fournit pas les ids
-  const [availIds, setAvailIds] = React.useState([]);
-  const [extraProfiles, setExtraProfiles] = React.useState({});
-
-  React.useEffect(() => {
-    (async () => {
-      if ((directIds || []).length > 0) {
-        setAvailIds([]);
-        setExtraProfiles({});
-        return;
-      }
-      const s = item?.starts_at;
-      const e = item?.ends_at;
-      if (!s || !e) return setAvailIds([]);
-
-      const ids = await computeAvailableUserIdsForInterval(groupId, s, e);
-      setAvailIds(Array.isArray(ids) ? ids : []);
-
-      const missing = (Array.isArray(ids) ? ids : []).filter((id) => !profilesById[id]);
-      if (missing.length) {
-        const { data: profs } = await supabase
-          .from('profiles')
-          .select('id, display_name, avatar_url, email, niveau, phone')
-          .in('id', missing);
-        const map = Object.fromEntries((profs || []).map((p) => [p.id, p]));
-        setExtraProfiles(map);
-      } else {
-        setExtraProfiles({});
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.starts_at, item?.ends_at, profilesById, groupId]);
-
-  const userIds = (directIds && directIds.length) ? directIds : availIds;
+  console.log('[LongSlotRow] Rendered for item:', item.time_slot_id, 'starts_at:', item.starts_at);
+  // Utiliser directement tous les membres du groupe
+  const userIds = allGroupMemberIds;
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -1191,7 +2359,8 @@ const LongSlotRow = ({ item }) => {
 
       <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
         {userIds.map((uid) => {
-          const p = profilesById[String(uid)] || extraProfiles[uid] || {};
+          const p = profilesById[String(uid)] || {};
+          console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
           return (
             <LevelAvatar
               key={String(uid)}
@@ -1225,7 +2394,7 @@ const LongSlotRow = ({ item }) => {
             {canCreate && (
               <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
             )}
-            <Text style={{ color: "white", fontWeight: "800", fontSize: 20 }}>
+            <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
               {canCreate ? "Créer un match" : "Sélectionne 4 joueurs"}
             </Text>
           </View>
@@ -1237,41 +2406,8 @@ const LongSlotRow = ({ item }) => {
 
 // --- 1h ---
 const HourSlotRow = ({ item }) => {
-  const directIds = item.hour_user_ids || [];
-
-  const [availIds, setAvailIds] = React.useState([]);
-  const [extraProfiles, setExtraProfiles] = React.useState({});
-
-  React.useEffect(() => {
-    (async () => {
-      if ((directIds || []).length > 0) {
-        setAvailIds([]);
-        setExtraProfiles({});
-        return;
-      }
-      const s = item?.starts_at;
-      const e = item?.ends_at;
-      if (!s || !e) return setAvailIds([]);
-
-      const ids = await computeAvailableUserIdsForInterval(groupId, s, e);
-      setAvailIds(Array.isArray(ids) ? ids : []);
-
-      const missing = (Array.isArray(ids) ? ids : []).filter((id) => !profilesById[id]);
-      if (missing.length) {
-        const { data: profs } = await supabase
-          .from('profiles')
-          .select('id, display_name, avatar_url, email, niveau, phone')
-          .in('id', missing);
-        const map = Object.fromEntries((profs || []).map((p) => [p.id, p]));
-        setExtraProfiles(map);
-      } else {
-        setExtraProfiles({});
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.starts_at, item?.ends_at, profilesById, groupId]);
-
-  const userIds = (directIds && directIds.length) ? directIds : availIds;
+  // Utiliser directement tous les membres du groupe
+  const userIds = allGroupMemberIds;
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -1293,7 +2429,8 @@ const HourSlotRow = ({ item }) => {
 
       <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
         {userIds.map((uid) => {
-          const p = profilesById[String(uid)] || extraProfiles[uid] || {};
+          const p = profilesById[String(uid)] || {};
+          console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
           return (
             <LevelAvatar
               key={String(uid)}
@@ -1327,7 +2464,7 @@ const HourSlotRow = ({ item }) => {
             {canCreate && (
               <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
             )}
-            <Text style={{ color: "white", fontWeight: "800", fontSize: 20 }}>
+            <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
               {canCreate ? "Créer un match" : "Sélectionne 4 joueurs"}
             </Text>
           </View>
@@ -1369,7 +2506,7 @@ const HourSlotRow = ({ item }) => {
     // --- End: inserted availIds/extraProfiles state and effect
     return (
       <View style={cardStyle}>
-        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 18, marginBottom: 6 }}>{formatRange(slot.starts_at, slot.ends_at)}</Text>
+        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>{formatRange(slot.starts_at, slot.ends_at)}</Text>
         <MetaLine m={m} />
         <Divider m={8} />
         <View style={{ marginBottom: 8 }}>
@@ -1397,7 +2534,37 @@ const HourSlotRow = ({ item }) => {
   };
 
   const MatchCardConfirmed = ({ m }) => {
-    const slot = m?.time_slots || {};
+    // time_slots peut être un array ou un objet
+    const initialSlot = Array.isArray(m?.time_slots) ? (m.time_slots[0] || null) : (m?.time_slots || null);
+    const [loadedSlot, setLoadedSlot] = React.useState(initialSlot);
+    const slot = loadedSlot || {};
+    
+    // Charger le time_slot si manquant
+    React.useEffect(() => {
+      console.log('[MatchCardConfirmed] Render for match:', m?.id, 'slot_id:', m?.time_slot_id);
+      console.log('[MatchCardConfirmed] Initial slot:', loadedSlot ? 'loaded' : 'NULL', 'm.time_slots:', m?.time_slots);
+      
+      if (!loadedSlot && m?.time_slot_id) {
+        console.log('[MatchCardConfirmed] ⚡️ CHARGEMENT DU TIME_SLOT:', m.time_slot_id);
+        (async () => {
+          const { data: timeSlotData, error } = await supabase
+            .from('time_slots')
+            .select('*')
+            .eq('id', m.time_slot_id)
+            .maybeSingle();
+          console.log('[MatchCardConfirmed] ⚡️ Resultat:', timeSlotData, 'error:', error);
+          if (timeSlotData) {
+            console.log('[MatchCardConfirmed] ✅ Time_slot chargé:', timeSlotData.id, 'starts_at:', timeSlotData.starts_at, 'ends_at:', timeSlotData.ends_at);
+            setLoadedSlot(timeSlotData);
+          } else {
+            console.error('[MatchCardConfirmed] ❌ Time_slot non trouvé pour:', m.time_slot_id);
+          }
+        })();
+      } else if (!m?.time_slot_id) {
+        console.error('[MatchCardConfirmed] ❌ Pas de time_slot_id pour le match:', m?.id);
+      }
+    }, [m?.time_slot_id, loadedSlot, m?.time_slots]);
+    
     const rsvps = rsvpsByMatch[m.id] || [];
     const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
     const acceptedCount = accepted.length;
@@ -1432,16 +2599,32 @@ const HourSlotRow = ({ item }) => {
       }
     }, [reserved, savingReserved, m?.id]);
 
+    // Récupérer la date du créneau
+    const slotDate = (slot.starts_at && slot.ends_at) ? formatRange(slot.starts_at, slot.ends_at) : '';
+    console.log('[MatchCardConfirmed] slotDate:', slotDate, 'slot.starts_at:', slot.starts_at, 'slot.ends_at:', slot.ends_at, 'm:', m.id, 'm.time_slot_id:', m?.time_slot_id);
+    const matchDate = m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : null;
+
     return (
       <View style={[cardStyle, { backgroundColor: reserved ? '#dcfce7' : '#fee2e2', borderColor: '#063383' }]}>
-        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 18, marginBottom: 6 }}>
-          {formatRange(slot.starts_at, slot.ends_at)}
+        {slotDate ? (
+          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
+            {slotDate}
         </Text>
+        ) : matchDate ? (
+          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
+            Match du {matchDate}
+          </Text>
+        ) : (
+          <Text style={{ fontWeight: '800', color: '#6b7280', fontSize: 14, marginBottom: 6, fontStyle: 'italic' }}>
+            Date non définie
+          </Text>
+        )}
 
         {/* Avatars confirmés */}
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
           {accepted.map((r) => {
-            const p = profilesById[r.user_id];
+            const p = profilesById[String(r.user_id)];
+            console.log('[MatchCardConfirmed] Accepted user:', r.user_id, 'profile exists:', !!p?.id);
             return (
               <LevelAvatar
                 key={`acc-${r.user_id}`}
@@ -1648,7 +2831,7 @@ const HourSlotRow = ({ item }) => {
             marginBottom: 4,
           }}
         >
-          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 18 }}>
+          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
             {formatRange(slot.starts_at, slot.ends_at)}
           </Text>
 
@@ -1673,12 +2856,15 @@ const HourSlotRow = ({ item }) => {
           ) : null}
         </View>
         {/* Ligne 2 — Avatars des joueurs qui ont confirmé (bordure verte) */}
+        {accepted.length > 0 ? (
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
           {accepted.map((r) => {
-            const p = profilesById[r.user_id];
+              const userIdStr = String(r.user_id);
+              const p = profilesById[userIdStr] || extraProfiles[userIdStr] || {};
+              console.log('[MatchCardPending] Accepted user:', userIdStr, 'profile exists:', !!p?.id, 'name:', p?.display_name || p?.name);
             return (
               <LevelAvatar
-                key={`acc-${r.user_id}`}
+                  key={`acc-${userIdStr}`}
                 profile={p}
                 rsvpStatus="accepted"
                 size={56}
@@ -1686,6 +2872,9 @@ const HourSlotRow = ({ item }) => {
             );
           })}
         </View>
+        ) : (
+          <Text style={{ color: '#9ca3af', marginBottom: 12 }}>Aucun joueur confirmé pour le moment</Text>
+        )}
 
         {/* Ligne 4 — En attente / Remplaçants : une SEULE ligne d'avatars (orange), non cliquables */}
         <View style={{ marginTop: 2, marginBottom: 20 }}>
@@ -1697,10 +2886,10 @@ const HourSlotRow = ({ item }) => {
             // Build the pending list. If we computed availIds, use them as MAYBE candidates (one line),
             // then always append the declined users (red border) so they are visible too.
             const maybeFromAvail = (Array.isArray(availIds) && availIds.length)
-              ? availIds.map((id) => ({ user_id: id, status: 'maybe' }))
-              : maybes.map((r) => ({ user_id: r.user_id, status: 'maybe' }));
+              ? availIds.map((id) => ({ user_id: String(id), status: 'maybe' }))
+              : maybes.map((r) => ({ user_id: String(r.user_id), status: 'maybe' }));
 
-            const declinedList = declined.map((r) => ({ user_id: r.user_id, status: 'no' }));
+            const declinedList = declined.map((r) => ({ user_id: String(r.user_id), status: 'no' }));
             const combined = [...maybeFromAvail, ...declinedList];
 
             if (!combined.length) {
@@ -1710,8 +2899,9 @@ const HourSlotRow = ({ item }) => {
             return (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 4, }}>
                 {combined.map((r) => {
-                  const uid = r.user_id;
-                  const p = profilesById[uid] || extraProfiles[uid] || {};
+                  const uid = String(r.user_id);
+                  const p = profilesById[uid] || {};
+                  console.log('[MatchCardPending] Pending user:', uid, 'profile exists:', !!p?.id, 'name:', p?.display_name || p?.name);
                   return (
                     <LevelAvatar
                       key={`pend-${uid}`}
@@ -1870,8 +3060,187 @@ const HourSlotRow = ({ item }) => {
     );
   }
 
+  // Fonction pour formater le rayon
+  const formatRayon = (v) => {
+    if (v == null) return "—";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    if (n === 99) return "+30 km";
+    return `${n} km`;
+  };
+
+  // Composants de modales
+  const ProfileModal = () => (
+    <Modal
+      visible={showProfileModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowProfileModal(false)}
+    >
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
+          {/* Avatar + Nom */}
+          <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            {selectedProfile?.avatar_url ? (
+              <Image 
+                source={{ uri: selectedProfile.avatar_url }} 
+                style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#f3f4f6' }}
+              />
+            ) : (
+              <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1a4b97' }}>
+                <Text style={{ fontSize: 32, fontWeight: '800', color: '#1a4b97' }}>
+                  {(selectedProfile?.display_name || selectedProfile?.email || 'J').substring(0, 2).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 20, fontWeight: '800', color: '#1a4b97', textAlign: 'center' }}>
+              {selectedProfile?.display_name || selectedProfile?.email || 'Joueur'}
+            </Text>
+            <Pressable onPress={() => Linking.openURL(`mailto:${selectedProfile?.email}`)}>
+              <Text style={{ fontSize: 13, color: '#3b82f6', textAlign: 'center', textDecorationLine: 'underline' }}>
+                {selectedProfile?.email}
+              </Text>
+            </Pressable>
+          </View>
+          
+          {/* Résumé visuel */}
+          <View style={{ backgroundColor: 'white', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, gap: 12 }}>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827' }}>Résumé</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                <Text style={{ fontSize: 28 }}>🔥</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.niveau || selectedProfile?.level || '—'}</Text>
+                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Niveau</Text>
+              </View>
+              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                <Text style={{ fontSize: 28 }}>🖐️</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.main || '—'}</Text>
+                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Main</Text>
+              </View>
+              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                <Text style={{ fontSize: 28 }}>🎯</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.cote || '—'}</Text>
+                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Côté</Text>
+              </View>
+              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                <Text style={{ fontSize: 28 }}>🏟️</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.club || '—'}</Text>
+                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Club</Text>
+              </View>
+              <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                <Text style={{ fontSize: 28 }}>📍</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{formatRayon(selectedProfile?.rayon_km)}</Text>
+                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Rayon</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setShowProfileModal(false);
+                  setSelectedProfile(selectedProfile);
+                  setShowContactModal(true);
+                }}
+                style={({ pressed }) => [
+                  { width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' },
+                  pressed && { opacity: 0.7 }
+                ]}
+              >
+                <Text style={{ fontSize: 28 }}>📞</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedProfile?.phone || '—'}</Text>
+                <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Téléphone</Text>
+              </Pressable>
+            </View>
+          </View>
+          
+          <Pressable
+            onPress={() => setShowProfileModal(false)}
+            style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 16 }}
+          >
+            <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const ContactModal = () => (
+    <Modal
+      visible={showContactModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowContactModal(false)}
+    >
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
+          <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
+            Contacter {selectedProfile?.display_name || selectedProfile?.name || selectedProfile?.email || 'ce joueur'}
+          </Text>
+          
+          <View style={{ gap: 12 }}>
+            {selectedProfile?.phone && (
+              <Pressable
+                onPress={() => {
+                  Linking.openURL(`tel:${selectedProfile.phone}`);
+                  setShowContactModal(false);
+                }}
+                style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+              >
+                <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
+                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
+              </Pressable>
+            )}
+            
+            {selectedProfile?.phone && (
+              <Pressable
+                onPress={() => {
+                  Linking.openURL(`sms:${selectedProfile.phone}`);
+                  setShowContactModal(false);
+                }}
+                style={{ backgroundColor: '#10b981', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+              >
+                <Ionicons name="chatbubble" size={20} color="white" style={{ marginRight: 8 }} />
+                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un SMS</Text>
+              </Pressable>
+            )}
+            
+            {selectedProfile?.phone && (
+              <Pressable
+                onPress={() => {
+                  Linking.openURL(`whatsapp://send?phone=${selectedProfile.phone}`);
+                  setShowContactModal(false);
+                }}
+                style={{ backgroundColor: '#25d366', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+              >
+                <Ionicons name="logo-whatsapp" size={20} color="white" style={{ marginRight: 8 }} />
+                <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>WhatsApp</Text>
+              </Pressable>
+            )}
+            
+            <Pressable
+              onPress={() => {
+                Linking.openURL(`mailto:${selectedProfile?.email}`);
+                setShowContactModal(false);
+              }}
+              style={{ backgroundColor: '#3b82f6', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+            >
+              <Ionicons name="mail" size={20} color="white" style={{ marginRight: 8 }} />
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un email</Text>
+            </Pressable>
+          </View>
+          
+          <Pressable
+            onPress={() => setShowContactModal(false)}
+            style={{ backgroundColor: '#6b7280', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 12 }}
+          >
+            <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Fermer</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#001831' }}>
+      <ProfileModal />
+      <ContactModal />
       {/* Week navigator */}
       <View
         style={{
@@ -1909,11 +3278,16 @@ const HourSlotRow = ({ item }) => {
       </View>
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 12 }}>
+<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0 }}>
   <View style={{ flexDirection: 'row', gap: 8 }}>
 {/* Matchs possibles */}
   <Pressable
-    onPress={() => setTab('proposes')}
+    onPress={() => {
+      console.log('[Matches] Button pressed: proposes');
+      console.log('[Matches] longReady:', longReady?.length, 'hourReady:', hourReady?.length);
+      console.log('[Matches] longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length);
+      setTab('proposes');
+    }}
     accessibilityRole="button"
     accessibilityLabel="Voir les matchs possibles"
     style={({ pressed }) => [
@@ -1938,7 +3312,7 @@ const HourSlotRow = ({ item }) => {
           <Text
             style={{
               fontWeight: '900',
-              color: (tab === 'proposes' || pressed) ? '#ffffff' : '#001831',
+              color: tab === 'proposes' ? '#ffffff' : '#001831',
               textAlign: 'center',
             }}
           >
@@ -1962,8 +3336,8 @@ const HourSlotRow = ({ item }) => {
           paddingVertical: 10,
           borderRadius: 12,
           backgroundColor: tab === 'rsvp' ? '#FF751F' : '#ffffff',          
-          borderWidth: (tab === 'rsvp' || pressed) ? 2 : 0,           // ✅ bordure visible si sélectionné ou pressé
-          borderColor: (tab === 'rsvp' || pressed) ? '#001831' : 'transparent',
+          borderWidth: (tab === 'rsvp' || pressed) ? 2 : 0,
+          borderColor: (tab === 'rsvp' || pressed) ? '#ffffff' : 'transparent',
         },
         Platform.OS === 'web' ? { cursor: 'pointer' } : null,
       ]}
@@ -1999,136 +3373,278 @@ const HourSlotRow = ({ item }) => {
       <Text style={{ fontSize: 22 }}>{'🎾'}</Text>
       <View style={{ marginTop: 4, alignItems: 'center' }}>
         <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {`${confirmedTabCount} ${matchWord(confirmedTabCount)} ${valideWord(confirmedTabCount)}`}
+          {`${confirmedTabCount} ${matchWord(confirmedTabCount)}`}
+        </Text>
+        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
+          {valideWord(confirmedTabCount)}
         </Text>
       </View>
     </Pressable>
   </View>
+  </View>
 
-{tab === 'proposes' && (
+  {tab === 'proposes' && (
   <>
-    {mode === 'long' ? (
-      <>
-        {longSectionsWeek.length === 0 ? (
-          <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
-        ) : (
-          <SectionList
-            sections={longSectionsWeek}
-            keyExtractor={(item) => item.key}
-            renderSectionHeader={({ section }) => (
-              <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
-                <Text style={{ fontWeight: '900', color: '#111827' }}>{section.title}</Text>
-              </View>
-            )}
-            renderItem={({ item }) => <LongSlotRow item={item} />}
-            contentContainerStyle={{ paddingBottom: bottomPad }}
-            scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-            ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-            extraData={{ profilesById }}
-          />
-        )}
-      </>
-    ) : (
-      <>
-        {hourReadyWeek.length === 0 ? (
-          <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
-        ) : (
-          <FlatList
-            data={hourReadyWeek}
-            keyExtractor={(x) => x.time_slot_id + '-hour'}
-            renderItem={({ item }) => <HourSlotRow item={item} />}
-            contentContainerStyle={{
-              padding: 16,
+    {console.log('[Matches] Rendering proposes tab, longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length)}
+    {/* Sélecteur 1h / 1h30 */}
+    <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <Pressable
+        onPress={() => setMode('long')}
+          style={{
+            flex: 1,
+            backgroundColor: mode === 'long' ? '#FF751F' : '#aaaaaa',
+            paddingVertical: 12,
+            paddingHorizontal: 12,
+            borderRadius: 8,
+            alignItems: 'center',
+            borderWidth: mode === 'long' ? 2 : 0,
+            borderColor: mode === 'long' ? '#ffffff' : 'transparent',
+          }}
+        >
+          <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+            {longReadyWeek?.length || 0} Créneaux 1h30
+          </Text>
+      </Pressable>
+      <Pressable
+        onPress={() => setMode('hour')}
+          style={{
+            flex: 1,
+            backgroundColor: mode === 'hour' ? '#FF751F' : '#aaaaaa',
+            paddingVertical: 12,
+            paddingHorizontal: 12,
+            borderRadius: 8,
+            alignItems: 'center',
+            borderWidth: mode === 'hour' ? 2 : 0,
+            borderColor: mode === 'hour' ? '#ffffff' : 'transparent',
+          }}
+        >
+          <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+            {hourReadyWeek?.length || 0} Créneaux 1h
+          </Text>
+      </Pressable>
+    </View>
+    </View>
+
+            {mode === 'long' ? (
+              <>
+                {longSectionsWeek.length === 0 ? (
+                  <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
+                ) : (
+                  <SectionList
+                    sections={longSectionsWeek}
+                    keyExtractor={(item) => item.key}
+                    renderSectionHeader={({ section }) => (
+                      <View style={{ paddingHorizontal: 0, paddingVertical: 0, height: 0 }}>
+                        <Text style={{ fontWeight: '900', color: '#111827', display: 'none' }}>{section.title}</Text>
+                      </View>
+                    )}
+                    ItemSeparatorComponent={() => null}
+                    SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
+                    renderItem={({ item }) => <LongSlotRow item={item} />}
+                    contentContainerStyle={{ paddingBottom: bottomPad }}
+                    scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                    extraData={{ profilesById }}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                {hourReadyWeek.length === 0 ? (
+                  <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
+                ) : (
+                  <FlatList
+                    data={hourReadyWeek}
+                    keyExtractor={(x) => x.time_slot_id + '-hour'}
+                    renderItem={({ item }) => <HourSlotRow item={item} />}
+                    contentContainerStyle={{
+                      padding: 16,
               paddingBottom: Math.max(120, insets.bottom + 100),
-            }}
-            scrollIndicatorInsets={{ bottom: insets.bottom + 60 }}
-          />
+                    }}
+                    scrollIndicatorInsets={{ bottom: insets.bottom + 60 }}
+                  />
+                )}
+              </>
+            )}
+          </>
         )}
-      </>
-    )}
-  </>
-)}
 
-{tab === 'rsvp' && (
-  <>
-    {rsvpMode === 'hour' ? (
-      (pendingHourWeek?.length || 0) === 0 ? (
-        <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
-      ) : (
-        <FlatList
-          data={pendingHourWeek.filter(m =>
-            isInWeekRange(m?.time_slots?.starts_at, m?.time_slots?.ends_at, currentWs, currentWe)
-          )}
+      {tab === 'rsvp' && (
+        <>
+          {/* Sélecteur 1h / 1h30 pour RSVP */}
+          <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                onPress={() => setRsvpMode('long')}
+                style={{
+                  flex: 1,
+                  backgroundColor: rsvpMode === 'long' ? '#FF751F' : '#aaaaaa',
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                  borderWidth: rsvpMode === 'long' ? 2 : 0,
+                  borderColor: rsvpMode === 'long' ? '#ffffff' : 'transparent',
+                }}
+              >
+                <Text style={{ color: rsvpMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+                  {pendingLongWeek?.length || 0} Matchs 1h30
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setRsvpMode('hour')}
+                style={{
+                  flex: 1,
+                  backgroundColor: rsvpMode === 'hour' ? '#FF751F' : '#aaaaaa',
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                  borderWidth: rsvpMode === 'hour' ? 2 : 0,
+                  borderColor: rsvpMode === 'hour' ? '#ffffff' : 'transparent',
+                }}
+              >
+                <Text style={{ color: rsvpMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+                  {pendingHourWeek?.length || 0} Matchs 1h
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {rsvpMode === 'hour' ? (
+            (pendingHourWeek?.length || 0) === 0 ? (
+              <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
+            ) : (
+                <FlatList
+                  data={pendingHourWeek.filter(m =>
+                    isInWeekRange(m?.time_slots?.starts_at, m?.time_slots?.ends_at, currentWs, currentWe)
+                  )}
           keyExtractor={(m) => `${m.id}-pHour-${(rsvpsByMatch[m.id] || []).length}`}
-          renderItem={({ item }) => (
+                  renderItem={({ item }) => (
             <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
-          )}
+                  )}
           extraData={rsvpsVersion}
-          contentContainerStyle={{ paddingBottom: bottomPad }}
-          scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-        />
-      )
-    ) : (
-      (pendingLongWeek?.length || 0) === 0 ? (
-        <Text style={{ color: '#6b7280' }}>Aucun match 1h30 en attente.</Text>
-      ) : (
-        <FlatList
-          data={pendingLongWeek.filter(m =>
-            isInWeekRange(m?.time_slots?.starts_at, m?.time_slots?.ends_at, currentWs, currentWe)
-          )}
+                  contentContainerStyle={{ paddingBottom: bottomPad }}
+                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+                  ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                />
+              )
+            ) : (
+              (pendingLongWeek?.length || 0) === 0 ? (
+                <Text style={{ color: '#6b7280' }}>Aucun match 1h30 en attente.</Text>
+              ) : (
+                <FlatList
+                  data={pendingLongWeek.filter(m =>
+                    isInWeekRange(m?.time_slots?.starts_at, m?.time_slots?.ends_at, currentWs, currentWe)
+                  )}
           keyExtractor={(m) => `${m.id}-pLong-${(rsvpsByMatch[m.id] || []).length}`}
-          renderItem={({ item }) => (
+                  renderItem={({ item }) => (
             <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
-          )}
+                  )}
           extraData={rsvpsVersion}
-          contentContainerStyle={{ paddingBottom: bottomPad }}
-          scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+                  contentContainerStyle={{ paddingBottom: bottomPad }}
+                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
           ListFooterComponent={() => <View style={{ height: bottomPad }} />}
         />
-      )
-    )}
-  </>
-)}
+              )
+            )}
+        </>
+      )}
 
-{tab === 'valides' && (
-  <>
-    {confirmedMode === 'long' ? (
-      confirmedLong.length === 0 ? (
-        <Text style={{ color: '#6b7280' }}>Aucun match 1h30 confirmé.</Text>
-      ) : (
-        <FlatList
-          data={confirmedLong.filter(m =>
-            isInWeekRange(m?.time_slots?.starts_at, m?.time_slots?.ends_at, currentWs, currentWe)
-          )}
-          keyExtractor={(m) => m.id + '-confirmed-long'}
-          renderItem={({ item: m }) => (
-            <MatchCardConfirmed m={m} />
-          )}
-          contentContainerStyle={{ paddingBottom: bottomPad }}
-          scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+      {tab === 'valides' && (
+        <>
+          {/* Sélecteur 1h / 1h30 pour Validés */}
+          <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                onPress={() => setConfirmedMode('long')}
+                style={{
+                  flex: 1,
+                  backgroundColor: confirmedMode === 'long' ? '#FF751F' : '#aaaaaa',
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                  borderWidth: confirmedMode === 'long' ? 2 : 0,
+                  borderColor: confirmedMode === 'long' ? '#ffffff' : 'transparent',
+                }}
+              >
+                <Text style={{ color: confirmedMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+                  {confirmedLong?.length || 0} Matchs 1h30
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setConfirmedMode('hour')}
+                style={{
+                  flex: 1,
+                  backgroundColor: confirmedMode === 'hour' ? '#FF751F' : '#aaaaaa',
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                  borderWidth: confirmedMode === 'hour' ? 2 : 0,
+                  borderColor: confirmedMode === 'hour' ? '#ffffff' : 'transparent',
+                }}
+              >
+                <Text style={{ color: confirmedMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+                  {confirmedHour?.length || 0} Matchs 1h
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {confirmedMode === 'long' ? (
+            confirmedLong.length === 0 ? (
+              <Text style={{ color: '#6b7280' }}>Aucun match 1h30 confirmé.</Text>
+            ) : (
+              <FlatList
+          data={confirmedLong.filter(m => {
+            // Si pas de time_slots, inclure par défaut
+            if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
+              console.log('[Validés Long] Match sans time_slots (inclus):', m.id);
+              return true;
+            }
+            const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+            if (!inRange) {
+              console.log('[Validés Long] Match exclu par isInWeekRange:', m.id, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at);
+            }
+            return inRange;
+          })}
+                keyExtractor={(m) => m.id + '-confirmed-long'}
+                renderItem={({ item: m }) => (
+                  <MatchCardConfirmed m={m} />
+                )}
+                contentContainerStyle={{ paddingBottom: bottomPad }}
+                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
           ListFooterComponent={() => <View style={{ height: bottomPad }} />}
         />
-      )
-    ) : (
-      confirmedHour.length === 0 ? (
-        <Text style={{ color: '#6b7280' }}>Aucun match 1h confirmé.</Text>
-      ) : (
-        <FlatList
-          data={confirmedHour.filter(m =>
-            isInWeekRange(m?.time_slots?.starts_at, m?.time_slots?.ends_at, currentWs, currentWe)
+            )
+          ) : (
+            confirmedHour.length === 0 ? (
+              <Text style={{ color: '#6b7280' }}>Aucun match 1h confirmé.</Text>
+            ) : (
+              <FlatList
+          data={confirmedHour.filter(m => {
+            // Si pas de time_slots, inclure par défaut
+            if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
+              console.log('[Validés Hour] Match sans time_slots (inclus):', m.id);
+              return true;
+            }
+            return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+          })}
+                keyExtractor={(m) => m.id + '-confirmed-hour'}
+                renderItem={({ item: m }) => (
+                  <MatchCardConfirmed m={m} />
+                )}
+                contentContainerStyle={{ paddingBottom: bottomPad }}
+                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+                ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+              />
+            )
           )}
-          keyExtractor={(m) => m.id + '-confirmed-hour'}
-          renderItem={({ item: m }) => (
-            <MatchCardConfirmed m={m} />
-          )}
-          contentContainerStyle={{ paddingBottom: 24 }}
-        />
-      )
-    )}
-  </>
-)}
-
-</View>
-);
+                </>
+      )}
+    </View>
+  );
 }
