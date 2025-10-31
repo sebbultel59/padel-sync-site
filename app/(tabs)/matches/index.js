@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { useNavigation } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActionSheetIOS,
@@ -140,9 +141,10 @@ function colorForLevel(level) {
 
 export default function MatchesScreen() {
   const navigation = useNavigation();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const { activeGroup } = useActiveGroup();
+  const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
 
   // États principaux
@@ -162,6 +164,10 @@ export default function MatchesScreen() {
   const [rsvpsByMatch, setRsvpsByMatch] = useState({});
   const [profilesById, setProfilesById] = useState({});
   const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
+  
+  // Group selector states
+  const [myGroups, setMyGroups] = useState([]);
+  const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
 
   // Flash Match states
   const [flashMembers, setFlashMembers] = useState([]);
@@ -494,17 +500,21 @@ async function computeAvailableUserIdsForInterval(groupId, startsAt, endsAt) {
   try {
     console.log('[computeAvailableUserIdsForInterval] Querying availability for:', { groupId, startsAt, endsAt });
     
-    // Charger toutes les disponibilités du groupe
-    const { data: availabilityData, error } = await supabase
-      .from('availability')
-      .select('user_id, start, end')
-      .eq('group_id', groupId)
-      .eq('status', 'available');
+    // Charger toutes les disponibilités effectives du groupe (via get_availability_effective pour modèle hybride)
+    const { data: availabilityDataRaw, error } = await supabase.rpc("get_availability_effective", {
+      p_group: groupId,
+      p_user: null, // tous les utilisateurs
+      p_low: startsAt,
+      p_high: endsAt,
+    });
     
     if (error) {
       console.error('[computeAvailableUserIdsForInterval] Query error:', error);
       return [];
     }
+    
+    // Filtrer uniquement les 'available'
+    const availabilityData = (availabilityDataRaw || []).filter(a => a.status === 'available');
     
     if (!availabilityData || availabilityData.length === 0) {
       console.log('[computeAvailableUserIdsForInterval] No availability data found');
@@ -1133,6 +1143,58 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setMeId(data?.user?.id ?? null);
     })();
   }, [groupId]);
+
+  // Charger les groupes de l'utilisateur
+  const loadMyGroups = useCallback(async () => {
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const me = u?.user?.id;
+      if (!me) return;
+
+      const { data: myMemberships, error: eMemb } = await supabase
+        .from("group_members")
+        .select("group_id")
+        .eq("user_id", me);
+      if (eMemb) throw eMemb;
+      const myIds = [...new Set((myMemberships ?? []).map((r) => r.group_id))];
+
+      let myGroupsList = [];
+      if (myIds.length) {
+        const { data, error } = await supabase
+          .from("groups")
+          .select("id, name, avatar_url")
+          .in("id", myIds)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        myGroupsList = data ?? [];
+      }
+
+      setMyGroups(myGroupsList);
+    } catch (e) {
+      console.warn('[Matches] loadMyGroups error:', e?.message ?? String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (meId) loadMyGroups();
+  }, [meId, loadMyGroups]);
+
+  // Activer un groupe
+  const onSelectGroup = useCallback(async (g) => {
+    try {
+      if (!g?.id) return;
+      setActiveGroup(g);
+      setGroupSelectorOpen(false);
+      try {
+        await AsyncStorage.setItem("active_group_id", String(g.id));
+      } catch (err) {
+        console.warn("[Matches] AsyncStorage.setItem failed:", err?.message || err);
+      }
+    } catch (e) {
+      console.error("[Matches] onSelectGroup error:", e);
+      Alert.alert("Erreur", e?.message ?? String(e));
+    }
+  }, [setActiveGroup]);
 
   // Realtime: mise à jour fine sur INSERT/UPDATE/DELETE de matches (sans full refetch)
   useEffect(() => {
@@ -3181,6 +3243,28 @@ const HourSlotRow = ({ item }) => {
           <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
         </Pressable>
       </View>
+
+      {/* Sélecteur de groupe (sous la navigation) */}
+      <Pressable
+        onPress={() => setGroupSelectorOpen(true)}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginTop: 4,
+          marginBottom: 6,
+          paddingVertical: 4,
+          paddingHorizontal: 8,
+          borderRadius: 8,
+          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+        }}
+      >
+        <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 6 }} />
+        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 13 }}>
+          {activeGroup?.name || 'Sélectionner un groupe'}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color="#e0ff00" style={{ marginLeft: 4 }} />
+      </Pressable>
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
 <View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0 }}>
@@ -4623,6 +4707,111 @@ const HourSlotRow = ({ item }) => {
           </View>
         </Modal>
       )}
+
+      {/* Modal de sélection de groupe */}
+      <Modal
+        visible={groupSelectorOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGroupSelectorOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb', maxHeight: '70%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Sélectionner un groupe</Text>
+              <Pressable
+                onPress={() => setGroupSelectorOpen(false)}
+                style={{ padding: 8 }}
+              >
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+
+            {myGroups.length === 0 ? (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <Text style={{ color: '#6b7280', fontSize: 14, textAlign: 'center', marginBottom: 12 }}>
+                  Aucun groupe disponible
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setGroupSelectorOpen(false);
+                    router.push('/(tabs)/groupes');
+                  }}
+                  style={{
+                    backgroundColor: COLORS.primary,
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14 }}>
+                    Aller aux groupes
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 400 }}>
+                {myGroups.map((group) => (
+                  <Pressable
+                    key={group.id}
+                    onPress={() => onSelectGroup(group)}
+                    style={({ pressed }) => [
+                      {
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: 12,
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        backgroundColor: activeGroup?.id === group.id ? COLORS.primary : '#f9fafb',
+                        borderWidth: activeGroup?.id === group.id ? 2 : 1,
+                        borderColor: activeGroup?.id === group.id ? COLORS.primary : '#e5e7eb',
+                      },
+                      Platform.OS === 'web' ? { cursor: 'pointer' } : null,
+                      pressed ? { opacity: 0.8 } : null,
+                    ]}
+                  >
+                    {group.avatar_url ? (
+                      <Image
+                        source={{ uri: group.avatar_url }}
+                        style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: COLORS.primary,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: 12,
+                        }}
+                      >
+                        <Text style={{ color: '#ffffff', fontWeight: '900', fontSize: 16 }}>
+                          {group.name?.substring(0, 2).toUpperCase() || 'GP'}
+                        </Text>
+                      </View>
+                    )}
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 16,
+                        fontWeight: activeGroup?.id === group.id ? '800' : '600',
+                        color: activeGroup?.id === group.id ? '#ffffff' : '#111827',
+                      }}
+                    >
+                      {group.name}
+                    </Text>
+                    {activeGroup?.id === group.id && (
+                      <Ionicons name="checkmark-circle" size={24} color="#ffffff" />
+                    )}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

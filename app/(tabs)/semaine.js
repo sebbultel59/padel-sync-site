@@ -101,6 +101,7 @@ export default function Semaine() {
   const [meId, setMeId] = useState(null);
   const [persistedGroupId, setPersistedGroupId] = useState(null);
   const [groupMembers, setGroupMembers] = useState([]); // membres du groupe actuel
+  const [applyToAllGroups, setApplyToAllGroups] = useState(true); // toggle global vs groupe spécifique
   const isPortrait = height > width;
   // ---- (plus de mode peinture global) ----
 
@@ -185,6 +186,23 @@ export default function Semaine() {
     })();
   }, [activeGroup?.id]);
 
+  // Charger la préférence "appliquer à tous les groupes"
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem("apply_availability_to_all_groups");
+        if (saved !== null) {
+          setApplyToAllGroups(saved === 'true');
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // Sauvegarder la préférence quand elle change
+  useEffect(() => {
+    AsyncStorage.setItem("apply_availability_to_all_groups", String(applyToAllGroups)).catch(() => {});
+  }, [applyToAllGroups]);
+
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => weekStart.add(i, "day")),
     [weekStart]
@@ -248,15 +266,30 @@ export default function Semaine() {
       const { data: ts, error: eTS } = await tsQ;
       if (eTS) throw eTS;
 
-      // 2) availability
-      let avQ = supabase
-        .from("availability")
-        .select("*")
-        .gte("start", start)
-        .lt("start", end);
-      avQ = groupId ? avQ.eq("group_id", groupId) : avQ.is("group_id", null);
-      const { data: av, error: eAv } = await avQ;
-      if (eAv) throw eAv;
+      // 2) availability (via get_availability_effective pour modèle hybride)
+      let av = [];
+      if (groupId) {
+        const { data: avData, error: eAv } = await supabase
+          .rpc("get_availability_effective", {
+            p_group: groupId,
+            p_user: null, // tous les utilisateurs
+            p_low: start,
+            p_high: end,
+          });
+        if (eAv) throw eAv;
+        av = avData ?? [];
+      } else {
+        // Fallback si pas de groupe: lecture directe (ancien mode)
+        let avQ = supabase
+          .from("availability")
+          .select("*")
+          .gte("start", start)
+          .lt("start", end)
+          .is("group_id", null);
+        const { data: avData, error: eAv } = await avQ;
+        if (eAv) throw eAv;
+        av = avData ?? [];
+      }
 
       // 3) matches (via IN sur time_slot_id)
       let mData = [];
@@ -444,36 +477,75 @@ export default function Semaine() {
         setSlots((prev) => [...prev, optimistic]);
         try { Haptics.selectionAsync(); } catch {}
 
-        const { error } = await supabase.from("availability").insert(optimistic);
-        if (error) { await fetchData(); throw error; }
+        if (applyToAllGroups) {
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: "available",
+          });
+          if (error) { await fetchData(); throw error; }
+        } else {
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: "available",
+          });
+          if (error) { await fetchData(); throw error; }
+        }
       } else if (mine.status === 'available') {
         // passe à neutre → suppression
         setSlots((prev) => prev.filter((s) => !(s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso)));
         try { Haptics.selectionAsync(); } catch {}
-        const { error } = await supabase
-          .from('availability')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('group_id', gid)
-          .eq('start', startIso)
-          .eq('end', endIso);
-        if (error) { await fetchData(); throw error; }
+        
+        if (applyToAllGroups) {
+          // Supprimer de global (via RPC ou delete direct)
+          const { error } = await supabase
+            .from('availability_global')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('start', startIso)
+            .eq('end', endIso);
+          if (error) { await fetchData(); throw error; }
+        } else {
+          const { error } = await supabase
+            .from('availability')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('group_id', gid)
+            .eq('start', startIso)
+            .eq('end', endIso);
+          if (error) { await fetchData(); throw error; }
+        }
       } else {
-        // quel que soit l’état (absent/neutre), force à available
+        // quel que soit l'état (absent/neutre), force à available
         setSlots((prev) => prev.map((s) => (
           s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso
             ? { ...s, status: 'available' }
             : s
         )));
         try { Haptics.selectionAsync(); } catch {}
-        const { error } = await supabase
-          .from('availability')
-          .update({ status: 'available' })
-          .eq('user_id', user.id)
-          .eq('group_id', gid)
-          .eq('start', startIso)
-          .eq('end', endIso);
-        if (error) { await fetchData(); throw error; }
+        
+        if (applyToAllGroups) {
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: "available",
+          });
+          if (error) { await fetchData(); throw error; }
+        } else {
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: "available",
+          });
+          if (error) { await fetchData(); throw error; }
+        }
       }
 
       scheduleRefresh(200);
@@ -499,20 +571,48 @@ export default function Semaine() {
         const optimistic = { user_id: user.id, group_id: gid, start: startIso, end: endIso, status };
         setSlots((prev) => [...prev, optimistic]);
         try { Haptics.selectionAsync(); } catch {}
-        const { error } = await supabase.from("availability").insert(optimistic);
-        if (error) { await fetchData(); throw error; }
+        
+        if (applyToAllGroups) {
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: status,
+          });
+          if (error) { await fetchData(); throw error; }
+        } else {
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: status,
+          });
+          if (error) { await fetchData(); throw error; }
+        }
       } else if (mine && mine.status !== status) {
         if (status === 'neutral') {
           setSlots((prev) => prev.filter((s) => !(s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso)));
           try { Haptics.selectionAsync(); } catch {}
-          const { error } = await supabase
-            .from('availability')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('group_id', gid)
-            .eq('start', startIso)
-            .eq('end', endIso);
-          if (error) { await fetchData(); throw error; }
+          
+          if (applyToAllGroups) {
+            const { error } = await supabase
+              .from('availability_global')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('start', startIso)
+              .eq('end', endIso);
+            if (error) { await fetchData(); throw error; }
+          } else {
+            const { error } = await supabase
+              .from('availability')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('group_id', gid)
+              .eq('start', startIso)
+              .eq('end', endIso);
+            if (error) { await fetchData(); throw error; }
+          }
           return;
         }
         setSlots((prev) => prev.map((s) => (
@@ -521,14 +621,25 @@ export default function Semaine() {
             : s
         )));
         try { Haptics.selectionAsync(); } catch {}
-        const { error } = await supabase
-          .from("availability")
-          .update({ status })
-          .eq("user_id", user.id)
-          .eq("group_id", gid)
-          .eq("start", startIso)
-          .eq("end", endIso);
-        if (error) { await fetchData(); throw error; }
+        
+        if (applyToAllGroups) {
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: status,
+          });
+          if (error) { await fetchData(); throw error; }
+        } else {
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: startIso,
+            p_end: endIso,
+            p_status: status,
+          });
+          if (error) { await fetchData(); throw error; }
+        }
       }
     } catch (e) {
       console.warn(e);
@@ -561,19 +672,31 @@ export default function Semaine() {
 
       try { Haptics.selectionAsync(); } catch {}
 
-      // 2) Persistance : upsert en une seule requête
-      const rows = startIsos.map((startIso) => ({
-        user_id: user.id,
-        group_id: gid,
-        start: startIso,
-        end: dayjs(startIso).add(SLOT_MIN, 'minute').toISOString(),
-        status,
-      }));
-
-      const { error } = await supabase
-        .from('availability')
-        .upsert(rows, { onConflict: 'user_id,group_id,start,end' });
-      if (error) throw error;
+      // 2) Persistance : upsert en une seule requête (selon toggle)
+      if (applyToAllGroups) {
+        const rows = startIsos.map((startIso) => ({
+          user_id: user.id,
+          start: startIso,
+          end: dayjs(startIso).add(SLOT_MIN, 'minute').toISOString(),
+          status,
+        }));
+        const { error } = await supabase
+          .from('availability_global')
+          .upsert(rows, { onConflict: 'user_id,start,end' });
+        if (error) throw error;
+      } else {
+        const rows = startIsos.map((startIso) => ({
+          user_id: user.id,
+          group_id: gid,
+          start: startIso,
+          end: dayjs(startIso).add(SLOT_MIN, 'minute').toISOString(),
+          status,
+        }));
+        const { error } = await supabase
+          .from('availability')
+          .upsert(rows, { onConflict: 'user_id,group_id,start,end' });
+        if (error) throw error;
+      }
 
       // Optionnel : resync silencieux
       scheduleRefresh(200);
@@ -598,14 +721,23 @@ export default function Semaine() {
       }));
       try { Haptics.selectionAsync(); } catch {}
 
-      // Delete en une requête par lot
-      const { error } = await supabase
-        .from('availability')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('group_id', gid)
-        .in('start', startIsos);
-      if (error) throw error;
+      // Delete en une requête par lot (selon toggle)
+      if (applyToAllGroups) {
+        const { error } = await supabase
+          .from('availability_global')
+          .delete()
+          .eq('user_id', user.id)
+          .in('start', startIsos);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('availability')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('group_id', gid)
+          .in('start', startIsos);
+        if (error) throw error;
+      }
 
       scheduleRefresh(200);
     } catch (e) {
@@ -898,11 +1030,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           </Pressable>
         </View>
 
-        {/* Ligne: nom du groupe sélectionné (sous la navigation) */}
+        {/* Ligne: nom du groupe sélectionné + toggle global (sous la navigation) */}
         {activeGroup?.name ? (
           <View
             style={{
-              flexDirection: 'row',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               paddingLeft: Math.max(12, insets.left + 8),
@@ -910,12 +1042,42 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               marginTop: isPortrait ? 4 : 2,
               marginBottom: isPortrait ? 6 : 4,
               width: '100%',
+              gap: isPortrait ? 8 : 6,
             }}
           >
-            <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 6 }} />
-            <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 13 }}>
-              {activeGroup.name}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 6 }} />
+              <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 13 }}>
+                {activeGroup.name}
+              </Text>
+            </View>
+            
+            {/* Toggle "Appliquer à tous les groupes" */}
+            <Pressable
+              onPress={() => setApplyToAllGroups((prev) => !prev)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                backgroundColor: applyToAllGroups ? '#156BC9' : '#374151',
+                borderWidth: 1,
+                borderColor: applyToAllGroups ? '#0ea5e9' : '#6b7280',
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+              }}
+            >
+              <Ionicons
+                name={applyToAllGroups ? 'checkmark-circle' : 'close-circle'}
+                size={16}
+                color="#ffffff"
+                style={{ marginRight: 6 }}
+              />
+              <Text style={{ fontWeight: '700', color: '#ffffff', fontSize: 12 }}>
+                {applyToAllGroups ? '✓ Tous mes groupes' : '⚠️ Groupe uniquement'}
+              </Text>
+            </Pressable>
           </View>
         ) : null}
 

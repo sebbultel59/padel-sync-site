@@ -4,5 +4,5 @@ import { useAuth } from '../context/auth';
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) return null;
-  return <Redirect href={isAuthenticated ? '/groupes' : '/signin'} />;
+  return <Redirect href={isAuthenticated ? '/matches' : '/signin'} />;
 }

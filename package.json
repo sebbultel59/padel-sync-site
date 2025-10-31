@@ -64,6 +64,7 @@
     "eslint": "^9.25.0",
     "eslint-config-expo": "~9.2.0",
     "expo-dev-client": "~5.2.4",
+    "fast-xml-parser": "^5.3.0",
     "typescript": "~5.8.3"
   }
 }

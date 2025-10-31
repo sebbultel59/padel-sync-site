@@ -173,7 +173,7 @@ export default function TabsLayout() {
   return (
     <>
       <Tabs
-        initialRouteName="groupes"
+        initialRouteName="matches"
         screenOptions={({ route }) => ({
           headerShown: true,
           headerStyle: {
@@ -302,9 +302,9 @@ export default function TabsLayout() {
           },
         })}
       >
-        <Tabs.Screen name="groupes" options={{ tabBarLabel: 'Groupes' }} />
-        <Tabs.Screen name="semaine" options={{ tabBarLabel: 'Dispos' }} />
         <Tabs.Screen name="matches" options={{ tabBarLabel: 'Matches' }} />
+        <Tabs.Screen name="semaine" options={{ tabBarLabel: 'Dispos' }} />
+        <Tabs.Screen name="groupes" options={{ tabBarLabel: 'Groupes' }} />
         <Tabs.Screen name="profil" options={{ tabBarLabel: 'Profil' }} />
       </Tabs>
       {/* Notifications Popup */}

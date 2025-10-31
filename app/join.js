@@ -18,7 +18,7 @@ export default function Join() {
     const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode });
     if (error) return Alert.alert("Erreur", error.message);
     Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-    router.replace("/(tabs)/groupes");
+    router.replace("/(tabs)/matches");
   }
 
   return (

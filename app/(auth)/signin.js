@@ -22,7 +22,7 @@ export default function SigninScreen() {
       const { data } = await supabase.auth.getSession();
       if (data?.session) {
         if (gid) router.replace(`/join?group_id=${encodeURIComponent(gid)}`);
-        else router.replace("/(tabs)/groupes");
+        else router.replace("/(tabs)/matches");
       }
     })();
   }, [gid]);
@@ -41,11 +41,11 @@ export default function SigninScreen() {
         if (error) throw error;
       }
 
-      // Après succès, si lien d’invitation, repasse par /join
+      // Après succès, si lien d'invitation, repasse par /join
       if (gid) {
         router.replace(`/join?group_id=${encodeURIComponent(gid)}`);
       } else {
-        router.replace("/(tabs)/groupes");
+        router.replace("/(tabs)/matches");
       }
     } catch (e) {
       Alert.alert("Auth", e?.message ?? String(e));
