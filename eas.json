@@ -57,8 +57,7 @@
     },
     "production": {
       "ios": {
-        "appleTeamId": "F2MNK9R7Q8",
-        "ascAppId": "1234567890"
+        "appleTeamId": "F2MNK9R7Q8"
       },
       "android": {
         "serviceAccountKeyPath": "./google-service-account.json",

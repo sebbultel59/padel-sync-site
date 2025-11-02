@@ -61,6 +61,16 @@ export default function ProfilScreen() {
   const [club, setClub] = useState("");
   const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
   const [phone, setPhone] = useState("");
+  
+  // Adresses (domicile/travail)
+  const [addressHome, setAddressHome] = useState(null); // { address, lat, lng } | null
+  const [addressWork, setAddressWork] = useState(null); // { address, lat, lng } | null
+  const [addressHomeInput, setAddressHomeInput] = useState(""); // Input text pour domicile
+  const [addressWorkInput, setAddressWorkInput] = useState(""); // Input text pour travail
+  const [addressHomeSuggestions, setAddressHomeSuggestions] = useState([]);
+  const [addressWorkSuggestions, setAddressWorkSuggestions] = useState([]);
+  const [geocodingHome, setGeocodingHome] = useState(false);
+  const [geocodingWork, setGeocodingWork] = useState(false);
 
   // classement (UI uniquement pour l'instant — non persisté tant que la colonne n'existe pas en base)
   const [classement, setClassement] = useState("");
@@ -85,7 +95,7 @@ export default function ProfilScreen() {
 
         const { data: p, error } = await supabase
           .from("profiles")
-          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone")
+          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work")
           .eq("id", id)
           .maybeSingle();
         if (error) throw error;
@@ -100,6 +110,8 @@ export default function ProfilScreen() {
           club: p?.club ?? "",
           rayonKm: Number.isFinite(Number(p?.rayon_km)) ? Number(p?.rayon_km) : null,
           phone: p?.phone ?? "",
+          addressHome: p?.address_home || null,
+          addressWork: p?.address_work || null,
         };
 
         if (mounted) {
@@ -111,6 +123,10 @@ export default function ProfilScreen() {
           setClub(init.club);
           setRayonKm(init.rayonKm);
           setPhone(init.phone);
+          setAddressHome(init.addressHome);
+          setAddressWork(init.addressWork);
+          setAddressHomeInput(init.addressHome?.address || "");
+          setAddressWorkInput(init.addressWork?.address || "");
           setInitialSnap(init);
         }
       } catch (e) {
@@ -120,6 +136,64 @@ export default function ProfilScreen() {
       }
     })();
     return () => { mounted = false; };
+  }, []);
+
+  // Recherche d'adresse avec autocomplétion (Nominatim)
+  const searchAddress = useCallback(async (query, setSuggestions) => {
+    if (!query || query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'PadelSync-Profile/1.0'
+        }
+      });
+      const data = await res.json();
+      const suggestions = (data || []).map(item => ({
+        name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+        address: item.display_name,
+      }));
+      setSuggestions(suggestions);
+    } catch (e) {
+      console.warn('[Profile] address search error:', e);
+      setSuggestions([]);
+    }
+  }, []);
+
+  // Géocoder une adresse complète
+  const geocodeAddress = useCallback(async (address) => {
+    if (!address || !address.trim()) return null;
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1&countrycodes=fr&accept-language=fr`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'PadelSync-Profile/1.0'
+        }
+      });
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const result = data[0];
+        const lat = parseFloat(result.lat);
+        const lng = parseFloat(result.lon);
+        // Vérifier que c'est bien en France (tolérant pour DOM-TOM)
+        if (lat >= 38 && lat <= 54 && lng >= -10 && lng <= 15) {
+          return {
+            address: address.trim(),
+            lat,
+            lng,
+          };
+        }
+      }
+      return null;
+    } catch (e) {
+      console.warn('[Profile] geocode error:', e);
+      return null;
+    }
   }, []);
 
   // comparaison simple (stringify) du snapshot
@@ -134,13 +208,15 @@ export default function ProfilScreen() {
       club,
       rayonKm,
       phone,
+      addressHome,
+      addressWork,
     };
     try {
       return JSON.stringify(cur) !== JSON.stringify(initialSnap);
     } catch {
       return true;
     }
-  }, [initialSnap, displayName, avatarUrl, niveau, main, cote, club, rayonKm, phone]);
+  }, [initialSnap, displayName, avatarUrl, niveau, main, cote, club, rayonKm, phone, addressHome, addressWork]);
 
   // Sauvegarde du profil (fonction principale)
   const onSave = useCallback(async () => {
@@ -158,6 +234,8 @@ export default function ProfilScreen() {
         club: (club || "").trim() || null,
         rayon_km: rayonKm ?? null,
         phone: (phone || "").trim() || null,
+        address_home: addressHome || null,
+        address_work: addressWork || null,
       };
       const { error } = await supabase.from("profiles").update(patch).eq("id", me.id);
       if (error) throw error;
@@ -172,6 +250,8 @@ export default function ProfilScreen() {
         club: (club || "").trim(),
         rayonKm,
         phone: (phone || "").trim(),
+        addressHome,
+        addressWork,
       };
       setInitialSnap(newSnap);
 
@@ -183,7 +263,7 @@ export default function ProfilScreen() {
     } finally {
       setSaving(false);
     }
-  }, [me?.id, displayName, niveau, main, cote, club, rayonKm, phone, avatarUrl]);
+  }, [me?.id, displayName, niveau, main, cote, club, rayonKm, phone, avatarUrl, addressHome, addressWork]);
 
   // Bouton Enregistrer : vérifie s'il y a des changements avant d'appeler onSave
   const onSavePress = useCallback(async () => {
@@ -542,6 +622,141 @@ export default function ProfilScreen() {
             style={s.input}
             maxLength={20}
           />
+        </View>
+
+        {/* Adresses */}
+        <View style={[s.card, { gap: 12 }]}>
+          <Text style={s.label}>📍 Adresses</Text>
+          
+          {/* Domicile */}
+          <View style={{ marginTop: 8 }}>
+            <Text style={[s.label, { fontSize: 16, marginBottom: 6 }]}>🏠 Domicile</Text>
+            <TextInput
+              value={addressHomeInput}
+              onChangeText={(text) => {
+                setAddressHomeInput(text);
+                searchAddress(text, setAddressHomeSuggestions);
+              }}
+              placeholder="Ex: 123 Rue de la Paix, 75001 Paris, France"
+              style={s.input}
+              autoCapitalize="words"
+            />
+            {addressHomeSuggestions.length > 0 && (
+              <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
+                <ScrollView nestedScrollEnabled>
+                  {addressHomeSuggestions.map((sug, idx) => (
+                    <Pressable
+                      key={idx}
+                      onPress={async () => {
+                        setAddressHomeInput(sug.address);
+                        setAddressHomeSuggestions([]);
+                        setGeocodingHome(true);
+                        const geocoded = await geocodeAddress(sug.address);
+                        setGeocodingHome(false);
+                        if (geocoded) {
+                          setAddressHome(geocoded);
+                        } else {
+                          Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                        }
+                      }}
+                      style={{
+                        padding: 12,
+                        borderBottomWidth: idx < addressHomeSuggestions.length - 1 ? 1 : 0,
+                        borderBottomColor: '#e5e7eb',
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: '#111827' }}>{sug.name}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+            {geocodingHome && (
+              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color={BRAND} />
+                <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
+              </View>
+            )}
+            {addressHome && (
+              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
+                <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressHome.address}</Text>
+                <Pressable
+                  onPress={() => {
+                    setAddressHome(null);
+                    setAddressHomeInput("");
+                  }}
+                  style={{ padding: 4 }}
+                >
+                  <Ionicons name="close-circle" size={18} color="#dc2626" />
+                </Pressable>
+              </View>
+            )}
+          </View>
+
+          {/* Travail */}
+          <View style={{ marginTop: 12 }}>
+            <Text style={[s.label, { fontSize: 16, marginBottom: 6 }]}>💼 Travail</Text>
+            <TextInput
+              value={addressWorkInput}
+              onChangeText={(text) => {
+                setAddressWorkInput(text);
+                searchAddress(text, setAddressWorkSuggestions);
+              }}
+              placeholder="Ex: 456 Avenue des Champs, 69001 Lyon, France"
+              style={s.input}
+              autoCapitalize="words"
+            />
+            {addressWorkSuggestions.length > 0 && (
+              <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
+                <ScrollView nestedScrollEnabled>
+                  {addressWorkSuggestions.map((sug, idx) => (
+                    <Pressable
+                      key={idx}
+                      onPress={async () => {
+                        setAddressWorkInput(sug.address);
+                        setAddressWorkSuggestions([]);
+                        setGeocodingWork(true);
+                        const geocoded = await geocodeAddress(sug.address);
+                        setGeocodingWork(false);
+                        if (geocoded) {
+                          setAddressWork(geocoded);
+                        } else {
+                          Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                        }
+                      }}
+                      style={{
+                        padding: 12,
+                        borderBottomWidth: idx < addressWorkSuggestions.length - 1 ? 1 : 0,
+                        borderBottomColor: '#e5e7eb',
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: '#111827' }}>{sug.name}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+            {geocodingWork && (
+              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color={BRAND} />
+                <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
+              </View>
+            )}
+            {addressWork && (
+              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
+                <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressWork.address}</Text>
+                <Pressable
+                  onPress={() => {
+                    setAddressWork(null);
+                    setAddressWorkInput("");
+                  }}
+                  style={{ padding: 4 }}
+                >
+                  <Ionicons name="close-circle" size={18} color="#dc2626" />
+                </Pressable>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Enregistrer */}

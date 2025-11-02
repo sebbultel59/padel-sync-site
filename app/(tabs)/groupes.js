@@ -553,12 +553,21 @@ export default function GroupesScreen() {
   const onJoinPublic = useCallback(
     async (groupId) => {
       try {
-        const { data: u } = await supabase.auth.getUser();
-        const me = u?.user?.id;
-        const { error } = await supabase
-          .from("group_members")
-          .insert({ group_id: groupId, user_id: me, role: "member" });
-        if (error) throw error;
+        // Essayer d'abord avec la RPC function si elle existe
+        const { data: rpcData, error: rpcError } = await supabase.rpc('join_public_group', {
+          p_group_id: groupId
+        });
+        
+        if (rpcError) {
+          // Fallback: INSERT direct (peut échouer si RLS bloque)
+          const { data: u } = await supabase.auth.getUser();
+          const me = u?.user?.id;
+          const { error } = await supabase
+            .from("group_members")
+            .insert({ group_id: groupId, user_id: me, role: "member" });
+          if (error) throw error;
+        }
+        
         await loadGroups();
         const { data: joined } = await supabase
           .from("groups")

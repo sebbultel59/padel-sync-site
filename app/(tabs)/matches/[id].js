@@ -13,7 +13,17 @@ export default function MatchDetailScreen() {
 
   return (
     <ScrollView style={{ flex: 1, padding: 16 }}>
-      <Pressable onPress={() => router.back()} accessibilityRole="button" style={{ marginBottom: 12 }}>
+      <Pressable 
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/matches');
+          }
+        }} 
+        accessibilityRole="button" 
+        style={{ marginBottom: 12 }}
+      >
         <Text style={{ fontWeight: '800' }}>← Retour</Text>
       </Pressable>
 

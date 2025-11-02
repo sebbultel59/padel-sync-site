@@ -383,12 +383,21 @@ export default function Semaine() {
       return tb - ta; // décroissant
     });
     
+    // Créer un Set pour vérifier rapidement si un user est membre du groupe
+    const memberIdsSet = new Set((groupMembers || []).map(id => String(id)));
+    
     const byStart = new Map(); // startIso -> Map(user_id -> 'available' | 'neutral')
     
     // Parcourir les slots triés : on garde la première (la plus récente) pour chaque user/start
-    // Afficher TOUS les joueurs disponibles du groupe (pas seulement les membres)
+    // Filtrer UNIQUEMENT les membres du groupe pour correspondre au nombre affiché
     for (const s of sortedSlots) {
       if (s.group_id === groupId) {
+        const userIdStr = String(s.user_id);
+        // Filtrer uniquement les membres du groupe
+        if (memberIdsSet.size > 0 && !memberIdsSet.has(userIdStr)) {
+          continue; // Ignorer les non-membres
+        }
+        
         const k = dayjs(s.start).toISOString();
         let usersMap = byStart.get(k);
         if (!usersMap) {
@@ -397,9 +406,9 @@ export default function Semaine() {
         }
         // Si l'user n'existe pas encore pour ce créneau, on l'ajoute
         // Comme on trie par date décroissante, on garde la version la plus récente
-        if (!usersMap.has(s.user_id)) {
+        if (!usersMap.has(userIdStr)) {
           const isAvail = String(s.status || 'available').toLowerCase() === 'available';
-          usersMap.set(s.user_id, isAvail ? 'available' : 'neutral');
+          usersMap.set(userIdStr, isAvail ? 'available' : 'neutral');
         }
       }
     }
@@ -786,8 +795,47 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           >
             {hoursOfDay.map(({ hour, minute }, idx) => {
                 const startIso = keySlot(day, hour, minute);
-                const people = mapDispos.get(startIso) || [];
-                const availableCount = uniqueAvailableCount(people);
+                // Calculer la fin du créneau (30 minutes après)
+                const endIso = dayjs(startIso).add(30, 'minute').toISOString();
+                
+                // Vérifier les disponibilités qui couvrent réellement ce créneau de 30 minutes
+                const peopleForSlot = (slots || [])
+                  .filter(s => {
+                    if (s.group_id !== groupId) return false;
+                    const userIdStr = String(s.user_id);
+                    // Filtrer uniquement les membres du groupe
+                    const memberIdsSet = new Set((groupMembers || []).map(id => String(id)));
+                    if (memberIdsSet.size > 0 && !memberIdsSet.has(userIdStr)) return false;
+                    
+                    // Vérifier que la disponibilité couvre le créneau
+                    const slotStart = dayjs(startIso);
+                    const slotEnd = dayjs(endIso);
+                    const availStart = dayjs(s.start);
+                    const availEnd = dayjs(s.end || s.start).add(30, 'minute');
+                    
+                    return availStart <= slotStart && availEnd >= slotEnd && 
+                           String(s.status || 'neutral').toLowerCase() === 'available';
+                  })
+                  .reduce((acc, s) => {
+                    const userIdStr = String(s.user_id);
+                    if (!acc.has(userIdStr)) {
+                      acc.set(userIdStr, s);
+                    } else {
+                      const existing = acc.get(userIdStr);
+                      const existingTime = dayjs(existing.created_at || existing.updated_at || existing.start).valueOf();
+                      const newTime = dayjs(s.created_at || s.updated_at || s.start).valueOf();
+                      if (newTime > existingTime) {
+                        acc.set(userIdStr, s);
+                      }
+                    }
+                    return acc;
+                  }, new Map());
+                
+                const people = Array.from(peopleForSlot.values()).map(s => ({ 
+                  user_id: s.user_id, 
+                  status: 'available' 
+                }));
+                const availableCount = people.length;
                 const match = mapMatches.get(startIso);
 
                 const myStatus = myStatusByStart.get(startIso);
@@ -1170,8 +1218,49 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
         {days.map((day, i) => {
           const di = day.diff(weekStart, 'day');
           const startIso = keySlot(day, hour, minute);
-          const people = mapDispos.get(startIso) || [];
-          const availableCount = uniqueAvailableCount(people);
+          // Calculer la fin du créneau (30 minutes après)
+          const endIso = dayjs(startIso).add(30, 'minute').toISOString();
+          
+          // Vérifier les disponibilités qui couvrent réellement ce créneau de 30 minutes
+          const peopleForSlot = (slots || [])
+            .filter(s => {
+              if (s.group_id !== groupId) return false;
+              const userIdStr = String(s.user_id);
+              // Filtrer uniquement les membres du groupe
+              const memberIdsSet = new Set((groupMembers || []).map(id => String(id)));
+              if (memberIdsSet.size > 0 && !memberIdsSet.has(userIdStr)) return false;
+              
+              // Vérifier que la disponibilité couvre le créneau (commence avant ou à l'heure de début, et finit après ou à l'heure de fin)
+              const slotStart = dayjs(startIso);
+              const slotEnd = dayjs(endIso);
+              const availStart = dayjs(s.start);
+              const availEnd = dayjs(s.end || s.start).add(30, 'minute'); // Si pas de end, assumer 30 min
+              
+              // La disponibilité doit commencer avant ou à l'heure du slot et finir après ou à l'heure de fin du slot
+              return availStart <= slotStart && availEnd >= slotEnd && 
+                     String(s.status || 'neutral').toLowerCase() === 'available';
+            })
+            // Dédupliquer par user_id (garder la plus récente en cas de doublon)
+            .reduce((acc, s) => {
+              const userIdStr = String(s.user_id);
+              if (!acc.has(userIdStr)) {
+                acc.set(userIdStr, s);
+              } else {
+                const existing = acc.get(userIdStr);
+                const existingTime = dayjs(existing.created_at || existing.updated_at || existing.start).valueOf();
+                const newTime = dayjs(s.created_at || s.updated_at || s.start).valueOf();
+                if (newTime > existingTime) {
+                  acc.set(userIdStr, s);
+                }
+              }
+              return acc;
+            }, new Map());
+          
+          const people = Array.from(peopleForSlot.values()).map(s => ({ 
+            user_id: s.user_id, 
+            status: 'available' 
+          }));
+          const availableCount = people.length;
           const match = mapMatches.get(startIso);
           const myStatus = myStatusByStart.get(startIso);
 

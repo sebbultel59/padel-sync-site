@@ -4,15 +4,17 @@ export default {
     slug: "padel-sync",
     entryPoint: "./index.js",
     scheme: "padelsync",
-    version: "1.1.3",
+    version: "1.2.2",
     icon: "./assets/icon.png", // chemin par défaut pour éviter les erreurs build iOS
     ios: {
       bundleIdentifier: "app.syncpadel.mobile",
       supportsTablet: false,
-      buildNumber: "1.1.3",
+      buildNumber: "1.2.2",
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
+          "Nous utilisons votre position pour trouver les clubs de padel proches.",
+        NSLocationAlwaysUsageDescription:
           "Nous utilisons votre position pour trouver les clubs de padel proches.",
         ITSAppUsesNonExemptEncryption: false,
         NSCameraUsageDescription: "Permet de scanner ou ajouter des photos de profil ou de club.",
