@@ -63,3 +63,6 @@ Pour un build "store" (production), vous **devez** passer par App Store Connect 
 Vous ne pouvez pas installer directement un fichier `.ipa` signé pour le store sur un appareil iOS sans passer par TestFlight ou avoir un compte développeur avec distribution ad-hoc.
 
 
+
+
+

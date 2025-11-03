@@ -178,25 +178,25 @@ export default function TabsLayout() {
           headerShown: true,
           headerStyle: {
             backgroundColor: '#011932',
-            height: isLandscape ? 56 : 140,
+            height: isLandscape ? 48 : 100,
           },
           headerTitleAlign: 'center',
           headerTintColor: '#fff',
           headerTitleStyle: {
             fontFamily: 'CaptureSmallzClean',
             fontWeight: '800',
-            fontSize: isLandscape ? 28 : 45,
+            fontSize: isLandscape ? 34 : 42,
             textTransform: 'uppercase',
             color: '#e0ff00',
             marginHorizontal: -6,
             paddingHorizontal: 0,
             textAlign: 'center',
-            lineHeight: isLandscape ? 30 : 48
+            lineHeight: isLandscape ? 36 : 44
           },
           headerTitleContainerStyle: {
             flexGrow: 1,
             maxWidth: '66%',
-            paddingVertical: isLandscape ? 4 : 16,
+            paddingVertical: isLandscape ? 2 : 6,
           },
           headerLeft: () => (
             <Pressable

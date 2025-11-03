@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
@@ -19,8 +18,7 @@ import {
   SectionList,
   Text,
   TextInput,
-  View,
-  Dimensions
+  View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
@@ -174,6 +172,9 @@ export default function MatchesScreen() {
   const [rsvpsByMatch, setRsvpsByMatch] = useState({});
   const [profilesById, setProfilesById] = useState({});
   const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
+  // Bandeau réseau
+  const [networkNotice, setNetworkNotice] = useState(null);
+  const retryRef = React.useRef(0);
   
   // Group selector states
   const [myGroups, setMyGroups] = useState([]);
@@ -187,14 +188,9 @@ export default function MatchesScreen() {
   const [flashQuery, setFlashQuery] = useState('');
   const [flashWhenOpen, setFlashWhenOpen] = useState(false);
   const [flashDateModalOpen, setFlashDateModalOpen] = useState(false);
-  const [flashDatePickerOpen, setFlashDatePickerOpen] = useState(false);
-  const [flashTimePickerOpen, setFlashTimePickerOpen] = useState(false);
-  const [flashInlineDateOpen, setFlashInlineDateOpen] = useState(false);
-  const [flashInlineTimeOpen, setFlashInlineTimeOpen] = useState(false);
   const [flashDatePickerModalOpen, setFlashDatePickerModalOpen] = useState(false);
-  const [flashTimePickerModalOpen, setFlashTimePickerModalOpen] = useState(false);
   const [tempDate, setTempDate] = useState(() => new Date());
-  const [tempTime, setTempTime] = useState(() => ({ hours: 20, minutes: 0 }));
+  const [tempTime, setTempTime] = useState(() => ({ hours: 20, minutes: 0, seconds: 0 }));
   const [flashStart, setFlashStart] = useState(() => {
     const now = new Date();
     const ms = 30 * 60 * 1000;
@@ -245,6 +241,46 @@ export default function MatchesScreen() {
   const [locationPermission, setLocationPermission] = useState(null);
   const [availablePlayers, setAvailablePlayers] = useState([]);
   const [availablePlayersLoading, setAvailablePlayersLoading] = useState(false);
+  
+  // Filtre par niveau ciblé
+  const [filterLevelRanges, setFilterLevelRanges] = useState([]); // Aucun niveau sélectionné par défaut = pas de filtre
+  const [filterConfigVisible, setFilterConfigVisible] = useState(false); // Visibilité de la zone de configuration
+  
+  // Le filtre est actif si au moins un niveau est sélectionné
+  const filterByLevel = filterLevelRanges && filterLevelRanges.length > 0;
+  
+  // Filtre géographique
+  const [filterGeoVisible, setFilterGeoVisible] = useState(false); // Visibilité de la zone de configuration géographique
+  const [filterGeoLocationType, setFilterGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [filterGeoRefPoint, setFilterGeoRefPoint] = useState(null); // { lat, lng, address }
+  const [filterGeoCityQuery, setFilterGeoCityQuery] = useState('');
+  const [filterGeoCitySuggestions, setFilterGeoCitySuggestions] = useState([]);
+  const [filterGeoRadiusKm, setFilterGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
+  
+  // Le filtre géographique est actif si un point de référence est défini
+  const filterByGeo = filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null;
+  
+  // Réinitialiser le rayon à null quand aucune position n'est sélectionnée
+  useEffect(() => {
+    if (!filterGeoLocationType) {
+      setFilterGeoRadiusKm(null);
+    }
+  }, [filterGeoLocationType]);
+  
+  // Réinitialiser les filtres quand le groupe change
+  useEffect(() => {
+    if (groupId) {
+      setFilterLevelRanges([]);
+      setFilterConfigVisible(false);
+      setFilterGeoVisible(false);
+      setFilterGeoLocationType(null);
+      setFilterGeoRefPoint(null);
+      setFilterGeoCityQuery('');
+      setFilterGeoCitySuggestions([]);
+      setFilterGeoRadiusKm(null);
+    }
+  }, [groupId]);
+  
   const [selectedGeoPlayers, setSelectedGeoPlayers] = useState([]); // Joueurs sélectionnés pour le match géographique
 
 // Bornes de la semaine visible
@@ -297,14 +333,136 @@ const longReadyWeek = React.useMemo(
         return aStart - bStart;
       });
       
+      // Filtrer par niveau ciblé si activé
+      let finalFiltered = sorted;
+      if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
+        // Convertir les plages de niveaux en niveaux individuels autorisés
+        const allowedLevels = new Set();
+        filterLevelRanges.forEach(range => {
+          const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+          if (parts.length === 2) {
+            const [min, max] = parts.sort((a, b) => a - b);
+            for (let level = min; level <= max; level++) {
+              allowedLevels.add(level);
+            }
+          }
+        });
+        
+        if (allowedLevels.size > 0) {
+          finalFiltered = sorted.filter(slot => {
+            // Filtrer les joueurs pour ne garder que ceux avec les niveaux autorisés
+            const userIds = slot.ready_user_ids || [];
+            const filteredUserIds = userIds.filter(uid => {
+              const profile = profilesById[String(uid)];
+              if (!profile?.niveau) return false;
+              const playerLevel = Number(profile.niveau);
+              if (!Number.isFinite(playerLevel)) return false;
+              // Vérifier si le niveau du joueur est dans les niveaux autorisés
+              return allowedLevels.has(playerLevel);
+            });
+            
+            // Le créneau doit avoir au moins 3 joueurs (4 au total avec le créateur) avec les niveaux autorisés
+            // On accepte le match si au moins 3 joueurs ont un niveau autorisé
+            return filteredUserIds.length >= 3;
+          }).map(slot => {
+            // Filtrer ready_user_ids pour ne garder que les joueurs autorisés
+            const userIds = slot.ready_user_ids || [];
+            const allowedLevels = new Set();
+            filterLevelRanges.forEach(range => {
+              const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+              if (parts.length === 2) {
+                const [min, max] = parts.sort((a, b) => a - b);
+                for (let level = min; level <= max; level++) {
+                  allowedLevels.add(level);
+                }
+              }
+            });
+            
+            const filteredUserIds = userIds.filter(uid => {
+              const profile = profilesById[String(uid)];
+              if (!profile?.niveau) return false;
+              const playerLevel = Number(profile.niveau);
+              if (!Number.isFinite(playerLevel)) return false;
+              return allowedLevels.has(playerLevel);
+            });
+            
+            return {
+              ...slot,
+              ready_user_ids: filteredUserIds,
+            };
+          });
+          console.log('[longReadyWeek] Après filtrage par niveau:', finalFiltered.length, 'sur', sorted.length, 'niveaux autorisés:', Array.from(allowedLevels).sort());
+        }
+      }
+      
+      // Filtrer par distance géographique si activé
+      if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
+        finalFiltered = finalFiltered.filter(slot => {
+          const userIds = slot.ready_user_ids || [];
+          // Filtrer les joueurs qui sont dans le rayon sélectionné
+          const filteredUserIds = userIds.filter(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile) return false;
+            
+            // Utiliser domicile, puis travail, comme position du joueur
+            let playerLat = null;
+            let playerLng = null;
+            if (profile.address_home?.lat && profile.address_home?.lng) {
+              playerLat = profile.address_home.lat;
+              playerLng = profile.address_home.lng;
+            } else if (profile.address_work?.lat && profile.address_work?.lng) {
+              playerLat = profile.address_work.lat;
+              playerLng = profile.address_work.lng;
+            }
+            
+            if (!playerLat || !playerLng) return false; // Pas de position = exclu
+            
+            // Calculer la distance
+            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+            return distanceKm <= filterGeoRadiusKm;
+          });
+          
+          // Le créneau doit avoir au moins 3 joueurs dans le rayon
+          return filteredUserIds.length >= 3;
+        }).map(slot => {
+          // Filtrer ready_user_ids pour ne garder que les joueurs dans le rayon
+          const userIds = slot.ready_user_ids || [];
+          const filteredUserIds = userIds.filter(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile) return false;
+            
+            let playerLat = null;
+            let playerLng = null;
+            if (profile.address_home?.lat && profile.address_home?.lng) {
+              playerLat = profile.address_home.lat;
+              playerLng = profile.address_home.lng;
+            } else if (profile.address_work?.lat && profile.address_work?.lng) {
+              playerLat = profile.address_work.lat;
+              playerLng = profile.address_work.lng;
+            }
+            
+            if (!playerLat || !playerLng) return false;
+            
+            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+            return distanceKm <= filterGeoRadiusKm;
+          });
+          
+          return {
+            ...slot,
+            ready_user_ids: filteredUserIds,
+          };
+        });
+        console.log('[longReadyWeek] Après filtrage géographique:', finalFiltered.length, 'sur', (sorted || []).length);
+      }
+      
       // Log les créneaux valides
-      sorted.slice(0, 5).forEach(it => {
+      finalFiltered.slice(0, 5).forEach(it => {
         console.log('[longReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
       });
-      console.log('[longReadyWeek] Créneaux après filtrage et tri:', sorted.length, 'sur', longReady?.length || 0);
-      return sorted;
+      console.log('[longReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', longReady?.length || 0);
+      return finalFiltered;
     },
-    [longReady, currentWs, currentWe]
+    [longReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm]
   );
   
 const hourReadyWeek = React.useMemo(
@@ -343,14 +501,136 @@ const hourReadyWeek = React.useMemo(
         return aStart - bStart;
       });
       
+      // Filtrer par niveau ciblé si activé
+      let finalFiltered = sorted;
+      if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
+        // Convertir les plages de niveaux en niveaux individuels autorisés
+        const allowedLevels = new Set();
+        filterLevelRanges.forEach(range => {
+          const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+          if (parts.length === 2) {
+            const [min, max] = parts.sort((a, b) => a - b);
+            for (let level = min; level <= max; level++) {
+              allowedLevels.add(level);
+            }
+          }
+        });
+        
+        if (allowedLevels.size > 0) {
+          finalFiltered = sorted.filter(slot => {
+            // Filtrer les joueurs pour ne garder que ceux avec les niveaux autorisés
+            const userIds = slot.ready_user_ids || [];
+            const filteredUserIds = userIds.filter(uid => {
+              const profile = profilesById[String(uid)];
+              if (!profile?.niveau) return false;
+              const playerLevel = Number(profile.niveau);
+              if (!Number.isFinite(playerLevel)) return false;
+              // Vérifier si le niveau du joueur est dans les niveaux autorisés
+              return allowedLevels.has(playerLevel);
+            });
+            
+            // Le créneau doit avoir au moins 3 joueurs (4 au total avec le créateur) avec les niveaux autorisés
+            // On accepte le match si au moins 3 joueurs ont un niveau autorisé
+            return filteredUserIds.length >= 3;
+          }).map(slot => {
+            // Filtrer ready_user_ids pour ne garder que les joueurs autorisés
+            const userIds = slot.ready_user_ids || [];
+            const allowedLevels = new Set();
+            filterLevelRanges.forEach(range => {
+              const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+              if (parts.length === 2) {
+                const [min, max] = parts.sort((a, b) => a - b);
+                for (let level = min; level <= max; level++) {
+                  allowedLevels.add(level);
+                }
+              }
+            });
+            
+            const filteredUserIds = userIds.filter(uid => {
+              const profile = profilesById[String(uid)];
+              if (!profile?.niveau) return false;
+              const playerLevel = Number(profile.niveau);
+              if (!Number.isFinite(playerLevel)) return false;
+              return allowedLevels.has(playerLevel);
+            });
+            
+            return {
+              ...slot,
+              ready_user_ids: filteredUserIds,
+            };
+          });
+          console.log('[hourReadyWeek] Après filtrage par niveau:', finalFiltered.length, 'sur', sorted.length, 'niveaux autorisés:', Array.from(allowedLevels).sort());
+        }
+      }
+      
+      // Filtrer par distance géographique si activé
+      if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
+        finalFiltered = finalFiltered.filter(slot => {
+          const userIds = slot.ready_user_ids || [];
+          // Filtrer les joueurs qui sont dans le rayon sélectionné
+          const filteredUserIds = userIds.filter(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile) return false;
+            
+            // Utiliser domicile, puis travail, comme position du joueur
+            let playerLat = null;
+            let playerLng = null;
+            if (profile.address_home?.lat && profile.address_home?.lng) {
+              playerLat = profile.address_home.lat;
+              playerLng = profile.address_home.lng;
+            } else if (profile.address_work?.lat && profile.address_work?.lng) {
+              playerLat = profile.address_work.lat;
+              playerLng = profile.address_work.lng;
+            }
+            
+            if (!playerLat || !playerLng) return false; // Pas de position = exclu
+            
+            // Calculer la distance
+            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+            return distanceKm <= filterGeoRadiusKm;
+          });
+          
+          // Le créneau doit avoir au moins 3 joueurs dans le rayon
+          return filteredUserIds.length >= 3;
+        }).map(slot => {
+          // Filtrer ready_user_ids pour ne garder que les joueurs dans le rayon
+          const userIds = slot.ready_user_ids || [];
+          const filteredUserIds = userIds.filter(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile) return false;
+            
+            let playerLat = null;
+            let playerLng = null;
+            if (profile.address_home?.lat && profile.address_home?.lng) {
+              playerLat = profile.address_home.lat;
+              playerLng = profile.address_home.lng;
+            } else if (profile.address_work?.lat && profile.address_work?.lng) {
+              playerLat = profile.address_work.lat;
+              playerLng = profile.address_work.lng;
+            }
+            
+            if (!playerLat || !playerLng) return false;
+            
+            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+            return distanceKm <= filterGeoRadiusKm;
+          });
+          
+          return {
+            ...slot,
+            ready_user_ids: filteredUserIds,
+          };
+        });
+        console.log('[hourReadyWeek] Après filtrage géographique:', finalFiltered.length, 'sur', (sorted || []).length);
+      }
+      
       // Log les créneaux valides
-      sorted.forEach(it => {
+      finalFiltered.forEach(it => {
         console.log('[hourReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
       });
-      console.log('[hourReadyWeek] Créneaux après filtrage et tri:', sorted.length, 'sur', hourReady?.length || 0);
-      return sorted;
+      console.log('[hourReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', hourReady?.length || 0);
+      return finalFiltered;
     },
-  [hourReady, currentWs, currentWe]
+  [hourReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm]
 );
   
 // Fonction helper pour vérifier si un match n'est pas périmé
@@ -547,29 +827,41 @@ function normalizeRsvp(s) {
 }
 
 function computeAvailableUsersForInterval(startsAt, endsAt, availabilityData) {
-  if (!availabilityData || availabilityData.length === 0) {
-    return [];
-  }
-  
-  // Filtrer les disponibilités qui chevauchent avec l'intervalle demandé
+  if (!availabilityData || availabilityData.length === 0) return [];
   const start = new Date(startsAt);
   const end = new Date(endsAt);
-  
-  const availableUserIds = availabilityData
-    .filter(avail => {
-      const availStart = new Date(avail.start);
-      const availEnd = new Date(avail.end);
-      
-      // Vérifier si les intervalles se chevauchent
-      // Chevauchement : availStart < end AND availEnd > start
-      const overlaps = availStart < end && availEnd > start;
-      
-      return overlaps;
-    })
-    .map(avail => avail.user_id)
-    .filter((value, index, self) => self.indexOf(value) === index); // Déduplication
-  
-  return availableUserIds;
+  if (!(start instanceof Date) || isNaN(start) || !(end instanceof Date) || isNaN(end) || end <= start) return [];
+
+  // Découper l'intervalle en pas de 30 min et intersecter les joueurs dispos sur chaque tick
+  const stepMs = 30 * 60 * 1000;
+  const slots = [];
+  for (let cur = new Date(start.getTime()); cur.getTime() < end.getTime(); cur = new Date(cur.getTime() + stepMs)) {
+    const slotStart = cur;
+    const slotEnd = new Date(cur.getTime() + stepMs);
+    slots.push([slotStart, slotEnd]);
+  }
+
+  let intersection = null; // Set<string>
+  for (const [slotStart, slotEnd] of slots) {
+    const coveringUsers = new Set(
+      availabilityData
+        .filter(av => {
+          const aStart = new Date(av.start);
+          const aEnd = new Date(av.end);
+          // La dispo doit COUVRIR entièrement le tick de 30 min
+          return aStart.getTime() <= slotStart.getTime() && aEnd.getTime() >= slotEnd.getTime();
+        })
+        .map(av => String(av.user_id))
+    );
+    if (intersection == null) {
+      intersection = coveringUsers;
+    } else {
+      // Intersect
+      intersection = new Set([...intersection].filter(id => coveringUsers.has(id)));
+    }
+    if ((intersection?.size || 0) === 0) break; // early exit
+  }
+  return intersection ? [...intersection] : [];
 }
 
 async function computeAvailableUserIdsForInterval(groupId, startsAt, endsAt) {
@@ -838,6 +1130,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     if (!groupId) return;
     setLoading(true);
     try {
+      setNetworkNotice(null);
       console.log('[Matches] fetchData called for group:', groupId);
       // Compute week bounds for limiting virtual slot generation to the visible week
       const { ws: wsBound, we: weBound } = weekBoundsFromOffset(weekOffset);
@@ -892,11 +1185,37 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         console.log('[Matches] Time_slots disponibles:', availableTimeSlots.length, 'sur', timeSlotsData.length);
         
         // Charger UNE FOIS toutes les disponibilités du groupe pour éviter trop de requêtes
-        const { data: availabilityData, error: availabilityError } = await supabase
-          .from('availability')
-          .select('user_id, start, end')
-          .eq('group_id', groupId)
-          .eq('status', 'available');
+        // Utiliser get_availability_effective pour le modèle hybride (comme dans la page semaine)
+        let availabilityData = [];
+        let availabilityError = null;
+        try {
+          const { data: availabilityDataRaw, error: rpcErr } = await supabase.rpc("get_availability_effective", {
+            p_group: groupId,
+            p_user: null, // tous les utilisateurs
+            p_low: wsBound?.toISOString?.() || wsBound,
+            p_high: weBound?.toISOString?.() || weBound,
+          });
+          availabilityError = rpcErr || null;
+          if (!rpcErr && availabilityDataRaw) {
+            // Filtrer uniquement les disponibilités avec status 'available'
+            availabilityData = availabilityDataRaw.filter(a => String(a.status || 'available').toLowerCase() === 'available');
+          }
+        } catch (e) {
+          availabilityError = e;
+        }
+        // Fallback (réseau ou RPC indisponible): lecture directe
+        if (availabilityError) {
+          console.warn('[Matches] RPC indisponible, fallback table availability:', availabilityError?.message || availabilityError);
+          const { data: avFallback, error: avFallbackErr } = await supabase
+            .from('availability')
+            .select('user_id, start, end, status')
+            .eq('group_id', groupId)
+            .eq('status', 'available')
+            .gte('start', wsBound?.toISOString?.() || wsBound)
+            .lt('start', weBound?.toISOString?.() || weBound);
+          if (!avFallbackErr && avFallback) availabilityData = avFallback;
+          availabilityError = avFallbackErr || null;
+        }
         
         console.log('[Matches] Disponibilités chargées:', availabilityData?.length || 0, 'erreur:', availabilityError);
         if (availabilityData && availabilityData.length > 0) {
@@ -905,7 +1224,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         
         // D'abord, traiter les time_slots existants
         for (const ts of availableTimeSlots) {
-          const availUserIds = computeAvailableUsersForInterval(ts.starts_at, ts.ends_at, availabilityData);
+          let availUserIds = computeAvailableUsersForInterval(ts.starts_at, ts.ends_at, availabilityData);
+          // Exclure moi-même de la liste sélectionnable
+          availUserIds = (availUserIds || []).filter(uid => String(uid) !== String(meId));
           const availCount = availUserIds ? availUserIds.length : 0;
           
           if (availCount >= 4) {
@@ -954,27 +1275,11 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             const slotEnd60 = new Date(slotStart.getTime() + 60 * 60 * 1000);
             const slotEnd90 = new Date(slotStart.getTime() + 90 * 60 * 1000);
 
-            // Compter les joueurs qui CHEVAUCHENT avec ce créneau (union, pas intersection)
-            const players60 = availabilityData
-              .filter(a => {
-                const aStart = new Date(a.start);
-                const aEnd = new Date(a.end);
-                // Chevauchement simple
-                return aStart < slotEnd60 && aEnd > slotStart;
-              })
-              .map(a => a.user_id);
-
-            const players90 = availabilityData
-              .filter(a => {
-                const aStart = new Date(a.start);
-                const aEnd = new Date(a.end);
-                // Chevauchement simple
-                return aStart < slotEnd90 && aEnd > slotStart;
-              })
-              .map(a => a.user_id);
-
-            const uniquePlayers60 = [...new Set(players60)];
-            const uniquePlayers90 = [...new Set(players90)];
+            // Joueurs qui COUVRENT l'intervalle entier (intersection sur ticks 30 min)
+            const uniquePlayers60 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd60.toISOString(), availabilityData)
+              .filter(uid => String(uid) !== String(meId));
+            const uniquePlayers90 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd90.toISOString(), availabilityData)
+              .filter(uid => String(uid) !== String(meId));
 
             // Vérifier si ce créneau virtuel chevauche avec un time_slot existant qui a un match bloquant
             // On permet la création de créneaux virtuels même s'il existe un time_slot, car plusieurs matchs peuvent coexister sur le même créneau horaire
@@ -1318,6 +1623,16 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       console.log('[Matches] fetchData completed');
     } catch (e) {
       console.error('[Matches] fetchData error:', e);
+      const msg = (e?.message || String(e) || '').toLowerCase();
+      const isNetwork = msg.includes('network') || msg.includes('fetch') || msg.includes('gateway');
+      if (isNetwork) {
+        setNetworkNotice('Hors ligne — tentative de reconnexion…');
+        if (retryRef.current < 2) {
+          const delay = 1500 * (retryRef.current + 1);
+          retryRef.current += 1;
+          setTimeout(() => { fetchData(); }, delay);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -1626,8 +1941,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   async function openFlashMatchPlayersModal() {
     try {
       setFlashLoading(true);
-      const members = await loadGroupMembersForFlash();
-
+      
       // Assure-toi d'avoir mon UID même si meId n'est pas encore peuplé
       let uid = meId;
       if (!uid) {
@@ -1637,33 +1951,54 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         } catch {}
       }
 
-      // Exclure l'utilisateur authentifié de la liste proposée
-      let ms = (members || []).filter(m => !uid || String(m.id) !== String(uid));
+      // Calculer les dates de début et fin
+      const startsIso = flashStart instanceof Date ? flashStart.toISOString() : new Date().toISOString();
+      const endDate = new Date(flashStart);
+      endDate.setMinutes(endDate.getMinutes() + (flashDurationMin || 90));
+      const endsIso = endDate.toISOString();
 
-      // Exclure les joueurs déjà pris (pending/confirmed) sur un match qui chevauche l'intervalle choisi
-      try {
-        const startsIso = flashStart instanceof Date ? flashStart.toISOString() : new Date().toISOString();
-        const endDate = new Date(flashStart);
-        endDate.setMinutes(endDate.getMinutes() + (flashDurationMin || 90));
-        const endsIso = endDate.toISOString();
-        const blocked = await findConflictingUsers({
-          groupId,
-          startsAt: startsIso,
-          endsAt: endsIso,
-          userIds: ms.map(m => m.id),
-        });
-        if (blocked && blocked.size) {
-          ms = ms.filter(m => !blocked.has(String(m.id)));
-        }
-      } catch (e) {
-        console.warn('[FlashMatch] conflict filter failed:', e?.message || e);
+      // 1. Récupérer les IDs des joueurs disponibles sur le créneau (comme pour les matchs possibles)
+      const availableIds = await computeAvailableUserIdsForInterval(groupId, startsIso, endsIso);
+      
+      console.log('[FlashMatch] Joueurs disponibles pour l\'intervalle:', availableIds.length, 'ids:', availableIds);
+      
+      if (availableIds.length === 0) {
+        setFlashMembers([]);
+        setFlashSelected([]);
+        setFlashQuery("");
+        setFlashPickerOpen(true);
+        Alert.alert('Aucun joueur disponible', 'Aucun membre n\'est disponible pour ce créneau.');
+        return;
       }
+
+      // 2. Charger les profils des joueurs disponibles
+      const { data: profiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, display_name, name, niveau')
+        .in('id', availableIds);
+
+      if (profileError) {
+        console.error('[FlashMatch] Erreur chargement profils:', profileError);
+        throw profileError;
+      }
+
+      // 3. Normaliser les membres disponibles (exclure l'utilisateur authentifié)
+      let ms = (profiles || [])
+        .map(p => ({
+          id: p.id,
+          name: p.display_name || p.name || 'Joueur inconnu',
+          niveau: p.niveau || null,
+        }))
+        .filter(m => !uid || String(m.id) !== String(uid));
+
+      console.log('[FlashMatch] Membres disponibles après filtrage:', ms.length);
 
       setFlashMembers(ms);
       setFlashSelected([]);
       setFlashQuery("");
       setFlashPickerOpen(true);
     } catch (e) {
+      console.error('[FlashMatch] Erreur ouverture modal joueurs:', e);
       Alert.alert('Erreur', e?.message || String(e));
     } finally {
       setFlashLoading(false);
@@ -1820,6 +2155,87 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setCitySuggestions([]);
     }
   }, []);
+  
+  // Autocomplétion ville pour le filtre géographique
+  const searchFilterGeoCity = useCallback(async (query) => {
+    if (!query || query.length < 3) {
+      setFilterGeoCitySuggestions([]);
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const suggestions = (data || []).map(item => ({
+        name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+      }));
+      setFilterGeoCitySuggestions(suggestions);
+    } catch (e) {
+      console.warn('[FilterGeo] city search error:', e);
+      setFilterGeoCitySuggestions([]);
+    }
+  }, []);
+  
+  // Calculer le point de référence géographique pour le filtre
+  const computeFilterGeoRefPoint = useCallback(async () => {
+    let point = null;
+    if (filterGeoLocationType === 'current') {
+      if (locationPermission !== 'granted') {
+        Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la localisation.');
+        setFilterGeoLocationType(null);
+        return null;
+      }
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        point = { lat: loc.coords.latitude, lng: loc.coords.longitude, address: 'Position actuelle' };
+      } catch (e) {
+        Alert.alert('Erreur', 'Impossible d\'obtenir votre position. Utilisez une ville.');
+        setFilterGeoLocationType(null);
+        return null;
+      }
+    } else if (filterGeoLocationType === 'home') {
+      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
+        setFilterGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_home;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
+    } else if (filterGeoLocationType === 'work') {
+      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
+        setFilterGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_work;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
+    }
+    
+    return point;
+  }, [filterGeoLocationType, locationPermission, myProfile]);
+  
+  // Charger le point de référence géographique du filtre quand le type change
+  useEffect(() => {
+    if (!filterGeoVisible) return; // Ne pas charger si le filtre n'est pas visible
+    
+    (async () => {
+      // Pour 'city', le point sera défini quand l'utilisateur sélectionne une ville
+      if (filterGeoLocationType === 'city') {
+        // Ne rien faire, attendre la sélection de ville
+        return;
+      }
+      
+      // Pour les autres types (current, home, work), charger automatiquement
+      const point = await computeFilterGeoRefPoint();
+      if (point) {
+        setFilterGeoRefPoint(point);
+      } else {
+        setFilterGeoRefPoint(null);
+      }
+    })();
+  }, [filterGeoLocationType, filterGeoVisible, computeFilterGeoRefPoint]);
 
   // Mémoriser préférences
   useEffect(() => {
@@ -3171,7 +3587,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
                 onPress={canSelect ? () => toggleSelect(uid) : undefined}
                 onLongPressProfile={openProfile}
                 selected={isSelected}
-                size={56}
+                size={48}
               />
             );
           })}
@@ -3212,7 +3628,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 const LongSlotRow = ({ item }) => {
   console.log('[LongSlotRow] Rendered for item:', item.time_slot_id, 'starts_at:', item.starts_at);
   // Utiliser tous les joueurs disponibles pour ce créneau (pas seulement les membres du groupe)
-  const userIds = item.ready_user_ids || [];
+  const userIds = (item.ready_user_ids || []).filter(uid => String(uid) !== String(meId));
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -3245,7 +3661,7 @@ const LongSlotRow = ({ item }) => {
               onPress={() => toggleSelect(uid)}
               onLongPressProfile={openProfile}
               selected={selectedIds.includes(String(uid))}
-              size={56}
+              size={48}
             />
           );
         })}
@@ -3285,7 +3701,7 @@ const LongSlotRow = ({ item }) => {
 // --- 1h ---
 const HourSlotRow = ({ item }) => {
   // Utiliser tous les joueurs disponibles pour ce créneau (pas seulement les membres du groupe)
-  const userIds = item.ready_user_ids || [];
+  const userIds = (item.ready_user_ids || []).filter(uid => String(uid) !== String(meId));
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -3318,7 +3734,7 @@ const HourSlotRow = ({ item }) => {
               onPress={() => toggleSelect(uid)}
               onLongPressProfile={openProfile}
               selected={selectedIds.includes(String(uid))}
-              size={56}
+              size={48}
             />
           );
         })}
@@ -3957,6 +4373,11 @@ const HourSlotRow = ({ item }) => {
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#001831' }}>
+      {networkNotice && (
+        <View style={{ backgroundColor: '#f59e0b', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, marginBottom: 8 }}>
+          <Text style={{ color: '#111827', fontWeight: '800', textAlign: 'center' }}>{networkNotice}</Text>
+        </View>
+      )}
       {/* Week navigator */}
       <View
         style={{
@@ -4008,12 +4429,317 @@ const HourSlotRow = ({ item }) => {
           ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
         }}
       >
-        <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 6 }} />
-        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 13 }}>
+        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
           {activeGroup?.name || 'Sélectionner un groupe'}
         </Text>
-        <Ionicons name="chevron-down" size={16} color="#e0ff00" style={{ marginLeft: 4 }} />
+        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
       </Pressable>
+      
+      {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
+      {tab === 'proposes' && (
+        <>
+          {/* Icônes filtres pour afficher/masquer les configurations */}
+          <View style={{ 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            gap: 12,
+            marginBottom: (filterConfigVisible || filterGeoVisible) ? 8 : 0,
+            marginTop: 4,
+          }}>
+            <Pressable
+              onPress={() => {
+                if (!filterConfigVisible) {
+                  // Si on ouvre ce filtre, fermer l'autre
+                  setFilterGeoVisible(false);
+                }
+                setFilterConfigVisible(!filterConfigVisible);
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                backgroundColor: 'transparent',
+                gap: 8,
+              }}
+            >
+              <Image 
+                source={racketIcon}
+                style={{
+                  width: 20,
+                  height: 20,
+                  tintColor: filterByLevel ? '#15803d' : '#9ca3af',
+                }}
+                resizeMode="contain"
+              />
+              <Text style={{ 
+                color: filterByLevel ? '#15803d' : '#9ca3af', 
+                fontWeight: '700', 
+                fontSize: 14 
+              }}>
+                {filterByLevel ? `Filtre actif (${filterLevelRanges.length})` : 'Filtrer niveaux'}
+              </Text>
+            </Pressable>
+            
+            <Pressable
+              onPress={() => {
+                if (!filterGeoVisible) {
+                  // Si on ouvre ce filtre, fermer l'autre
+                  setFilterConfigVisible(false);
+                }
+                setFilterGeoVisible(!filterGeoVisible);
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                backgroundColor: 'transparent',
+                gap: 8,
+              }}
+            >
+              <Ionicons 
+                name="location" 
+                size={20} 
+                color={filterByGeo ? '#15803d' : '#9ca3af'}
+              />
+              <Text style={{ 
+                color: filterByGeo ? '#15803d' : '#9ca3af', 
+                fontWeight: '700', 
+                fontSize: 14 
+              }}>
+                {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
+              </Text>
+            </Pressable>
+          </View>
+          
+          {/* Zone de configuration du filtre (masquée par défaut) */}
+          {filterConfigVisible && (
+            <View style={{ 
+              marginBottom: 12, 
+              marginTop: 0, 
+              backgroundColor: '#f3f4f6', 
+              borderRadius: 12, 
+              padding: 12,
+              borderWidth: 1,
+              borderColor: filterByLevel ? '#15803d' : '#d1d5db',
+            }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                Sélectionnez les niveaux à afficher
+              </Text>
+              
+              {/* Sélection des niveaux */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {['1/2', '3/4', '5/6', '7/8'].map((range) => {
+                  const isSelected = Array.isArray(filterLevelRanges) && filterLevelRanges.includes(range);
+                  return (
+                    <Pressable
+                      key={range}
+                      onPress={() => {
+                        setFilterLevelRanges((prev) => {
+                          const prevArray = Array.isArray(prev) ? prev : [];
+                          if (prevArray.includes(range)) {
+                            // Désélectionner
+                            return prevArray.filter(r => r !== range);
+                          } else {
+                            // Sélectionner
+                            return [...prevArray, range];
+                          }
+                        });
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 12,
+                        borderRadius: 8,
+                        backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                        borderWidth: 1,
+                        borderColor: isSelected ? '#15803d' : '#d1d5db',
+                      }}
+                    >
+                      <Text style={{ 
+                        fontSize: 14, 
+                        fontWeight: isSelected ? '800' : '700', 
+                        color: isSelected ? '#ffffff' : '#111827' 
+                      }}>
+                        {range}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              
+              {filterByLevel && (
+                <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                  ✓ Filtre actif : seuls les matchs avec au moins 3 joueurs de niveau {filterLevelRanges.join(', ')} sont affichés
+                </Text>
+              )}
+            </View>
+          )}
+          
+          {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+          {filterGeoVisible && (
+            <View style={{ 
+              marginBottom: 12, 
+              marginTop: 0, 
+              backgroundColor: '#f3f4f6', 
+              borderRadius: 12, 
+              padding: 12,
+              borderWidth: 1,
+              borderColor: filterByGeo ? '#15803d' : '#d1d5db',
+            }}>
+              {/* Sélection du type de position */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                  Position de référence
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {[
+                    { key: 'current', label: '📍 Position actuelle' },
+                    { key: 'home', label: '🏠 Domicile' },
+                    { key: 'work', label: '💼 Travail' },
+                    { key: 'city', label: '🏙️ Ville' },
+                  ].map(({ key, label }) => {
+                    const isSelected = filterGeoLocationType === key;
+                    return (
+                      <Pressable
+                        key={key}
+                        onPress={() => {
+                          // Si cette position est déjà sélectionnée, désélectionner (annuler le filtre)
+                          if (isSelected) {
+                            setFilterGeoRefPoint(null);
+                            setFilterGeoCityQuery('');
+                            setFilterGeoCitySuggestions([]);
+                            setFilterGeoLocationType(null); // Réinitialiser à null pour permettre la resélection
+                            // Le rayon sera automatiquement réinitialisé à null par l'useEffect
+                          } else {
+                            // Sinon, sélectionner cette position
+                            setFilterGeoLocationType(key);
+                            if (key === 'city') {
+                              setFilterGeoRefPoint(null);
+                              setFilterGeoCityQuery('');
+                            }
+                          }
+                        }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          backgroundColor: (isSelected && filterByGeo) ? '#15803d' : '#ffffff',
+                          borderWidth: 1,
+                          borderColor: (isSelected && filterByGeo) ? '#15803d' : '#d1d5db',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 14, 
+                          fontWeight: (isSelected && filterByGeo) ? '800' : '700', 
+                          color: (isSelected && filterByGeo) ? '#ffffff' : '#111827' 
+                        }}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              
+              {/* Recherche de ville si type = 'city' */}
+              {filterGeoLocationType && filterGeoLocationType === 'city' && (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                    Rechercher une ville
+                  </Text>
+                  <TextInput
+                    placeholder="Tapez le nom d'une ville..."
+                    value={filterGeoCityQuery}
+                    onChangeText={(text) => {
+                      setFilterGeoCityQuery(text);
+                      searchFilterGeoCity(text);
+                    }}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      borderRadius: 8,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: '#d1d5db',
+                      fontSize: 14,
+                    }}
+                  />
+                  {filterGeoCitySuggestions.length > 0 && (
+                    <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db' }}>
+                      {filterGeoCitySuggestions.map((suggestion, idx) => (
+                        <Pressable
+                          key={idx}
+                          onPress={() => {
+                            setFilterGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                            setFilterGeoCityQuery(suggestion.name);
+                            setFilterGeoCitySuggestions([]);
+                          }}
+                          style={{
+                            padding: 12,
+                            borderBottomWidth: idx < filterGeoCitySuggestions.length - 1 ? 1 : 0,
+                            borderBottomColor: '#e5e7eb',
+                          }}
+                        >
+                          <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+              
+              {/* Sélection du rayon */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                  Rayon : {filterGeoRadiusKm ? `${filterGeoRadiusKm} km` : 'non sélectionné'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                  {[10, 20, 30, 40, 50].map((km) => {
+                    const isSelected = filterGeoRadiusKm === km;
+                    return (
+                      <Pressable
+                        key={km}
+                        onPress={() => {
+                          // Si ce rayon est déjà sélectionné, désélectionner (mettre à null)
+                          if (isSelected) {
+                            setFilterGeoRadiusKm(null);
+                          } else {
+                            // Sinon, sélectionner ce rayon
+                            setFilterGeoRadiusKm(km);
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 6,
+                          paddingHorizontal: 8,
+                          borderRadius: 8,
+                          backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                          borderWidth: 1,
+                          borderColor: isSelected ? '#15803d' : '#d1d5db',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 12, 
+                          fontWeight: isSelected ? '800' : '700', 
+                          color: isSelected ? '#ffffff' : '#111827' 
+                        }}>
+                          {km} km
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          )}
+        </>
+      )}
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
 <View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0 }}>
@@ -4125,7 +4851,7 @@ const HourSlotRow = ({ item }) => {
   <>
     {console.log('[Matches] Rendering proposes tab, longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length)}
     {/* Sélecteur 1h / 1h30 */}
-    <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+    <View style={{ marginBottom: 12, marginTop: 0, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
       <Pressable
         onPress={() => setMode('long')}
@@ -4140,7 +4866,7 @@ const HourSlotRow = ({ item }) => {
             borderColor: mode === 'long' ? '#ffffff' : 'transparent',
           }}
         >
-          <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+          <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
             {longReadyWeek?.length || 0} Créneaux 1h30
           </Text>
       </Pressable>
@@ -4157,7 +4883,7 @@ const HourSlotRow = ({ item }) => {
             borderColor: mode === 'hour' ? '#ffffff' : 'transparent',
           }}
         >
-          <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800' }}>
+          <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
             {hourReadyWeek?.length || 0} Créneaux 1h
           </Text>
       </Pressable>
@@ -4379,7 +5105,8 @@ const HourSlotRow = ({ item }) => {
                 </>
       )}
 
-      {/* Icône flottante pour créer un match géographique (à gauche) */}
+      {/* Icône flottante pour créer un match géographique (à gauche) - MASQUÉE */}
+      {false && (
       <Pressable
         onPress={openGeoModal}
         style={{
@@ -4402,6 +5129,7 @@ const HourSlotRow = ({ item }) => {
       >
         <Ionicons name="location" size={32} color="#ffffff" />
       </Pressable>
+      )}
 
       {/* Icône flottante pour créer un match éclair (à droite) */}
       <Pressable
@@ -4429,7 +5157,7 @@ const HourSlotRow = ({ item }) => {
 
       {/* Modale de choix date/heure/durée */}
       <Modal
-        visible={flashDateModalOpen && !flashDatePickerModalOpen && !flashTimePickerModalOpen}
+        visible={flashDateModalOpen && !flashDatePickerModalOpen}
         animationType="slide"
         transparent={true}
         onRequestClose={() => setFlashDateModalOpen(false)}
@@ -4448,235 +5176,89 @@ const HourSlotRow = ({ item }) => {
               Créer un match éclair ⚡️
             </Text>
 
-            {/* Sélection de la date */}
+            {/* Sélection de la date et heure (comme match géographique) */}
             <View style={{ marginBottom: 20 }}>
               <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                Date
+                Date et heure
               </Text>
               <Pressable
                 onPress={() => {
-                  console.log('[FlashMatch] Opening date picker modal');
-                  setTempDate(new Date(flashStart));
-                  setFlashDatePickerModalOpen(true);
-                  console.log('[FlashMatch] flashDatePickerModalOpen set to:', true);
+                  console.log('[FlashMatch] Opening date/time picker');
+                  const now = new Date(flashStart);
+                  setTempDate(now);
+                  setTempTime({ hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() });
+                  setFlashDateModalOpen(false); // Fermer temporairement le modal parent
+                  setTimeout(() => {
+                    setFlashDatePickerModalOpen(true);
+                  }, 300);
                 }}
                 style={{
-                  backgroundColor: '#f3f4f6',
+                  backgroundColor: flashStart ? COLORS.accent : '#f3f4f6',
                   borderRadius: 8,
                   padding: 12,
                   borderWidth: 1,
-                  borderColor: '#d1d5db',
+                  borderColor: flashStart ? COLORS.accent : '#d1d5db',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
-                <Text style={{ fontSize: 16, color: '#111827' }}>
-                  {flashStart.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                </Text>
-              </Pressable>
-              {flashInlineDateOpen && (
-                <View style={{ 
-                  marginTop: 10, 
-                  backgroundColor: '#f9fafb', 
-                  borderRadius: 8, 
-                  padding: 10,
-                  alignItems: 'center',
-                  minHeight: Platform.OS === 'web' ? 0 : 180,
-                }}>
-                  {Platform.OS === 'web' ? (
-                    <View style={{ width: '100%' }}>
-                      {Platform.OS === 'web' && typeof document !== 'undefined' && (
-                        <input
-                          type="date"
-                          value={flashStart.toISOString().split('T')[0]}
-                          min={new Date().toISOString().split('T')[0]}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              const newDate = new Date(e.target.value);
-                              newDate.setHours(flashStart.getHours());
-                              newDate.setMinutes(flashStart.getMinutes());
-                              setFlashStart(newDate);
-                              setFlashInlineDateOpen(false);
-                            }
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 8,
-                            border: '1px solid #d1d5db',
-                            fontSize: 16,
-                          }}
-                        />
-                      )}
-                    </View>
-                  ) : Platform.OS === 'ios' ? (
+                <View style={{ flex: 1 }}>
+                  {flashStart ? (
                     <>
-                      <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>
-                        Fais défiler pour sélectionner
+                      <Text style={{ fontSize: 16, color: flashStart ? '#ffffff' : '#111827', fontWeight: '800' }}>
+                        {(() => {
+                          const d = flashStart;
+                          const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+                          const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+                          const dayName = days[d.getDay()];
+                          const day = d.getDate();
+                          const month = months[d.getMonth()];
+                          const dayFormatted = day === 1 ? '1er' : String(day);
+                          return `${dayName} ${dayFormatted} ${month}`;
+                        })()}
                       </Text>
-                      <DateTimePicker
-                        value={flashStart}
-                        mode="date"
-                        display="spinner"
-                        minimumDate={new Date()}
-                        onChange={(event, selectedDate) => {
-                          if (selectedDate) {
-                            const newDate = new Date(selectedDate);
-                            newDate.setHours(flashStart.getHours());
-                            newDate.setMinutes(flashStart.getMinutes());
-                            setFlashStart(newDate);
-                          }
-                        }}
-                        style={{ 
-                          height: 200,
-                          width: '100%',
-                        }}
-                      />
-                      <Pressable
-                        onPress={() => setFlashInlineDateOpen(false)}
-                        style={{
-                          marginTop: 10,
-                          backgroundColor: COLORS.accent,
-                          paddingHorizontal: 24,
-                          paddingVertical: 8,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text style={{ color: '#ffffff', fontWeight: '700' }}>Valider</Text>
-                      </Pressable>
+                      <Text style={{ fontSize: 16, color: flashStart ? '#ffffff' : '#111827', fontWeight: '800', marginTop: 4 }}>
+                        {(() => {
+                          const d = flashStart;
+                          const startHours = String(d.getHours()).padStart(2, '0');
+                          const startMinutes = String(d.getMinutes()).padStart(2, '0');
+                          return `${startHours}:${startMinutes}`;
+                        })()}
+                      </Text>
                     </>
                   ) : (
-                    <DateTimePicker
-                      value={flashStart}
-                      mode="date"
-                      display="default"
-                      minimumDate={new Date()}
-                      onChange={(event, selectedDate) => {
-                        setFlashInlineDateOpen(false);
-                        if (event?.type === 'set' && selectedDate) {
-                          const newDate = new Date(selectedDate);
-                          newDate.setHours(flashStart.getHours());
-                          newDate.setMinutes(flashStart.getMinutes());
-                          setFlashStart(newDate);
-                        }
-                      }}
-                    />
+                    <Text style={{ fontSize: 16, color: '#111827', fontWeight: '400' }}>
+                      Sélectionner une date et une heure
+                    </Text>
                   )}
                 </View>
-              )}
-            </View>
-
-            {/* Sélection de l'heure */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                Heure de début
-              </Text>
-              <Pressable
-                onPress={() => {
-                  setTempTime({ 
-                    hours: flashStart.getHours(), 
-                    minutes: flashStart.getMinutes() 
-                  });
-                  setFlashTimePickerModalOpen(true);
-                }}
-                style={{
-                  backgroundColor: '#f3f4f6',
-                  borderRadius: 8,
-                  padding: 12,
-                  borderWidth: 1,
-                  borderColor: '#d1d5db',
-                }}
-              >
-                <Text style={{ fontSize: 16, color: '#111827' }}>
-                  {flashStart.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                </Text>
+                <Pressable
+                  onPress={() => {
+                    console.log('[FlashMatch] Calendar icon pressed');
+                    const now = new Date(flashStart);
+                    setTempDate(now);
+                    setTempTime({ hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() });
+                    setFlashDateModalOpen(false); // Fermer temporairement le modal parent
+                    setTimeout(() => {
+                      setFlashDatePickerModalOpen(true);
+                    }, 300);
+                  }}
+                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                  style={{
+                    padding: 10,
+                    borderRadius: 4,
+                    minWidth: 36,
+                    minHeight: 36,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.05)',
+                    ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                  }}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={flashStart ? "#ffffff" : "#6b7280"} />
+                </Pressable>
               </Pressable>
-              {flashInlineTimeOpen && (
-                <View style={{ 
-                  marginTop: 10, 
-                  backgroundColor: '#f9fafb', 
-                  borderRadius: 8, 
-                  padding: 10,
-                  alignItems: 'center',
-                  minHeight: Platform.OS === 'web' ? 0 : 180,
-                }}>
-                  {Platform.OS === 'web' ? (
-                    <View style={{ width: '100%' }}>
-                      {Platform.OS === 'web' && typeof document !== 'undefined' && (
-                        <input
-                          type="time"
-                          value={flashStart.toTimeString().slice(0, 5)}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              const [hours, minutes] = e.target.value.split(':');
-                              const newTime = new Date(flashStart);
-                              newTime.setHours(parseInt(hours, 10));
-                              newTime.setMinutes(parseInt(minutes, 10));
-                              setFlashStart(newTime);
-                              setFlashInlineTimeOpen(false);
-                            }
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: 12,
-                            borderRadius: 8,
-                            border: '1px solid #d1d5db',
-                            fontSize: 16,
-                          }}
-                        />
-                      )}
-                    </View>
-                  ) : Platform.OS === 'ios' ? (
-                    <>
-                      <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>
-                        Fais défiler pour sélectionner
-                      </Text>
-                      <DateTimePicker
-                        value={flashStart}
-                        mode="time"
-                        display="spinner"
-                        onChange={(event, selectedTime) => {
-                          if (selectedTime) {
-                            const newTime = new Date(flashStart);
-                            newTime.setHours(selectedTime.getHours());
-                            newTime.setMinutes(selectedTime.getMinutes());
-                            setFlashStart(newTime);
-                          }
-                        }}
-                        style={{ 
-                          height: 200,
-                          width: '100%',
-                        }}
-                      />
-                      <Pressable
-                        onPress={() => setFlashInlineTimeOpen(false)}
-                        style={{
-                          marginTop: 10,
-                          backgroundColor: COLORS.accent,
-                          paddingHorizontal: 24,
-                          paddingVertical: 8,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text style={{ color: '#ffffff', fontWeight: '700' }}>Valider</Text>
-                      </Pressable>
-                    </>
-                  ) : (
-                    <DateTimePicker
-                      value={flashStart}
-                      mode="time"
-                      display="default"
-                      onChange={(event, selectedTime) => {
-                        setFlashInlineTimeOpen(false);
-                        if (event?.type === 'set' && selectedTime) {
-                          const newTime = new Date(flashStart);
-                          newTime.setHours(selectedTime.getHours());
-                          newTime.setMinutes(selectedTime.getMinutes());
-                          setFlashStart(newTime);
-                        }
-                      }}
-                    />
-                  )}
-                </View>
-              )}
             </View>
 
             {/* Toggles pour la durée */}
@@ -4786,7 +5368,7 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* Modale de sélection de date */}
+      {/* Modale de sélection date/heure (comme match géographique) */}
       <Modal
         visible={flashDatePickerModalOpen}
         animationType="slide"
@@ -4794,34 +5376,45 @@ const HourSlotRow = ({ item }) => {
         onRequestClose={() => setFlashDatePickerModalOpen(false)}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
-          <View style={{ 
-            backgroundColor: '#ffffff', 
-            borderTopLeftRadius: 20, 
-            borderTopRightRadius: 20, 
-            padding: 20,
-            maxHeight: '80%',
-          }}>
+          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '80%' }}>
             <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
-              Sélectionner la date
+              Sélectionner la date et l'heure
             </Text>
             
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 30 }}>
-              {/* Jour */}
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Jour</Text>
-                <ScrollView 
-                  style={{ height: 200, width: '100%' }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => {
-                    const isSelected = tempDate.getDate() === day;
+            {/* Menu déroulant des dates */}
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10, textAlign: 'center' }}>Date</Text>
+              <ScrollView style={{ height: 200, width: '100%' }} showsVerticalScrollIndicator={false}>
+                {(() => {
+                  const dates = [];
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  for (let i = 0; i < 60; i++) { // 60 jours à partir d'aujourd'hui
+                    const date = new Date(today);
+                    date.setDate(today.getDate() + i);
+                    dates.push(date);
+                  }
+                  
+                  const formatDate = (d) => {
+                    const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+                    const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+                    const dayName = days[d.getDay()];
+                    const day = d.getDate();
+                    const month = months[d.getMonth()];
+                    const year = d.getFullYear();
+                    const dayFormatted = day === 1 ? '1er' : String(day);
+                    return `${dayName} ${dayFormatted} ${month} ${year}`;
+                  };
+                  
+                  return dates.map((date, idx) => {
+                    const dateStr = date.toDateString();
+                    const tempStr = tempDate.toDateString();
+                    const isSelected = dateStr === tempStr;
                     return (
                       <Pressable
-                        key={day}
+                        key={idx}
                         onPress={() => {
-                          const newDate = new Date(tempDate);
-                          newDate.setDate(day);
-                          setTempDate(newDate);
+                          setTempDate(new Date(date));
                         }}
                         style={{
                           paddingVertical: 12,
@@ -4829,280 +5422,110 @@ const HourSlotRow = ({ item }) => {
                           backgroundColor: isSelected ? COLORS.accent : 'transparent',
                           borderRadius: 8,
                           marginVertical: 2,
-                          alignItems: 'center',
                         }}
                       >
-                        <Text style={{ 
-                          fontSize: 18, 
-                          fontWeight: isSelected ? '800' : '400',
-                          color: isSelected ? '#ffffff' : '#111827',
-                        }}>
-                          {day}
+                        <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#ffffff' : '#111827' }}>
+                          {formatDate(date)}
                         </Text>
                       </Pressable>
                     );
-                  })}
-                </ScrollView>
-              </View>
-
-              {/* Mois */}
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Mois</Text>
-                <ScrollView 
-                  style={{ height: 200, width: '100%' }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'].map((month, index) => {
-                    const isSelected = tempDate.getMonth() === index;
-                    return (
-                      <Pressable
-                        key={index}
-                        onPress={() => {
-                          const newDate = new Date(tempDate);
-                          newDate.setMonth(index);
-                          setTempDate(newDate);
-                        }}
-                        style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 8,
-                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
-                          borderRadius: 8,
-                          marginVertical: 2,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ 
-                          fontSize: 16, 
-                          fontWeight: isSelected ? '800' : '400',
-                          color: isSelected ? '#ffffff' : '#111827',
-                          textAlign: 'center',
-                        }}>
-                          {month.substring(0, 3)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              {/* Année */}
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Année</Text>
-                <ScrollView 
-                  style={{ height: 200, width: '100%' }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {Array.from({ length: 3 }, (_, i) => new Date().getFullYear() + i).map((year) => {
-                    const isSelected = tempDate.getFullYear() === year;
-                    return (
-                      <Pressable
-                        key={year}
-                        onPress={() => {
-                          const newDate = new Date(tempDate);
-                          newDate.setFullYear(year);
-                          setTempDate(newDate);
-                        }}
-                        style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
-                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
-                          borderRadius: 8,
-                          marginVertical: 2,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ 
-                          fontSize: 18, 
-                          fontWeight: isSelected ? '800' : '400',
-                          color: isSelected ? '#ffffff' : '#111827',
-                        }}>
-                          {year}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
+                  });
+                })()}
+              </ScrollView>
             </View>
-
+            
+            {/* Menu déroulant des heures (tranches de 15 min) */}
+            <View style={{ marginTop: 20, marginBottom: 20 }}>
+              <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10, textAlign: 'center' }}>Heure</Text>
+              <ScrollView style={{ height: 200, width: '100%' }} showsVerticalScrollIndicator={false}>
+                {(() => {
+                  const timeSlots = [];
+                  // Démarre à 08:00 jusqu'à 00:00 (23:45)
+                  for (let hour = 8; hour < 24; hour++) {
+                    for (let minute = 0; minute < 60; minute += 15) {
+                      timeSlots.push({ hour, minute });
+                    }
+                  }
+                  // Ajouter 00:00 à la fin
+                  timeSlots.push({ hour: 0, minute: 0 });
+                  
+                  const formatTime = (h, m) => {
+                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                  };
+                  
+                  return timeSlots.map((slot, idx) => {
+                    const isSelected = tempTime.hours === slot.hour && tempTime.minutes === slot.minute;
+                    return (
+                      <Pressable
+                        key={idx}
+                        onPress={() => {
+                          setTempTime({ hours: slot.hour, minutes: slot.minute, seconds: 0 });
+                        }}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
+                          borderRadius: 8,
+                          marginVertical: 2,
+                        }}
+                      >
+                        <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#ffffff' : '#111827' }}>
+                          {formatTime(slot.hour, slot.minute)}
+                        </Text>
+                      </Pressable>
+                    );
+                  });
+                })()}
+              </ScrollView>
+            </View>
+            
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <Pressable
-                onPress={() => setFlashDatePickerModalOpen(false)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#b91c1c',
-                  borderRadius: 8,
-                  padding: 14,
-                  alignItems: 'center',
+                onPress={() => {
+                  setFlashDatePickerModalOpen(false);
+                  setTimeout(() => {
+                    setFlashDateModalOpen(true);
+                  }, 300);
                 }}
+                style={{ flex: 1, backgroundColor: '#b91c1c', borderRadius: 8, padding: 14, alignItems: 'center' }}
               >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
-                  Annuler
-                </Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Annuler</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
                   const newDate = new Date(tempDate);
-                  newDate.setHours(flashStart.getHours());
-                  newDate.setMinutes(flashStart.getMinutes());
+                  newDate.setHours(tempTime.hours);
+                  newDate.setMinutes(tempTime.minutes);
+                  newDate.setSeconds(tempTime.seconds || 0);
                   setFlashStart(newDate);
                   setFlashDatePickerModalOpen(false);
+                  // Rouvrir le modal flash match après validation
+                  setTimeout(() => {
+                    setFlashDateModalOpen(true);
+                  }, 300);
                 }}
-                style={{
-                  flex: 1,
-                  backgroundColor: COLORS.accent,
-                  borderRadius: 8,
-                  padding: 14,
-                  alignItems: 'center',
-                }}
+                style={{ flex: 1, backgroundColor: COLORS.accent, borderRadius: 8, padding: 14, alignItems: 'center' }}
               >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
-                  Valider
-                </Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Valider</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+      
+      {/* Annuler pour le picker - rouvre le modal flash */}
+      {flashDatePickerModalOpen && (
+        <Pressable
+          onPress={() => {
+            setFlashDatePickerModalOpen(false);
+            setTimeout(() => {
+              setFlashDateModalOpen(true);
+            }, 300);
+          }}
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, top: 0, backgroundColor: 'transparent' }}
+        />
+      )}
 
-      {/* Modale de sélection d'heure */}
-      <Modal
-        visible={flashTimePickerModalOpen}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setFlashTimePickerModalOpen(false)}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
-          <View style={{ 
-            backgroundColor: '#ffffff', 
-            borderTopLeftRadius: 20, 
-            borderTopRightRadius: 20, 
-            padding: 20,
-            maxHeight: '80%',
-          }}>
-            <Pressable
-              onPress={() => setFlashTimePickerModalOpen(false)}
-              accessibilityRole="button"
-              accessibilityLabel="Fermer"
-              style={{ position: 'absolute', top: 10, right: 10, padding: 6 }}
-            >
-              <Ionicons name="close" size={22} color="#111827" />
-            </Pressable>
-            <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
-              Sélectionner l'heure
-            </Text>
-            
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 30 }}>
-              {/* Heures */}
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Heure de début</Text>
-                <ScrollView 
-                  style={{ height: 200, width: '100%' }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
-                    const isSelected = tempTime.hours === hour;
-                    return (
-                      <Pressable
-                        key={hour}
-                        onPress={() => setTempTime({ ...tempTime, hours: hour })}
-                        style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
-                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
-                          borderRadius: 8,
-                          marginVertical: 2,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ 
-                          fontSize: 18, 
-                          fontWeight: isSelected ? '800' : '400',
-                          color: isSelected ? '#ffffff' : '#111827',
-                        }}>
-                          {String(hour).padStart(2, '0')}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              {/* Minutes */}
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10 }}>Minute</Text>
-                <ScrollView 
-                  style={{ height: 200, width: '100%' }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {[0, 30].map((minute) => {
-                    const isSelected = tempTime.minutes === minute;
-                    return (
-                      <Pressable
-                        key={minute}
-                        onPress={() => setTempTime({ ...tempTime, minutes: minute })}
-                        style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
-                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
-                          borderRadius: 8,
-                          marginVertical: 2,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Text style={{ 
-                          fontSize: 18, 
-                          fontWeight: isSelected ? '800' : '400',
-                          color: isSelected ? '#ffffff' : '#111827',
-                        }}>
-                          {String(minute).padStart(2, '0')}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Pressable
-                onPress={() => setFlashTimePickerModalOpen(false)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#b91c1c',
-                  borderRadius: 8,
-                  padding: 14,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
-                  Annuler
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  const newTime = new Date(flashStart);
-                  newTime.setHours(tempTime.hours);
-                  newTime.setMinutes(tempTime.minutes);
-                  setFlashStart(newTime);
-                  setFlashTimePickerModalOpen(false);
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: COLORS.accent,
-                  borderRadius: 8,
-                  padding: 14,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
-                  Valider
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* Modale de sélection des joueurs */}
       <Modal
@@ -5355,126 +5778,6 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* DateTimePickers - rendus au niveau racine après fermeture de la modale principale */}
-      {Platform.OS !== 'web' && !flashDateModalOpen && flashDatePickerOpen && (
-        <DateTimePicker
-          value={flashStart}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          minimumDate={new Date()}
-          onChange={(event, selectedDate) => {
-            console.log('[FlashMatch] Date picker onChange', event.type, selectedDate);
-            setFlashDatePickerOpen(false);
-            if (event.type === 'set' && selectedDate) {
-              const newDate = new Date(selectedDate);
-              newDate.setHours(flashStart.getHours());
-              newDate.setMinutes(flashStart.getMinutes());
-              setFlashStart(newDate);
-            }
-            // Rouvrir la modale principale après sélection
-            setTimeout(() => {
-              setFlashDateModalOpen(true);
-            }, 100);
-          }}
-        />
-      )}
-
-      {Platform.OS !== 'web' && !flashDateModalOpen && flashTimePickerOpen && (
-        <DateTimePicker
-          value={flashStart}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(event, selectedTime) => {
-            console.log('[FlashMatch] Time picker onChange', event.type, selectedTime);
-            setFlashTimePickerOpen(false);
-            if (event.type === 'set' && selectedTime) {
-              const newTime = new Date(flashStart);
-              newTime.setHours(selectedTime.getHours());
-              newTime.setMinutes(selectedTime.getMinutes());
-              setFlashStart(newTime);
-            }
-            // Rouvrir la modale principale après sélection
-            setTimeout(() => {
-              setFlashDateModalOpen(true);
-            }, 100);
-          }}
-        />
-      )}
-
-      {/* Modal iOS pour les pickers (spinner) */}
-      {Platform.OS === 'ios' && !flashDateModalOpen && (flashDatePickerOpen || flashTimePickerOpen) && (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => {
-            setFlashDatePickerOpen(false);
-            setFlashTimePickerOpen(false);
-            setFlashDateModalOpen(true);
-          }}
-        >
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <Pressable
-                  onPress={() => {
-                    setFlashDatePickerOpen(false);
-                    setFlashTimePickerOpen(false);
-                    setFlashDateModalOpen(true);
-                  }}
-                >
-                  <Text style={{ fontSize: 16, color: '#666' }}>Annuler</Text>
-                </Pressable>
-                <Text style={{ fontSize: 18, fontWeight: '700' }}>
-                  {flashDatePickerOpen ? 'Sélectionner une date' : 'Sélectionner une heure'}
-                </Text>
-                <Pressable
-                  onPress={() => {
-                    setFlashDatePickerOpen(false);
-                    setFlashTimePickerOpen(false);
-                    setFlashDateModalOpen(true);
-                  }}
-                >
-                  <Text style={{ fontSize: 16, color: COLORS.accent, fontWeight: '700' }}>Valider</Text>
-                </Pressable>
-              </View>
-              {flashDatePickerOpen && (
-                <DateTimePicker
-                  value={flashStart}
-                  mode="date"
-                  display="spinner"
-                  minimumDate={new Date()}
-                  onChange={(event, selectedDate) => {
-                    if (selectedDate) {
-                      const newDate = new Date(selectedDate);
-                      newDate.setHours(flashStart.getHours());
-                      newDate.setMinutes(flashStart.getMinutes());
-                      setFlashStart(newDate);
-                    }
-                  }}
-                  style={{ height: 200 }}
-                />
-              )}
-              {flashTimePickerOpen && (
-                <DateTimePicker
-                  value={flashStart}
-                  mode="time"
-                  display="spinner"
-                  onChange={(event, selectedTime) => {
-                    if (selectedTime) {
-                      const newTime = new Date(flashStart);
-                      newTime.setHours(selectedTime.getHours());
-                      newTime.setMinutes(selectedTime.getMinutes());
-                      setFlashStart(newTime);
-                    }
-                  }}
-                  style={{ height: 200 }}
-                />
-              )}
-            </View>
-          </View>
-        </Modal>
-      )}
 
       {/* Modal de sélection de groupe */}
       <Modal

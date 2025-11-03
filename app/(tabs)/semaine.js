@@ -85,10 +85,11 @@ export default function Semaine() {
   const isSyncingRef  = React.useRef(false);
   const refreshTimerRef = React.useRef(null);
   const lastDataRef = React.useRef({ ts: null, av: null, m: null });
-  function scheduleRefresh(ms = 200) {
+  const fetchDataRef = React.useRef(null);
+  const scheduleRefresh = useCallback((ms = 200) => {
     try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {}
-    refreshTimerRef.current = setTimeout(() => { try { fetchData(); } catch {} }, ms);
-  }
+    refreshTimerRef.current = setTimeout(() => { try { fetchDataRef.current?.(); } catch {} }, ms);
+  }, []);
   React.useEffect(() => () => { try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {} }, []);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -102,6 +103,9 @@ export default function Semaine() {
   const [persistedGroupId, setPersistedGroupId] = useState(null);
   const [groupMembers, setGroupMembers] = useState([]); // membres du groupe actuel
   const [applyToAllGroups, setApplyToAllGroups] = useState(true); // toggle global vs groupe spécifique
+  // Sélecteur de groupe
+  const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
+  const [myGroups, setMyGroups] = useState([]);
   const isPortrait = height > width;
   // ---- (plus de mode peinture global) ----
 
@@ -120,7 +124,7 @@ export default function Semaine() {
   const [rangeHover, setRangeHover] = useState(null);    // slotIdx courant
   const [rangeIntent, setRangeIntent] = useState('available'); // 'available' | 'neutral'
 
-  const { activeGroup } = useActiveGroup();
+  const { activeGroup, setActiveGroup } = useActiveGroup();
   useEffect(() => {
   // relance ton chargement/rafraîchissement ici (ce que tu fais déjà au mount)
   // Par ex. refetchSemaine();
@@ -208,6 +212,98 @@ export default function Semaine() {
     [weekStart]
   );
 
+  const hoursOfDay = useMemo(() => {
+    const out = [];
+    for (let h = START_HOUR; h < END_HOUR; h++) {
+      out.push({ hour: h, minute: 0 });
+      out.push({ hour: h, minute: 30 });
+    }
+    // Inclure le dernier créneau "HH:00" à END_HOUR (ici 23:00)
+    out.push({ hour: END_HOUR, minute: 0 });
+    return out;
+  }, []);
+
+  const keySlot = (d, hour, minute) =>
+    dayjs(d).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
+
+  // Pré-calcul: membres du groupe (Set)
+  const memberIdsSet = useMemo(() => new Set((groupMembers || []).map(id => String(id))), [groupMembers]);
+
+  // Pré-calcul: slots filtrés pour le groupe/membres
+  const slotsForGroup = useMemo(() => {
+    if (!groupId) return [];
+    const gidStr = String(groupId);
+    const allSlots = slots || [];
+    // Filtrer par group_id
+    const byGroup = allSlots.filter((s) => {
+      const sGroupId = s?.group_id;
+      if (!sGroupId) return false;
+      return String(sGroupId) === gidStr;
+    });
+    // Si on a des membres chargés, filtrer par membres
+    if (groupMembers && groupMembers.length > 0 && memberIdsSet.size > 0) {
+      return byGroup.filter((s) => memberIdsSet.has(String(s.user_id)));
+    }
+    // Sinon, prendre toutes les disponibilités du groupe
+    return byGroup;
+  }, [slots, groupId, memberIdsSet, groupMembers]);
+
+  // Pré-calcul optimisé: nombre de joueurs disponibles par créneau (clé = startIso)
+  const cellCountByStartIso = useMemo(() => {
+    const counts = new Map();
+    if (!days?.length || !hoursOfDay?.length) return counts;
+    
+    // Pré-calculer les dates des slots une seule fois
+    const slotDates = new Map();
+    for (const day of days) {
+      for (const { hour, minute } of hoursOfDay) {
+        const startIso = keySlot(day, hour, minute);
+        const slotStart = dayjs(startIso);
+        const slotEnd = dayjs(startIso).add(30, 'minute');
+        if (slotStart.isValid() && slotEnd.isValid()) {
+          slotDates.set(startIso, { start: slotStart, end: slotEnd });
+        } else {
+          counts.set(startIso, 0);
+        }
+      }
+    }
+    
+    // Pré-parser les disponibilités une seule fois
+    const parsedSlots = [];
+    for (const s of slotsForGroup) {
+      if (!s?.user_id || !s?.start) continue;
+      if (String(s.status || 'neutral').toLowerCase() !== 'available') continue;
+      const availStart = dayjs(s.start);
+      if (!availStart.isValid()) continue;
+      const availEnd = s.end ? dayjs(s.end) : availStart.add(30, 'minute');
+      if (!availEnd.isValid()) continue;
+      const uid = String(s.user_id);
+      const time = dayjs(s.created_at || s.updated_at || s.start).valueOf();
+      parsedSlots.push({ uid, availStart, availEnd, time });
+    }
+    
+    // Pour chaque slot, compter les disponibilités qui le couvrent
+    for (const [startIso, { start: slotStart, end: slotEnd }] of slotDates.entries()) {
+      const uniqueByUser = new Map();
+      const slotStartMs = slotStart.valueOf();
+      const slotEndMs = slotEnd.valueOf();
+      for (const { uid, availStart, availEnd: availEndDate, time } of parsedSlots) {
+        const availStartMs = availStart.valueOf();
+        const availEndMs = availEndDate.valueOf();
+        // La disponibilité doit commencer avant ou à l'heure du slot ET finir après ou à l'heure de fin du slot
+        if (availStartMs <= slotStartMs && availEndMs >= slotEndMs) {
+          const existing = uniqueByUser.get(uid);
+          if (!existing || time > existing) {
+            uniqueByUser.set(uid, time);
+          }
+        }
+      }
+      counts.set(startIso, uniqueByUser.size);
+    }
+    
+    return counts;
+  }, [days, hoursOfDay, slotsForGroup, weekStart]);
+
   // Génère les heures: 08:00, 08:30, ..., 21:30
   function isoRangeForDay(dayObj, startIdx, endIdx) {
     const a = Math.min(startIdx, endIdx);
@@ -219,16 +315,6 @@ export default function Semaine() {
     }
     return list;
   }
-  const hoursOfDay = useMemo(() => {
-    const out = [];
-    for (let h = START_HOUR; h < END_HOUR; h++) {
-      out.push({ hour: h, minute: 0 });
-      out.push({ hour: h, minute: 30 });
-    }
-    // Inclure le dernier créneau "HH:00" à END_HOUR (ici 23:00)
-    out.push({ hour: END_HOUR, minute: 0 });
-    return out;
-  }, []);
   // Synchronize horizontal scroll between header and body
   const syncHorizontal = React.useCallback((from, x) => {
     if (isSyncingRef.current) return;
@@ -245,12 +331,7 @@ export default function Semaine() {
   }, []);
 
   // Fetch semaine
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, groupId]);
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     try {
       if (!loading) setLoading(true);
       const start = weekStart.toISOString();
@@ -327,7 +408,34 @@ export default function Semaine() {
     } finally {
       if (loading) setLoading(false);
     }
-  }
+  }, [weekStart, groupId, loading]);
+
+  useEffect(() => {
+    fetchDataRef.current = fetchData;
+    fetchData();
+  }, [fetchData]);
+
+  // Charger mes groupes pour le sélecteur
+  const loadMyGroups = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return setMyGroups([]);
+      const { data: gm } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', user.id);
+      const ids = (gm || []).map(g => g.group_id).filter(Boolean);
+      if (ids.length === 0) return setMyGroups([]);
+      const { data: groups } = await supabase
+        .from('groups')
+        .select('id, name')
+        .in('id', ids);
+      setMyGroups(groups || []);
+    } catch (e) {
+      console.warn('[Semaine] loadMyGroups error:', e?.message || e);
+      setMyGroups([]);
+    }
+  }, []);
 
   // Upsert RSVP pour un match en respectant l'enum rsvp_status
   async function upsertRsvp(matchId, rawStatus) {
@@ -351,9 +459,6 @@ export default function Semaine() {
       safeAlert("Erreur RSVP", e?.message ?? String(e));
     }
   }
-
-  const keySlot = (d, hour, minute) =>
-    dayjs(d).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
 
   // Compte unique des disponibles pour un tableau people [{user_id, status}]
   function uniqueAvailableCount(peopleArr = []) {
@@ -454,7 +559,7 @@ export default function Semaine() {
   }
 
   // Toggle dispo (optimistic UI)
-  async function toggleMyAvailability(startIso) {
+  const toggleMyAvailability = useCallback(async (startIso) => {
     try {
       const gid = groupId ?? (await AsyncStorage.getItem("active_group_id"));
       const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
@@ -561,7 +666,7 @@ export default function Semaine() {
     } catch (e) {
       safeAlert("Erreur", e?.message ?? String(e));
     }
-  }
+  }, [groupId, slots, applyToAllGroups]);
 
   // Fixe explicitement ma dispo sur un créneau (available|absent|neutral)
   async function setMyAvailability(startIso, status) {
@@ -1093,12 +1198,16 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               gap: isPortrait ? 8 : 6,
             }}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 6 }} />
-              <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 13 }}>
+            <Pressable
+              onPress={() => { setGroupSelectorOpen(true); loadMyGroups(); }}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }}
+            >
+              <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+              <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 16 }}>
                 {activeGroup.name}
               </Text>
-            </View>
+              <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 6 }} />
+            </Pressable>
             
             {/* Toggle "Appliquer à tous les groupes" */}
             <Pressable
@@ -1123,13 +1232,50 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 style={{ marginRight: 6 }}
               />
               <Text style={{ fontWeight: '700', color: '#ffffff', fontSize: 12 }}>
-                {applyToAllGroups ? '✓ Tous mes groupes' : '⚠️ Groupe uniquement'}
+                {applyToAllGroups ? 'Appliquer à tous mes groupes' : 'Appliquer au groupe actuel uniquement'}
               </Text>
             </Pressable>
           </View>
         ) : null}
 
       </View>
+
+      {/* Modal sélection du groupe */}
+      <Modal visible={groupSelectorOpen} transparent animationType="fade" onRequestClose={() => setGroupSelectorOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Choisir un groupe</Text>
+              <Pressable onPress={() => setGroupSelectorOpen(false)} style={{ padding: 8 }}>
+                <Ionicons name="close" size={22} color="#111827" />
+              </Pressable>
+            </View>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {(myGroups || []).map((g) => (
+                <Pressable
+                  key={g.id}
+                  onPress={press(`pick-group-${g.id}`, async () => {
+                    try {
+                      await AsyncStorage.setItem('active_group_id', String(g.id));
+                    } catch {}
+                    try { setGroupSelectorOpen(false); } catch {}
+                    try { if (activeGroup?.id !== g.id) { setActiveGroup({ id: g.id, name: g.name }); } } catch {}
+                    // fallback local si nécessaire
+                    setPersistedGroupId(g.id);
+                    fetchData();
+                  })}
+                  style={({ pressed }) => ({ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, backgroundColor: pressed ? '#f3f4f6' : '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 8 })}
+                >
+                  <Text style={{ fontWeight: '800', color: '#111827' }}>{g.name || 'Groupe'}</Text>
+                </Pressable>
+              ))}
+              {(myGroups || []).length === 0 && (
+                <Text style={{ color: '#6b7280', textAlign: 'center' }}>Aucun groupe</Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* TABLEAU JOURS × HEURES (mode tableau pour tous les modes) */}
 <View style={{ flex: 1 }}>
@@ -1180,6 +1326,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
     contentContainerStyle={{ paddingBottom: Math.max(16, insets.bottom + 120) }}
     scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 60) }}
     showsVerticalScrollIndicator
+    decelerationRate={Platform.OS === 'ios' ? 'fast' : 0.98}
     onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
     scrollEventThrottle={16}
   >
@@ -1218,49 +1365,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
         {days.map((day, i) => {
           const di = day.diff(weekStart, 'day');
           const startIso = keySlot(day, hour, minute);
-          // Calculer la fin du créneau (30 minutes après)
-          const endIso = dayjs(startIso).add(30, 'minute').toISOString();
           
-          // Vérifier les disponibilités qui couvrent réellement ce créneau de 30 minutes
-          const peopleForSlot = (slots || [])
-            .filter(s => {
-              if (s.group_id !== groupId) return false;
-              const userIdStr = String(s.user_id);
-              // Filtrer uniquement les membres du groupe
-              const memberIdsSet = new Set((groupMembers || []).map(id => String(id)));
-              if (memberIdsSet.size > 0 && !memberIdsSet.has(userIdStr)) return false;
-              
-              // Vérifier que la disponibilité couvre le créneau (commence avant ou à l'heure de début, et finit après ou à l'heure de fin)
-              const slotStart = dayjs(startIso);
-              const slotEnd = dayjs(endIso);
-              const availStart = dayjs(s.start);
-              const availEnd = dayjs(s.end || s.start).add(30, 'minute'); // Si pas de end, assumer 30 min
-              
-              // La disponibilité doit commencer avant ou à l'heure du slot et finir après ou à l'heure de fin du slot
-              return availStart <= slotStart && availEnd >= slotEnd && 
-                     String(s.status || 'neutral').toLowerCase() === 'available';
-            })
-            // Dédupliquer par user_id (garder la plus récente en cas de doublon)
-            .reduce((acc, s) => {
-              const userIdStr = String(s.user_id);
-              if (!acc.has(userIdStr)) {
-                acc.set(userIdStr, s);
-              } else {
-                const existing = acc.get(userIdStr);
-                const existingTime = dayjs(existing.created_at || existing.updated_at || existing.start).valueOf();
-                const newTime = dayjs(s.created_at || s.updated_at || s.start).valueOf();
-                if (newTime > existingTime) {
-                  acc.set(userIdStr, s);
-                }
-              }
-              return acc;
-            }, new Map());
-          
-          const people = Array.from(peopleForSlot.values()).map(s => ({ 
-            user_id: s.user_id, 
-            status: 'available' 
-          }));
-          const availableCount = people.length;
+          // Récupérer le nombre pré-calculé depuis le cache (beaucoup plus rapide)
+          const availableCount = cellCountByStartIso.get(startIso) ?? 0;
           const match = mapMatches.get(startIso);
           const myStatus = myStatusByStart.get(startIso);
 
@@ -1326,10 +1433,16 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
             <Pressable
               key={startIso}
               delayLongPress={250}
-              onPressIn={() => { if (rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
+              onPressIn={() => {
+                if (rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx);
+                try { Haptics.selectionAsync(); } catch {}
+              }}
               onHoverIn={() => { if (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
               onMouseEnter={() => { if (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
-              onPress={press(`toggle-${startIso}`, () => toggleMyAvailability(startIso))}
+              onPress={press(`toggle-${startIso}`, async () => {
+                try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+                await toggleMyAvailability(startIso);
+              })}
               onLongPress={() => {
                 if (!rangeStart) {
                   // Démarre une plage sur ce jour : intention d'après mon statut initial
@@ -1361,7 +1474,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
                 }
               }}
-              style={{
+              android_ripple={{ color: '#00000022', borderless: false }}
+              style={({ pressed }) => ({
                 width: 43,
                 marginLeft: i === 0 ? -8 : 0,
                 height: SLOT_HEIGHT,
@@ -1373,8 +1487,15 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
                 borderRadius: 6,
                 overflow: 'hidden',
-              }}
+                position: 'relative',
+                transform: pressed ? [{ scale: 0.985 }] : [{ scale: 1 }],
+                opacity: pressed ? 0.92 : 1,
+              })}
             >
+              {/* Point bleu en haut à droite si JE suis dispo sur ce créneau */}
+              {myStatus === 'available' && (
+                <View style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: 3, backgroundColor: '#1d4ed8' }} />
+              )}
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                 <Text
                   style={{
