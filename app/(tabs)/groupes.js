@@ -1452,9 +1452,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
               <Text style={{ fontWeight: "800", fontSize: 20 }}>Rejoindre un groupe</Text>
               <Pressable 
                 onPress={press("close-join-modal", () => setJoinModalVisible(false))} 
-                style={[Platform.OS === "web" && { cursor: "pointer" }]}
+                style={[{ position: "absolute", right: -20, top: -10 }, Platform.OS === "web" && { cursor: "pointer" }]}
               >
-                <Ionicons name="close" size={24} color="#111827" />
+                <Ionicons name="close" size={24} color="#dc2626" />
               </Pressable>
             </View>
             <Text style={{ fontSize: 14, color: "#666", marginBottom: 16 }}>
