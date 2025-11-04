@@ -3,7 +3,10 @@
     "builds": [
       {
         "src": "public/**",
-        "use": "@vercel/static"
+        "use": "@vercel/static",
+        "config": {
+          "zeroConfig": true
+        }
       }
     ],
     "routes": [
@@ -14,6 +17,10 @@
       {
         "src": "/join",
         "dest": "/join.html"
+      },
+      {
+        "src": "/(.*\\.html)",
+        "dest": "/$1"
       },
       {
         "src": "/(.*)",
