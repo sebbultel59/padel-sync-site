@@ -1676,6 +1676,74 @@ Padel Sync — Ton match en 3 clics 🎾`;
         </View>
       </Modal>
 
+      {/* Modal demandes de rejoindre */}
+      <Modal visible={joinRequestsModalVisible} transparent animationType="slide" onRequestClose={() => setJoinRequestsModalVisible(false)}>
+        <View style={s.qrWrap}>
+          <View style={[s.qrCard, { width: 340, alignItems: "stretch" }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <Text style={{ fontWeight: "800" }}>Demandes de rejoindre ({joinRequests.length})</Text>
+              <Pressable 
+                onPress={press("close-join-requests-modal", () => setJoinRequestsModalVisible(false))} 
+                style={[{ padding: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Ionicons name="close" size={24} color="#dc2626" />
+              </Pressable>
+            </View>
+            {joinRequests.length === 0 ? (
+              <Text style={{ color: "#9ca3af", textAlign: "center", paddingVertical: 20 }}>Aucune demande en attente</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }}>
+                {joinRequests.map((request) => {
+                  const profile = request.profiles;
+                  return (
+                    <View key={request.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" }}>
+                      <Avatar 
+                        url={profile?.avatar_url} 
+                        fallback={profile?.display_name || profile?.name || "?"} 
+                        size={40} 
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: "700", color: "#111827" }}>
+                          {profile?.display_name || profile?.name || "Utilisateur"}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: "#6b7280" }}>
+                          {new Date(request.requested_at).toLocaleDateString('fr-FR', { 
+                            day: 'numeric', 
+                            month: 'short', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <Pressable
+                          onPress={press("approve-join-request", () => approveJoinRequest(request.id))}
+                          style={[{ padding: 8, borderRadius: 8, backgroundColor: "#15803d" }, Platform.OS === "web" && { cursor: "pointer" }]}
+                        >
+                          <Ionicons name="checkmark" size={20} color="#ffffff" />
+                        </Pressable>
+                        <Pressable
+                          onPress={press("reject-join-request", () => rejectJoinRequest(request.id))}
+                          style={[{ padding: 8, borderRadius: 8, backgroundColor: "#dc2626" }, Platform.OS === "web" && { cursor: "pointer" }]}
+                        >
+                          <Ionicons name="close" size={20} color="#ffffff" />
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <Pressable 
+              onPress={press("close-join-requests-modal", () => setJoinRequestsModalVisible(false))} 
+              style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} 
+            >
+              <Text style={s.btnTxt}>Fermer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal membres */}
       <Modal visible={membersModalVisible} transparent animationType="slide" onRequestClose={() => setMembersModalVisible(false)}>
         <View style={s.qrWrap}>
