@@ -1447,16 +1447,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
       {/* Modal Rejoindre un groupe */}
       <Modal visible={joinModalVisible} transparent animationType="fade" onRequestClose={() => setJoinModalVisible(false)}>
         <KeyboardAvoidingView style={s.qrWrap} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <View style={[s.qrCard, { position: "relative" }]}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <Text style={{ fontWeight: "800", fontSize: 20 }}>Rejoindre un groupe</Text>
-              <Pressable 
-                onPress={press("close-join-modal", () => setJoinModalVisible(false))} 
-                style={[{ position: "absolute", right: 16, top: 16 }, Platform.OS === "web" && { cursor: "pointer" }]}
-              >
-                <Ionicons name="close" size={24} color="#dc2626" />
-              </Pressable>
-            </View>
+          <View style={[s.qrCard, { position: "relative", paddingTop: 20 }]}>
+            <Pressable 
+              onPress={press("close-join-modal", () => setJoinModalVisible(false))} 
+              style={[{ position: "absolute", right: 8, top: 8, padding: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+            >
+              <Ionicons name="close" size={28} color="#dc2626" />
+            </Pressable>
+            <Text style={{ fontWeight: "800", fontSize: 20, marginBottom: 12, paddingRight: 20 }}>Rejoindre un groupe</Text>
             <Text style={{ fontSize: 14, color: "#666", marginBottom: 16 }}>
               Entre un code d'invitation ou colle un lien d'invitation
             </Text>
