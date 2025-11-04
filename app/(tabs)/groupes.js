@@ -5,7 +5,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { router, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -531,14 +531,32 @@ export default function GroupesScreen() {
     }
   }, []);
 
+  // Éviter de recharger les demandes si elles sont déjà chargées pour ce groupe
+  const lastLoadedGroupId = useRef(null);
+  const isLoadingRequests = useRef(false);
+
   useEffect(() => {
     if (authChecked) {
       loadMembersAndAdmin(activeGroup?.id ?? null);
-      if (isAdmin && activeGroup?.id) {
-        loadJoinRequests(activeGroup.id);
-      }
     }
-  }, [authChecked, activeGroup?.id, loadMembersAndAdmin, isAdmin, loadJoinRequests]);
+  }, [authChecked, activeGroup?.id, loadMembersAndAdmin]);
+
+  // Charger les demandes séparément pour éviter les boucles
+  useEffect(() => {
+    if (authChecked && isAdmin && activeGroup?.id) {
+      // Ne recharger que si c'est un nouveau groupe ou si on n'est pas déjà en train de charger
+      if (lastLoadedGroupId.current !== activeGroup.id && !isLoadingRequests.current) {
+        lastLoadedGroupId.current = activeGroup.id;
+        isLoadingRequests.current = true;
+        loadJoinRequests(activeGroup.id).finally(() => {
+          isLoadingRequests.current = false;
+        });
+      }
+    } else if (!isAdmin || !activeGroup?.id) {
+      lastLoadedGroupId.current = null;
+      setJoinRequests([]);
+    }
+  }, [authChecked, activeGroup?.id, isAdmin, loadJoinRequests]);
 
   // --- Activer un groupe ---
   const onActivate = useCallback(async (g) => {
@@ -856,8 +874,11 @@ Padel Sync — Ton match en 3 clics 🎾`;
       }
       
       // Recharger les demandes et les membres
-      await loadJoinRequests(activeGroup?.id);
-      await loadMembersAndAdmin(activeGroup?.id);
+      if (activeGroup?.id) {
+        lastLoadedGroupId.current = null; // Forcer le rechargement
+        await loadJoinRequests(activeGroup.id);
+        await loadMembersAndAdmin(activeGroup.id);
+      }
       await loadGroups();
       
       Alert.alert("Demande approuvée ✅", "L'utilisateur a rejoint le groupe.");
@@ -879,7 +900,10 @@ Padel Sync — Ton match en 3 clics 🎾`;
       }
       
       // Recharger les demandes
-      await loadJoinRequests(activeGroup?.id);
+      if (activeGroup?.id) {
+        lastLoadedGroupId.current = null; // Forcer le rechargement
+        await loadJoinRequests(activeGroup.id);
+      }
       
       Alert.alert("Demande rejetée", "La demande a été rejetée.");
     } catch (e) {
