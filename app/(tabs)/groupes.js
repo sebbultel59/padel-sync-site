@@ -510,24 +510,26 @@ export default function GroupesScreen() {
     if (!activeGroup?.id) return;
     try {
       const deepLink = buildInviteDeepLink(activeGroup.id);
+      const webLink = buildInviteWebLink(activeGroup.id);
       // Liens de téléchargement de l'app
       const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
       const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app"; // À mettre à jour avec le vrai lien Play Store si nécessaire
       
       const message = `Rejoins mon groupe Padel Sync ! 🎾
 
-📱 Pour iOS : ${iosAppLink}
-📱 Pour Android : ${androidAppLink}
+📱 Pour installer l'app :
+   iOS : ${iosAppLink}
+   Android : ${androidAppLink}
 
-Une fois l'app installée, clique sur ce lien pour rejoindre directement :
-${deepLink}
+🔗 Une fois l'app installée, clique sur ce lien pour rejoindre :
+${webLink}
 
-Ou ouvre l'app et utilise ce lien dans l'app.`;
+Ce lien ouvrira automatiquement l'app et te permettra de rejoindre le groupe.`;
       await Share.share({ message });
     } catch (e) {
       Alert.alert("Partage impossible", e?.message ?? String(e));
     }
-  }, [activeGroup?.id, buildInviteDeepLink]);
+  }, [activeGroup?.id, buildInviteDeepLink, buildInviteWebLink]);
 
   const onInviteQR = useCallback(() => {
     if (!activeGroup?.id) return;
