@@ -755,8 +755,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
           return;
         }
         
+        console.log('[onJoinPublic] Group data:', { 
+          id: groupData.id, 
+          name: groupData.name, 
+          visibility: groupData.visibility, 
+          join_policy: groupData.join_policy 
+        });
+        
         // Si c'est un groupe public "sur demande", afficher la popup de confirmation
         if (groupData.visibility === 'public' && groupData.join_policy === 'request') {
+          console.log('[onJoinPublic] Groupe "sur demande" détecté, affichage popup');
           setPendingJoinGroupId(groupId);
           setPendingJoinGroupName(groupData.name);
           setJoinRequestConfirmVisible(true);
@@ -764,30 +772,34 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
         
         // Pour les groupes publics "ouverts", rejoindre directement
-        const { data: rpcData, error: rpcError } = await supabase.rpc('join_public_group', {
-          p_group_id: groupId
-        });
-        
-        if (rpcError) {
-          // Fallback: INSERT direct (peut échouer si RLS bloque)
-          const { data: u } = await supabase.auth.getUser();
-          const me = u?.user?.id;
-          const { error } = await supabase
-            .from("group_members")
-            .insert({ group_id: groupId, user_id: me, role: "member" });
-          if (error) throw error;
+        if (groupData.visibility === 'public' && groupData.join_policy === 'open') {
+          console.log('[onJoinPublic] Groupe "ouvert" détecté, rejoindre directement');
+          const { data: rpcData, error: rpcError } = await supabase.rpc('join_public_group', {
+            p_group_id: groupId
+          });
+          
+          if (rpcError) {
+            console.error('[onJoinPublic] Erreur RPC join_public_group:', rpcError);
+            Alert.alert("Impossible de rejoindre", rpcError.message);
+            return;
+          }
+          
+          await loadGroups();
+          const { data: joined } = await supabase
+            .from("groups")
+            .select("id, name, avatar_url")
+            .eq("id", groupId)
+            .single();
+          setActiveGroup(joined);
+          await loadMembersAndAdmin(groupId);
+          Alert.alert("Bienvenue 👍", "Tu as rejoint le groupe !");
+          return;
         }
         
-        await loadGroups();
-        const { data: joined } = await supabase
-          .from("groups")
-          .select("id, name, avatar_url")
-          .eq("id", groupId)
-          .single();
-        setActiveGroup(joined);
-        await loadMembersAndAdmin(groupId);
-        Alert.alert("Bienvenue 👍", "Tu as rejoint le groupe !");
+        // Pour les autres types de groupes, ne pas permettre
+        Alert.alert("Impossible de rejoindre", "Ce groupe nécessite une invitation valide.");
       } catch (e) {
+        console.error('[onJoinPublic] Exception:', e);
         Alert.alert("Impossible de rejoindre", e?.message ?? String(e));
       }
     },
