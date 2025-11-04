@@ -510,9 +510,19 @@ export default function GroupesScreen() {
     if (!activeGroup?.id) return;
     try {
       const deepLink = buildInviteDeepLink(activeGroup.id);
-      // Utiliser directement le deep link comme lien principal
-      // Les clients email modernes (Gmail, Apple Mail) supportent les deep links
-      const message = `Rejoins mon groupe Padel Sync :\n${deepLink}\n\nSi le lien ne fonctionne pas, installe l'app Padel Sync et utilise ce code dans l'app :`;
+      // Liens de téléchargement de l'app
+      const iosAppLink = "https://apps.apple.com/app/padel-sync/id6738336258"; // À mettre à jour avec le vrai lien App Store
+      const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app"; // À mettre à jour avec le vrai lien Play Store
+      
+      const message = `Rejoins mon groupe Padel Sync ! 🎾
+
+📱 Pour iOS : ${iosAppLink}
+📱 Pour Android : ${androidAppLink}
+
+Une fois l'app installée, clique sur ce lien pour rejoindre directement :
+${deepLink}
+
+Ou ouvre l'app et utilise ce lien dans l'app.`;
       await Share.share({ message });
     } catch (e) {
       Alert.alert("Partage impossible", e?.message ?? String(e));
