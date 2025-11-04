@@ -503,6 +503,7 @@ export default function GroupesScreen() {
   }, []);
 
   const buildInviteWebLink = useCallback((groupId) => {
+    // Utiliser uniquement /invite, pas /join
     return `${WEB_BASE_URL}/invite?group_id=${groupId}`;
   }, []);
 

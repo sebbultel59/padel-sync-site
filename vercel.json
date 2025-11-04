@@ -14,14 +14,22 @@
       {
         "source": "/invite(.*)",
         "destination": "/invite.html"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/invite(.*)",
+        "dest": "/invite.html",
+        "status": 200
       },
       {
-        "source": "/join",
-        "destination": "/join.html"
+        "src": "/invite.html",
+        "dest": "/invite.html",
+        "status": 200
       },
       {
-        "source": "/join(.*)",
-        "destination": "/join.html"
+        "src": "/(.*\\.html)",
+        "dest": "/$1"
       }
     ],
     "headers": [
