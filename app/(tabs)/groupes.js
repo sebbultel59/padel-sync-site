@@ -1435,12 +1435,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
               <Pressable onPress={press("open-members-modal", () => setMembersModalVisible(true))} style={[s.btn, { backgroundColor: "#f3f4f6", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
                 <Text style={[s.btnTxt, { color: "#111827" }]}>Voir les membres ({members.length})</Text>
               </Pressable>
-              {isAdmin && joinRequests.length > 0 && (
+              {isAdmin && (
                 <Pressable 
                   onPress={press("open-join-requests-modal", () => setJoinRequestsModalVisible(true))} 
-                  style={[s.btn, { backgroundColor: "#dc2626", flex: 1, position: "relative" }, Platform.OS === "web" && { cursor: "pointer" }]}
+                  style={[s.btn, { backgroundColor: joinRequests.length > 0 ? "#dc2626" : "#6b7280", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}
                 >
-                  <Text style={[s.btnTxt, { color: "#ffffff" }]}>Demandes ({joinRequests.length})</Text>
+                  <Text style={[s.btnTxt, { color: "#ffffff" }]}>
+                    Demandes {joinRequests.length > 0 ? `(${joinRequests.length})` : "(0)"}
+                  </Text>
                 </Pressable>
               )}
             </View>
