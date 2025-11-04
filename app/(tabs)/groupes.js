@@ -62,7 +62,38 @@ function useIsSuperAdmin() {
 
   return isSuperAdmin;
 }
-// --- end helper ---
+
+// --- Admin helper (UI guard) ---
+
+function useIsGlobalAdmin() {
+  const [isGlobalAdmin, setIsGlobalAdmin] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth?.user?.id;
+        if (!uid) return setIsGlobalAdmin(false);
+
+        // Vérifie l'existence d'une ligne dans admins pour l'utilisateur courant
+        const { data: adminRow, error: adminErr } = await supabase
+          .from('admins')
+          .select('user_id')
+          .eq('user_id', uid)
+          .maybeSingle();
+        if (adminErr) console.warn('[useIsGlobalAdmin] admins check failed:', adminErr.message);
+        const flag = !!adminRow?.user_id;
+        setIsGlobalAdmin(flag);
+      } catch (e) {
+        console.warn('[useIsGlobalAdmin] fallback to false:', e?.message || e);
+        setIsGlobalAdmin(false);
+      }
+    })();
+  }, []);
+
+  return isGlobalAdmin;
+}
+// --- end helpers ---
 
 async function hapticSelect() {
   try {
@@ -86,7 +117,7 @@ async function hapticSelect() {
 
 
 const BRAND = "#1a4b97";
-const FALLBACK_WEB_BASE = "https://syncpadel.app";
+const WEB_BASE_URL = "https://syncpadel.app"; // Domaine web pour les liens dans les emails
 
 // Niveau → couleur (cohérent avec LEVELS global)
 const LEVEL_COLORS = {
@@ -212,6 +243,7 @@ export default function GroupesScreen() {
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const nav = useRouter();
   const isSuperAdmin = useIsSuperAdmin();
+  const isGlobalAdmin = useIsGlobalAdmin();
   const insets = useSafeAreaInsets();
 
   // --- Auth guard ---
@@ -467,16 +499,20 @@ export default function GroupesScreen() {
 
   // --- Invites / QR / Avatar / Rejoindre public ---
   const buildInviteDeepLink = useCallback((groupId) => {
-    const deep = `padelsync://join?group_id=${groupId}`;
-    const web = `${FALLBACK_WEB_BASE}/join?group_id=${groupId}`;
-    return { deepLink: deep, webLink: web };
+    return `padelsync://join?group_id=${groupId}`;
+  }, []);
+
+  const buildInviteWebLink = useCallback((groupId) => {
+    return `${WEB_BASE_URL}/invite?group_id=${groupId}`;
   }, []);
 
   const onInviteLink = useCallback(async () => {
     if (!activeGroup?.id) return;
     try {
-      const { deepLink, webLink } = buildInviteDeepLink(activeGroup.id);
-      const message = `Rejoins mon groupe Padel Sync :\n• App : ${deepLink}\n• Web : ${webLink}`;
+      const deepLink = buildInviteDeepLink(activeGroup.id);
+      // Utiliser directement le deep link comme lien principal
+      // Les clients email modernes (Gmail, Apple Mail) supportent les deep links
+      const message = `Rejoins mon groupe Padel Sync :\n${deepLink}\n\nSi le lien ne fonctionne pas, installe l'app Padel Sync et utilise ce code dans l'app :`;
       await Share.share({ message });
     } catch (e) {
       Alert.alert("Partage impossible", e?.message ?? String(e));
@@ -485,7 +521,7 @@ export default function GroupesScreen() {
 
   const onInviteQR = useCallback(() => {
     if (!activeGroup?.id) return;
-    const { deepLink } = buildInviteDeepLink(activeGroup.id);
+    const deepLink = buildInviteDeepLink(activeGroup.id);
     const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(deepLink)}`;
     setQrUrl(qr);
     setQrVisible(true);
@@ -689,10 +725,35 @@ export default function GroupesScreen() {
       if (!me) throw new Error("Utilisateur non authentifié");
 
       // Sécurise la visibilité et la join policy selon le rôle
-      const safeVisibility = isSuperAdmin ? createVisibility : "private";
-      const join_policy = safeVisibility === "public" ? createJoinPolicy : "invite";
-      if (!isSuperAdmin && createVisibility === "public") {
-        Alert.alert('Restriction', 'Seuls les super admins peuvent créer un groupe public. Le groupe sera créé en privé.');
+      let safeVisibility = createVisibility;
+      let join_policy = createJoinPolicy;
+
+      // Super admin : peut créer tous les types
+      // Admin : peut créer privé et public sur demande (mais pas public ouvert)
+      // Utilisateur : peut créer uniquement privé
+
+      if (createVisibility === "public" && createJoinPolicy === "open") {
+        // Public ouvert : uniquement super admin
+        if (!isSuperAdmin) {
+          Alert.alert('Restriction', 'Seuls les super admins peuvent créer un groupe public ouvert.');
+          safeVisibility = "private";
+          join_policy = "invite";
+        }
+      } else if (createVisibility === "public" && createJoinPolicy === "request") {
+        // Public sur demande : super admin ou admin
+        if (!isSuperAdmin && !isGlobalAdmin) {
+          Alert.alert('Restriction', 'Seuls les admins et super admins peuvent créer un groupe public sur demande.');
+          safeVisibility = "private";
+          join_policy = "invite";
+        }
+      } else if (createVisibility === "private") {
+        // Privé : toujours autorisé
+        safeVisibility = "private";
+        join_policy = "invite";
+      } else {
+        // Par défaut : privé
+        safeVisibility = "private";
+        join_policy = "invite";
       }
 
       console.log('[Groups][create] me =', me, 'visibility =', safeVisibility, 'join_policy =', join_policy);
@@ -732,7 +793,7 @@ export default function GroupesScreen() {
     } catch (e) {
       Alert.alert("Erreur création", e?.message ?? String(e));
     }
-  }, [createName, createVisibility, createJoinPolicy, isSuperAdmin, loadGroups, setActiveGroup, loadMembersAndAdmin]);
+  }, [createName, createVisibility, createJoinPolicy, isSuperAdmin, isGlobalAdmin, loadGroups, setActiveGroup, loadMembersAndAdmin]);
 
   const { activeRecord } = useMemo(() => {
     const a = (groups.mine ?? []).find((g) => g.id === activeGroup?.id) || null;
@@ -1061,9 +1122,16 @@ export default function GroupesScreen() {
         )}
       </ScrollView>
 
-      {/* FAB “+” */}
-      <Pressable onPress={press("fab-create-group", onCreateGroup)} style={[s.fab, Platform.OS === "web" && { cursor: "pointer" }]} >
-        <Text style={{ color: "white", fontSize: 28, fontWeight: "800", lineHeight: 28 }}>＋</Text>
+      {/* FAB "+" */}
+      <Pressable 
+        onPress={press("fab-create-group", onCreateGroup)} 
+        style={[
+          s.fab, 
+          { bottom: Math.max(22, insets.bottom + 80) },
+          Platform.OS === "web" && { cursor: "pointer" }
+        ]} 
+      >
+        <Ionicons name="add" size={32} color="#ffffff" />
       </Pressable>
 
       {/* Modal création */}
@@ -1085,7 +1153,7 @@ export default function GroupesScreen() {
 
               <Text style={{ marginTop: 12, marginBottom: 8, fontWeight: "700", color: "#111827" }}>Type de groupe</Text>
 
-              {/* Privé */}
+              {/* Privé - toujours disponible */}
               <TouchableOpacity
                 onPress={() => {
                   setCreateVisibility("private");
@@ -1099,7 +1167,7 @@ export default function GroupesScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* Public (ouvert) */}
+              {/* Public (ouvert) - uniquement pour super admin */}
               {isSuperAdmin && (
                 <TouchableOpacity
                   onPress={() => {
@@ -1115,8 +1183,8 @@ export default function GroupesScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* Public (sur demande) */}
-              {isSuperAdmin && (
+              {/* Public (sur demande) - pour super admin et admin */}
+              {(isSuperAdmin || isGlobalAdmin) && (
                 <TouchableOpacity
                   onPress={() => {
                     setCreateVisibility("public");
