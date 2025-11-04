@@ -31,6 +31,12 @@ COMMENT ON COLUMN invitations.expires_at IS 'Date d''expiration du code (optionn
 -- RLS (Row Level Security)
 ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
 
+-- Supprimer les politiques existantes si elles existent
+DROP POLICY IF EXISTS "Users can view invitations for their groups or unused codes" ON invitations;
+DROP POLICY IF EXISTS "Users can view invitations for their groups" ON invitations;
+DROP POLICY IF EXISTS "Users can create invitations for their groups" ON invitations;
+DROP POLICY IF EXISTS "Users can use unused invitation codes" ON invitations;
+
 -- Politique : Les utilisateurs peuvent voir les invitations pour leurs groupes ou utiliser n'importe quel code non utilisé
 CREATE POLICY "Users can view invitations for their groups or unused codes"
   ON invitations
