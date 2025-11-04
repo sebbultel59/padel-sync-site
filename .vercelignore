@@ -1,0 +1,8 @@
+# Fichiers à ignorer pour Vercel
+node_modules
+.expo
+.expo-shared
+ios
+android
+.git
+

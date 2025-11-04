@@ -1,6 +1,6 @@
 {
   "name": "padel-sync",
-  "version": "1.2.4",
+  "version": "1.3.1",
   "private": true,
   "main": "index.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "vercel-build": "echo 'Static files in public/' && ls -la public/"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
