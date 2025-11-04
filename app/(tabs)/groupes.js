@@ -10,6 +10,7 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Clipboard,
   DeviceEventEmitter,
   Image,
   KeyboardAvoidingView,
@@ -284,6 +285,9 @@ export default function GroupesScreen() {
 
   const [qrVisible, setQrVisible] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
+
+  const [joinModalVisible, setJoinModalVisible] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
@@ -863,6 +867,149 @@ Padel Sync — Ton match en 3 clics 🎾`;
     return { activeRecord: a };
   }, [groups, activeGroup?.id]);
 
+  // Fonctions pour rejoindre un groupe
+  const handleJoinByGroupId = useCallback(async (groupId) => {
+    try {
+      // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
+        p_group_id: groupId
+      });
+      
+      if (!rpcError) {
+        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+        setJoinModalVisible(false);
+        setInviteCode("");
+        await loadGroups();
+        // Récupérer le groupe directement depuis la base de données
+        const { data: groupData } = await supabase
+          .from('groups')
+          .select('*')
+          .eq('id', groupId)
+          .single();
+        if (groupData) {
+          setActiveGroup(groupData);
+        }
+        return;
+      }
+      
+      // Fallback: Essayer avec join_public_group pour les groupes publics
+      const { data: publicData, error: publicError } = await supabase.rpc('join_public_group', {
+        p_group_id: groupId
+      });
+      
+      if (!publicError) {
+        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+        setJoinModalVisible(false);
+        setInviteCode("");
+        await loadGroups();
+        // Récupérer le groupe directement depuis la base de données
+        const { data: groupData } = await supabase
+          .from('groups')
+          .select('*')
+          .eq('id', groupId)
+          .single();
+        if (groupData) {
+          setActiveGroup(groupData);
+        }
+        return;
+      }
+      
+      // Si tout échoue, afficher un message d'erreur clair
+      console.error('[Join] Erreurs:', { rpcError: rpcError?.message, publicError: publicError?.message });
+      Alert.alert("Impossible de rejoindre", rpcError?.message || publicError?.message || "Ce groupe nécessite une invitation valide.");
+    } catch (e) {
+      console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
+      Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
+    }
+  }, [loadGroups, setActiveGroup]);
+
+  const handleAcceptInvite = useCallback(async () => {
+    if (!inviteCode) return Alert.alert("Code requis", "Entre un code d'invitation.");
+    
+    // Vérifier si c'est un deep link ou une URL
+    if (inviteCode.includes('padelsync://join?group_id=') || inviteCode.includes('group_id=')) {
+      try {
+        let groupId;
+        if (inviteCode.startsWith('padelsync://join?group_id=')) {
+          const match = inviteCode.match(/group_id=([^&]+)/);
+          if (match && match[1]) {
+            groupId = match[1];
+          }
+        } else if (inviteCode.includes('group_id=')) {
+          const url = new URL(inviteCode);
+          groupId = url.searchParams.get('group_id');
+        }
+        if (groupId) {
+          await handleJoinByGroupId(groupId);
+          return;
+        }
+      } catch (e) {
+        console.error('[Join] Erreur parsing URL/deep link:', e);
+      }
+    }
+    
+    // Sinon, traiter comme un code d'invitation
+    const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode.trim() });
+    if (error) return Alert.alert("Erreur", error.message);
+    Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+    setJoinModalVisible(false);
+    setInviteCode("");
+    await loadGroups();
+    // Récupérer le groupe directement depuis la base de données
+    if (data) {
+      const { data: groupData } = await supabase
+        .from('groups')
+        .select('*')
+        .eq('id', data)
+        .single();
+      if (groupData) {
+        setActiveGroup(groupData);
+      }
+    }
+  }, [inviteCode, handleJoinByGroupId, loadGroups, setActiveGroup]);
+
+  const handlePasteDeepLink = useCallback(async () => {
+    try {
+      const text = await Clipboard.getString();
+      if (!text) return;
+      
+      // Vérifier si c'est un deep link padelsync://
+      if (text.startsWith('padelsync://join?group_id=')) {
+        try {
+          // Extraire le group_id depuis le deep link
+          const match = text.match(/group_id=([^&]+)/);
+          if (match && match[1]) {
+            const groupId = match[1];
+            await handleJoinByGroupId(groupId);
+            return;
+          }
+        } catch (e) {
+          console.error('[Join] Erreur parsing deep link:', e);
+        }
+      }
+      
+      // Vérifier si c'est un lien web avec group_id
+      if (text.includes('group_id=')) {
+        try {
+          const url = new URL(text);
+          const groupId = url.searchParams.get('group_id');
+          if (groupId) {
+            await handleJoinByGroupId(groupId);
+            return;
+          }
+        } catch (e) {
+          console.error('[Join] Erreur parsing URL:', e);
+        }
+      }
+      
+      // Sinon, utiliser comme code d'invitation
+      setInviteCode(text.trim());
+    } catch (e) {
+      console.error('[Join] Erreur lors du collage:', e);
+      Alert.alert("Erreur", "Impossible de lire le presse-papiers");
+    }
+  }, [handleJoinByGroupId]);
+
   if (!authChecked || loading) {
     return (
       <View style={s.center}>
@@ -1118,7 +1265,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
         {/* Bouton Rejoindre un groupe */}
         <Pressable 
-          onPress={press("join-group", () => nav.push("/join"))} 
+          onPress={press("join-group", () => setJoinModalVisible(true))} 
           style={[s.btn, { backgroundColor: "#1a4b97", marginTop: 12, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
         >
           <Ionicons name="add-circle-outline" size={20} color="#ffffff" />
@@ -1295,6 +1442,45 @@ Padel Sync — Ton match en 3 clics 🎾`;
             </Pressable>
           </View>
         </View>
+      </Modal>
+
+      {/* Modal Rejoindre un groupe */}
+      <Modal visible={joinModalVisible} transparent animationType="fade" onRequestClose={() => setJoinModalVisible(false)}>
+        <KeyboardAvoidingView style={s.qrWrap} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={s.qrCard}>
+            <Text style={{ fontWeight: "800", marginBottom: 12, fontSize: 20 }}>Rejoindre un groupe</Text>
+            <Text style={{ fontSize: 14, color: "#666", marginBottom: 16 }}>
+              Entre un code d'invitation ou colle un lien d'invitation
+            </Text>
+            <TextInput
+              placeholder="Code d'invitation ou lien padelsync://join?group_id=..."
+              value={inviteCode}
+              onChangeText={setInviteCode}
+              autoCapitalize="none"
+              style={[s.input, { marginBottom: 12 }]}
+            />
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <Pressable 
+                onPress={press("paste-deep-link", handlePasteDeepLink)} 
+                style={[s.btn, { backgroundColor: "#9ca3af", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Text style={s.btnTxt}>Coller et utiliser</Text>
+              </Pressable>
+              <Pressable 
+                onPress={press("accept-invite", handleAcceptInvite)} 
+                style={[s.btn, { backgroundColor: BRAND, flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Text style={s.btnTxt}>Rejoindre</Text>
+              </Pressable>
+            </View>
+            <Pressable 
+              onPress={press("close-join-modal", () => setJoinModalVisible(false))} 
+              style={[s.btn, { backgroundColor: "#9ca3af" }, Platform.OS === "web" && { cursor: "pointer" }]}
+            >
+              <Text style={s.btnTxt}>Fermer</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal membres */}
