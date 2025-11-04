@@ -1448,7 +1448,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
       <Modal visible={joinModalVisible} transparent animationType="fade" onRequestClose={() => setJoinModalVisible(false)}>
         <KeyboardAvoidingView style={s.qrWrap} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={s.qrCard}>
-            <Text style={{ fontWeight: "800", marginBottom: 12, fontSize: 20 }}>Rejoindre un groupe</Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <Text style={{ fontWeight: "800", fontSize: 20 }}>Rejoindre un groupe</Text>
+              <Pressable 
+                onPress={press("close-join-modal", () => setJoinModalVisible(false))} 
+                style={[Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
             <Text style={{ fontSize: 14, color: "#666", marginBottom: 16 }}>
               Entre un code d'invitation ou colle un lien d'invitation
             </Text>
@@ -1459,7 +1467,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
               autoCapitalize="none"
               style={[s.input, { marginBottom: 12 }]}
             />
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
               <Pressable 
                 onPress={press("paste-deep-link", handlePasteDeepLink)} 
                 style={[s.btn, { backgroundColor: "#9ca3af", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}
@@ -1473,12 +1481,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={s.btnTxt}>Rejoindre</Text>
               </Pressable>
             </View>
-            <Pressable 
-              onPress={press("close-join-modal", () => setJoinModalVisible(false))} 
-              style={[s.btn, { backgroundColor: "#9ca3af" }, Platform.OS === "web" && { cursor: "pointer" }]}
-            >
-              <Text style={s.btnTxt}>Fermer</Text>
-            </Pressable>
           </View>
         </KeyboardAvoidingView>
       </Modal>
