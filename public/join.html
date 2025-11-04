@@ -1,76 +1,34 @@
-// app/join.js
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Text, TextInput, View } from "react-native";
-import { supabase } from "../lib/supabase";
-
-export default function Join() {
-  const { code, group_id } = useLocalSearchParams(); // lit /join?code=ABC123 ou /join?group_id=...
-  const [inviteCode, setInviteCode] = useState(code ?? "");
-  const router = useRouter();
-
-  const handleJoinByGroupId = useCallback(async (groupId) => {
-    try {
-      // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
-        p_group_id: groupId
-      });
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Padel Sync – Invitation</title>
+    <script>
+      // Récupère le group_id dans l'URL: /join?group_id=ABC123
+      const params = new URLSearchParams(window.location.search);
+      const groupId = params.get('group_id') || '';
       
-      if (!rpcError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-        router.replace("/(tabs)/matches");
-        return;
+      if (!groupId) {
+        // Pas de group_id, redirige vers la page de téléchargement
+        window.location.href = '/download';
+        document.body.innerHTML = '<p style="padding: 20px; text-align: center;">Lien d\'invitation invalide</p>';
+      } else {
+        // Essaie d'ouvrir l'app via le schéma custom
+        const scheme = `padelsync://join?group_id=${groupId}`;
+        const fallback = '/download'; // page de secours
+        
+        // Lance l'ouverture de l'app
+        window.location.href = scheme;
+        
+        // Si l'app n'est pas installée, redirige après ~1.2s
+        setTimeout(() => {
+          window.location.href = fallback;
+        }, 1200);
       }
-      
-      // Fallback: Essayer avec join_public_group pour les groupes publics
-      const { data: publicData, error: publicError } = await supabase.rpc('join_public_group', {
-        p_group_id: groupId
-      });
-      
-      if (!publicError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-        router.replace("/(tabs)/matches");
-        return;
-      }
-      
-      // Si tout échoue, afficher un message d'erreur clair
-      console.error('[Join] Erreurs:', { rpcError: rpcError?.message, publicError: publicError?.message });
-      Alert.alert("Impossible de rejoindre", rpcError?.message || publicError?.message || "Ce groupe nécessite une invitation valide.");
-    } catch (e) {
-      console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
-      Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
-    }
-  }, [router]);
-
-  useEffect(() => {
-    if (code) {
-      setInviteCode(code);
-    } else if (group_id) {
-      // Si on a un group_id, on essaie de rejoindre directement le groupe
-      console.log('[Join] Group ID reçu:', group_id);
-      handleJoinByGroupId(group_id);
-    }
-  }, [code, group_id, handleJoinByGroupId]);
-
-  async function acceptInvite() {
-    if (!inviteCode) return Alert.alert("Code requis", "Entre un code d'invitation.");
-    const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode });
-    if (error) return Alert.alert("Erreur", error.message);
-    Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-    router.replace("/(tabs)/matches");
-  }
-
-  return (
-    <View style={{ padding: 16, gap: 12 }}>
-      <Text style={{ fontSize: 20, fontWeight: "600" }}>Rejoindre un groupe</Text>
-      <TextInput
-        placeholder="Code d’invitation"
-        value={inviteCode}
-        onChangeText={setInviteCode}
-        autoCapitalize="characters"
-        style={{ borderWidth: 1, borderRadius: 8, padding: 12 }}
-      />
-      <Button title="Rejoindre" onPress={acceptInvite} />
-    </View>
-  );
-}
+    </script>
+  </head>
+  <body>
+    <p style="padding: 20px; text-align: center;">Ouverture de l'invitation…</p>
+  </body>
+</html>
