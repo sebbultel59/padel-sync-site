@@ -1,7 +1,7 @@
 {
-    "version": 2,
     "buildCommand": "echo 'Static files - no build needed'",
     "outputDirectory": "public",
+    "framework": null,
     "headers": [
       {
         "source": "/apple-app-site-association",
