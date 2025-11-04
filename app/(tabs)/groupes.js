@@ -544,36 +544,27 @@ export default function GroupesScreen() {
 Organise tes matchs en 3 clics avec l'app Padel Sync 📱
 
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔑 CODE DU GROUPE
 
-🔑 CODE DU GROUPE :
-
-     ${inviteCode}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${inviteCode}
 
 
-➡️ Une fois l'app installée :
+➡️ Une fois l'app installée
 
 1️⃣ Ouvre l'app Padel Sync
-
 2️⃣ Va dans l'onglet "Groupes"
-
 3️⃣ Clique sur "Rejoindre un groupe"
-
 4️⃣ Entre le code ci-dessus
 
 
-📲 Installe l'app ici :
+📲 Installe l'app ici
 
-🍎 iOS :
+🍎 iOS
 ${iosAppLink}
 
-🤖 Android :
+🤖 Android
 ${androidAppLink}
 
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Padel Sync — Ton match en 3 clics 🎾`;
       
