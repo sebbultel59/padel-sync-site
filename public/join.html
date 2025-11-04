@@ -5,18 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Padel Sync – Invitation</title>
     <script>
-      // Récupère le group_id dans l'URL: /invite?group_id=ABC123 ou /invite/ABC123
+      // Récupère le group_id dans l'URL: /join?group_id=ABC123
       const params = new URLSearchParams(window.location.search);
-      let groupId = params.get('group_id') || '';
-      
-      // Si pas de group_id dans les query params, essayer de le récupérer du path
-      if (!groupId) {
-        const path = location.pathname;
-        const pathParts = path.split("/").filter(p => p);
-        if (pathParts.length > 0 && pathParts[pathParts.length - 1] !== 'invite') {
-          groupId = pathParts[pathParts.length - 1];
-        }
-      }
+      const groupId = params.get('group_id') || '';
       
       if (!groupId) {
         // Pas de group_id, redirige vers la page de téléchargement

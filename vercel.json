@@ -8,5 +8,15 @@
         "source": "/.well-known/apple-app-site-association",
         "headers": [{ "key": "Content-Type", "value": "application/json" }]
       }
+    ],
+    "rewrites": [
+      {
+        "source": "/invite",
+        "destination": "/invite.html"
+      },
+      {
+        "source": "/join",
+        "destination": "/join.html"
+      }
     ]
   }
