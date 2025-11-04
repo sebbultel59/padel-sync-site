@@ -544,20 +544,134 @@ export default function GroupesScreen() {
       const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
       const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
       
-      const message = `Rejoins mon groupe Padel Sync ! 🎾
+      // Message HTML formaté pour les emails
+      const htmlMessage = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Invitation à rejoindre un groupe Padel Sync</title>
+  <style>
+    body {
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      background-color: #f7f9fc;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    .container {
+      max-width: 520px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      padding: 30px;
+      text-align: center;
+    }
+    h1 {
+      color: #007BFF;
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    p {
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .code {
+      font-size: 36px;
+      font-weight: 700;
+      color: #FF751F;
+      background-color: #fef3eb;
+      border: 2px dashed #FF751F;
+      display: inline-block;
+      padding: 12px 24px;
+      border-radius: 12px;
+      margin: 20px 0;
+      letter-spacing: 2px;
+    }
+    .button {
+      display: inline-block;
+      background-color: #007BFF;
+      color: #fff !important;
+      text-decoration: none;
+      font-weight: bold;
+      padding: 12px 20px;
+      border-radius: 10px;
+      margin-top: 12px;
+    }
+    .links {
+      margin-top: 20px;
+      font-size: 15px;
+    }
+    .links a {
+      color: #007BFF;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer {
+      font-size: 13px;
+      color: #777;
+      margin-top: 25px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎾 Rejoins mon groupe Padel Sync !</h1>
+    <p>Organise tes matchs en 3 clics avec l'app Padel Sync 📱</p>
+    
+    <p>🔑 Code du groupe :</p>
+    <div class="code">${inviteCode}</div>
 
-📱 Pour installer l'app :
-   iOS : ${iosAppLink}
-   Android : ${androidAppLink}
+    <p>➡️ Une fois l'app installée :</p>
+    <p style="text-align:left; display:inline-block; text-align:left;">
+      1️⃣ Ouvre l'app Padel Sync<br>
+      2️⃣ Va dans l'onglet <b>"Groupes"</b><br>
+      3️⃣ Clique sur <b>"Rejoindre un groupe"</b><br>
+      4️⃣ Entre le code ci-dessus
+    </p>
 
-🔑 Une fois l'app installée :
-1. Ouvre l'app Padel Sync
-2. Va dans l'onglet "Groupes"
-3. Clique sur "Rejoindre un groupe"
-4. Entre le code : ${inviteCode}
+    <div class="links">
+      <p>📲 Installe l'app ici :</p>
+      <p>
+        <a href="${iosAppLink}">🍎 iOS</a> |
+        <a href="${androidAppLink}">🤖 Android</a>
+      </p>
+    </div>
 
-Ce code te permettra de rejoindre le groupe !`;
-      await Share.share({ message });
+    <div class="footer">
+      <p>Padel Sync — Ton match en 3 clics 🎾</p>
+    </div>
+  </div>
+</body>
+</html>`;
+      
+      // Message texte simple pour le partage (fallback)
+      const textMessage = `🎾 Rejoins mon groupe Padel Sync !
+
+Organise tes matchs en 3 clics avec l'app Padel Sync 📱
+
+🔑 Code du groupe : ${inviteCode}
+
+➡️ Une fois l'app installée :
+1️⃣ Ouvre l'app Padel Sync
+2️⃣ Va dans l'onglet "Groupes"
+3️⃣ Clique sur "Rejoindre un groupe"
+4️⃣ Entre le code ci-dessus
+
+📲 Installe l'app ici :
+🍎 iOS : ${iosAppLink}
+🤖 Android : ${androidAppLink}
+
+Padel Sync — Ton match en 3 clics 🎾`;
+      
+      // Utiliser le message HTML si possible, sinon texte
+      if (Platform.OS === 'web') {
+        // Sur web, on peut copier le HTML
+        await Share.share({ message: htmlMessage });
+      } else {
+        // Sur mobile, utiliser le texte (les clients email peuvent interpréter le HTML)
+        await Share.share({ message: htmlMessage });
+      }
     } catch (e) {
       console.error('[Invite] Erreur:', e);
       Alert.alert("Partage impossible", e?.message ?? String(e));
