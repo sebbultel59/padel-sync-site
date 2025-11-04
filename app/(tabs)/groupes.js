@@ -502,11 +502,6 @@ export default function GroupesScreen() {
     return `padelsync://join?group_id=${groupId}`;
   }, []);
 
-  const buildInviteWebLink = useCallback((groupId) => {
-    // Utiliser uniquement /invite, pas /join
-    return `${WEB_BASE_URL}/invite?group_id=${groupId}`;
-  }, []);
-
   const onInviteLink = useCallback(async () => {
     if (!activeGroup?.id) return;
     try {
