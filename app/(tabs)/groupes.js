@@ -510,7 +510,36 @@ export default function GroupesScreen() {
   const onInviteLink = useCallback(async () => {
     if (!activeGroup?.id) return;
     try {
-      const webLink = buildInviteWebLink(activeGroup.id);
+      // Créer ou récupérer un code d'invitation pour le groupe
+      let inviteCode;
+      const { data: existingInvite, error: fetchError } = await supabase
+        .from('invitations')
+        .select('code')
+        .eq('group_id', activeGroup.id)
+        .eq('used', false)
+        .limit(1)
+        .maybeSingle();
+      
+      if (existingInvite?.code) {
+        inviteCode = existingInvite.code;
+      } else {
+        // Créer un nouveau code d'invitation
+        const { data: newInvite, error: createError } = await supabase
+          .from('invitations')
+          .insert({
+            group_id: activeGroup.id,
+            code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+            created_by: meId
+          })
+          .select('code')
+          .single();
+        
+        if (createError) {
+          throw createError;
+        }
+        inviteCode = newInvite.code;
+      }
+      
       // Liens de téléchargement de l'app
       const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
       const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
@@ -521,15 +550,19 @@ export default function GroupesScreen() {
    iOS : ${iosAppLink}
    Android : ${androidAppLink}
 
-🔗 Une fois l'app installée, clique sur ce lien pour rejoindre :
-${webLink}
+🔑 Une fois l'app installée :
+1. Ouvre l'app Padel Sync
+2. Va dans l'onglet "Groupes"
+3. Clique sur "Rejoindre un groupe"
+4. Entre le code : ${inviteCode}
 
-Ce lien ouvrira automatiquement l'app et te permettra de rejoindre le groupe.`;
+Ce code te permettra de rejoindre le groupe !`;
       await Share.share({ message });
     } catch (e) {
+      console.error('[Invite] Erreur:', e);
       Alert.alert("Partage impossible", e?.message ?? String(e));
     }
-  }, [activeGroup?.id, buildInviteWebLink]);
+  }, [activeGroup?.id, meId]);
 
   const onInviteQR = useCallback(() => {
     if (!activeGroup?.id) return;
