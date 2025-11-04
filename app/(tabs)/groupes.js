@@ -289,6 +289,10 @@ export default function GroupesScreen() {
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
 
+  const [joinRequestConfirmVisible, setJoinRequestConfirmVisible] = useState(false);
+  const [pendingJoinGroupId, setPendingJoinGroupId] = useState(null);
+  const [pendingJoinGroupName, setPendingJoinGroupName] = useState(null);
+
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
 
@@ -656,7 +660,27 @@ Padel Sync — Ton match en 3 clics 🎾`;
   const onJoinPublic = useCallback(
     async (groupId) => {
       try {
-        // Essayer d'abord avec la RPC function si elle existe
+        // Récupérer les informations du groupe pour vérifier le join_policy
+        const { data: groupData, error: groupError } = await supabase
+          .from("groups")
+          .select("id, name, visibility, join_policy")
+          .eq("id", groupId)
+          .single();
+        
+        if (groupError || !groupData) {
+          Alert.alert("Erreur", "Groupe non trouvé");
+          return;
+        }
+        
+        // Si c'est un groupe public "sur demande", afficher la popup de confirmation
+        if (groupData.visibility === 'public' && groupData.join_policy === 'request') {
+          setPendingJoinGroupId(groupId);
+          setPendingJoinGroupName(groupData.name);
+          setJoinRequestConfirmVisible(true);
+          return;
+        }
+        
+        // Pour les groupes publics "ouverts", rejoindre directement
         const { data: rpcData, error: rpcError } = await supabase.rpc('join_public_group', {
           p_group_id: groupId
         });
@@ -686,6 +710,33 @@ Padel Sync — Ton match en 3 clics 🎾`;
     },
     [loadGroups, setActiveGroup, loadMembersAndAdmin]
   );
+
+  const confirmJoinRequest = useCallback(async () => {
+    if (!pendingJoinGroupId) return;
+    
+    try {
+      // Créer la demande de rejoindre
+      const { data: requestId, error: requestError } = await supabase.rpc('request_join_group', {
+        p_group_id: pendingJoinGroupId
+      });
+      
+      if (requestError) {
+        Alert.alert("Erreur", requestError.message);
+        return;
+      }
+      
+      setJoinRequestConfirmVisible(false);
+      Alert.alert(
+        "Demande envoyée ✅",
+        `Votre demande pour rejoindre "${pendingJoinGroupName}" a été envoyée. L'administrateur du groupe a été notifié et validera votre demande sous peu.`
+      );
+      
+      setPendingJoinGroupId(null);
+      setPendingJoinGroupName(null);
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? "Impossible d'envoyer la demande");
+    }
+  }, [pendingJoinGroupId, pendingJoinGroupName]);
   const onLeaveGroup = useCallback(() => {
     if (!activeGroup?.id) return;
 
@@ -1481,6 +1532,51 @@ Padel Sync — Ton match en 3 clics 🎾`;
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal confirmation demande de rejoindre */}
+      <Modal visible={joinRequestConfirmVisible} transparent animationType="fade" onRequestClose={() => setJoinRequestConfirmVisible(false)}>
+        <View style={s.qrWrap}>
+          <View style={s.qrCard}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <Text style={{ fontWeight: "800", fontSize: 20 }}>Demande de rejoindre</Text>
+              <Pressable 
+                onPress={press("close-join-request-confirm", () => {
+                  setJoinRequestConfirmVisible(false);
+                  setPendingJoinGroupId(null);
+                  setPendingJoinGroupName(null);
+                })} 
+                style={[{ position: "absolute", right: 8, top: 8, padding: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Ionicons name="close" size={28} color="#dc2626" />
+              </Pressable>
+            </View>
+            <Text style={{ fontSize: 16, color: "#111827", marginBottom: 20, textAlign: "center" }}>
+              Souhaitez-vous demander à rejoindre le groupe "{pendingJoinGroupName}" ?
+            </Text>
+            <Text style={{ fontSize: 14, color: "#666", marginBottom: 20, textAlign: "center" }}>
+              L'administrateur du groupe sera notifié et validera votre demande sous peu.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable 
+                onPress={press("cancel-join-request", () => {
+                  setJoinRequestConfirmVisible(false);
+                  setPendingJoinGroupId(null);
+                  setPendingJoinGroupName(null);
+                })} 
+                style={[s.btn, { backgroundColor: "#9ca3af", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Text style={s.btnTxt}>Annuler</Text>
+              </Pressable>
+              <Pressable 
+                onPress={press("confirm-join-request", confirmJoinRequest)} 
+                style={[s.btn, { backgroundColor: BRAND, flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}
+              >
+                <Text style={s.btnTxt}>Envoyer la demande</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Modal membres */}
