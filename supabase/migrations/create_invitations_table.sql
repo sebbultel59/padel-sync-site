@@ -31,8 +31,8 @@ COMMENT ON COLUMN invitations.expires_at IS 'Date d''expiration du code (optionn
 -- RLS (Row Level Security)
 ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
 
--- Politique : Les utilisateurs peuvent voir les invitations pour leurs groupes
-CREATE POLICY "Users can view invitations for their groups"
+-- Politique : Les utilisateurs peuvent voir les invitations pour leurs groupes ou utiliser n'importe quel code non utilisé
+CREATE POLICY "Users can view invitations for their groups or unused codes"
   ON invitations
   FOR SELECT
   USING (
@@ -41,9 +41,10 @@ CREATE POLICY "Users can view invitations for their groups"
       WHERE gm.group_id = invitations.group_id
       AND gm.user_id = auth.uid()
     )
+    OR used = false  -- Permettre de voir les codes non utilisés pour les utiliser
   );
 
--- Politique : Les utilisateurs peuvent créer des invitations pour leurs groupes
+-- Politique : Les utilisateurs peuvent créer des invitations pour leurs groupes (membres, admins et owners)
 CREATE POLICY "Users can create invitations for their groups"
   ON invitations
   FOR INSERT
@@ -52,8 +53,8 @@ CREATE POLICY "Users can create invitations for their groups"
       SELECT 1 FROM group_members gm
       WHERE gm.group_id = invitations.group_id
       AND gm.user_id = auth.uid()
-      AND gm.role IN ('admin', 'owner')
     )
+    AND created_by = auth.uid()
   );
 
 -- Politique : Les utilisateurs peuvent utiliser n'importe quel code non utilisé
