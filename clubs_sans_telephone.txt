@@ -1,0 +1,692 @@
+LISTE DES CLUBS SANS NUMÉRO DE TÉLÉPHONE
+================================================================================
+
+1. A padel
+   Adresse: A padel; Chem. de Pézilla; 66300 Thuir; France
+   Coordonnées: 42.5991465, 2.7423357
+   ID: 57d00060-6ebf-4f91-9ad6-54512ba957fc
+
+2. Achicourt padel municipal
+   Adresse: Rue d'Agny; 62217 Achicourt-lès-Hagerue; France
+   Coordonnées: 46.603354, 1.8883335
+   ID: e7ab1efe-b616-4754-b3b2-8b40474a9fa3
+
+3. Agnetz tennis club
+   Adresse: Rue Joseph Van-Lancker
+60600 Agnetz
+   Coordonnées: 49.3863703, 2.3859804
+   ID: f9c649c2-53ca-4b6a-9610-59337d6bf239
+
+4. ALPE D'HUEZ (L) TENNIS CLUB
+   Adresse: Palais Des Sports; 38750 Huez
+   Coordonnées: 45.0901614, 6.0696079
+   ID: 6985ca53-31c0-44c1-812c-1e56e3be93ad
+
+5. AS SOUSTONS TENNIS
+   Adresse: Rue du Collège; 40140 Soustons; France
+   Coordonnées: 43.7518495, -1.334141
+   ID: e62045bf-b0bc-44c3-ba39-16f41c7ad1ad
+
+6. Assoc Tennis Club Corenc Montfleury
+   Adresse: 9 Chem. de la Croix de Montfleury; 38700 Corenc; France
+   Coordonnées: 45.2440945, 5.7682993
+   ID: 3d1b0223-4497-4667-bb20-3c8399bc5a70
+
+7. Auron - Groupe Ultra
+   Adresse: Auron; 06660 Saint-Étienne-de-Tinée
+   Coordonnées: 44.2262702, 6.9309839
+   ID: 182bd176-c1c1-4a10-89ce-adae5a982e25
+
+8. Avoriaz municipalité
+   Adresse: Avoriaz; 74110
+   Coordonnées: 46.1925439, 6.7702857
+   ID: 9bf43c7b-06e8-4129-887a-da06c8d38829
+
+9. B59
+   Adresse: 1 Allée Louis 14; 59600 Maubeuge
+   Coordonnées: 50.3087472, 3.9995542
+   ID: 68fbbaa5-65e5-45a8-a400-a95e4cdecdd5
+
+10. BASE DE LOISIRS DE BOMBANNES
+   Adresse: Carcans;  33121 Carcans;
+   Coordonnées: 45.0785402, -1.043341
+   ID: ebb2286e-8e5f-4eb3-91a1-e000ae4af5dc
+
+11. Bearn Padel
+   Adresse: 20 Rte du Bois; 64510 Assat; France
+   Coordonnées: 43.2540133, -0.2931077
+   ID: c12bc816-b730-4f77-ab70-3bad3501f63f
+
+12. Bocage padel club
+   Adresse: Rue Bocage
+Sainte-Suzanne 97441; La Réunion
+   Coordonnées: 44.2972241, 0.1144666
+   ID: 8f0449b6-ce5a-4848-8cc5-7592743cd05d
+
+13. Bonson padel municipal
+   Adresse: Rue du Stade; 42160 Bonson; France
+   Coordonnées: 45.5198779, 4.2179896
+   ID: 5d071704-51c6-43aa-9fc7-8e0e3ee1fe18
+
+14. CASTRES OCCITAN PADEL
+   Adresse: Chemin de la Bordé Basse À la Vixere; 81100 Castres; France
+   Coordonnées: 43.6172506, 2.2528836
+   ID: 6ffaf53e-b44d-4db7-8247-f4de61eeccb4
+
+15. CHATUZANGE LE GOUBET TC
+   Adresse: 580 Chemin de la Pécata; 26300 Chatuzange-le-Goubet; France
+   Coordonnées: 45.0021943, 5.07063
+   ID: 344f8d2f-6403-4217-afa4-98661918ac35
+
+16. CIGOGNES TENNIS CLUB
+   Adresse: usine Alsthom Transport; 65430 Soues; France
+   Coordonnées: 43.2066883, 0.1002084
+   ID: 882e11db-58b2-4bcd-acf6-58106db1907e
+
+17. Club de Tennis de Bar-Sur-Seine
+   Adresse: 2 Rue du Stade; 10110 Bar-sur-Seine; France
+   Coordonnées: 48.1211259, 4.3721187
+   ID: f87bf59e-69e4-4daa-879d-af832253a7b9
+
+18. Club de tennis de mesquer
+   Adresse: 44420 Mesquer
+   Coordonnées: 47.3991145, -2.4595913
+   ID: fcb23939-b938-4325-8e72-b62173a6ded9
+
+19. Complexe Sportif de la Terre des Lièvres
+   Adresse: 109 Chem. de Crépieux; 69300 Caluire-et-Cuire; France
+   Coordonnées: 45.7986274, 4.857473
+   ID: 388d7363-615c-42a6-948a-48dec0b86319
+
+20. Complexe Sportif Marcel Faure
+   Adresse: Av. Général de Gaulle; 11110 Coursan
+   Coordonnées: 43.233743, 3.0509129
+   ID: 083001d5-0edf-471e-a4c7-7d8648553853
+
+21. Complexe Tennis Tyrosse
+   Adresse: Plaine des Sportd; Av. du Poun de Burry; 40230 Saint-Vincent-de-Tyrosse; France
+   Coordonnées: 43.6531586, -1.2640493
+   ID: 3135397e-b8ac-4ff8-a48d-c33f8e37e6cd
+
+22. COULOUNIEIX-CH
+   Adresse: stade pareau
+Rue Jean Bouin
+24660 COULOUNIEIX-CHAMIERS
+   Coordonnées: 45.1195933, 0.7093946
+   ID: 95f9b3c9-a43f-4cc2-9b30-b0010588e59e
+
+23. Crapaud padel club
+   Adresse: Sillans
+   Coordonnées: 45.343098, 5.3915
+   ID: ee061081-7a24-4f04-b944-205b10627e3c
+
+24. CROISSY BEAUBOURG AT
+   Adresse: stade jb lemarie; 3 Rue de Paris; 77183 Croissy-Beaubourg
+   Coordonnées: 48.8162426, 2.6530007
+   ID: 5178c908-3e57-402f-af5e-7a863731bf36
+
+25. Élesmes tennis
+   Adresse: 59600 Élesmes; France
+   Coordonnées: 50.3080764, 4.0097998
+   ID: 0adbc5a1-bcda-4ad8-b5a2-2dc126d79de1
+
+26. ENTENTE TENNISTIQUE MALEPERE
+   Adresse: LE; Rue du Colombier; 11610 Pennautier; France
+   Coordonnées: 43.2662875, 2.3009974
+   ID: 066debae-7b80-4acd-b04c-faacb4c68e15
+
+27. Flavacourt
+   Adresse: 60590 Flavacourt; France
+   Coordonnées: 49.3372921, 1.8418948
+   ID: 10544315-a761-4beb-8e2a-a82ddbd5d752
+
+28. Gravity Padel Arena (automatique)
+   Adresse: 6 Rue Apollo; Z.A. Ariane; 57400 Buhl-Lorraine; France
+   Coordonnées: 48.7253, 7.0853
+   ID: da892de8-ad52-4e61-a775-59128931e2b6
+
+29. GUERIGNY URZY A.S.
+   Adresse: Stade Municipal; 58130 Guérigny; France
+   Coordonnées: 47.0866061, 3.1937606
+   ID: ce7c8249-b449-4181-9978-88454bb0f08b
+
+30. Haut de nimes
+   Adresse: 620 Chem. des Hauts de Nîmes; 30900 Nîmes; France
+   Coordonnées: 43.8303176, 4.3332166
+   ID: 160b3cab-d076-485d-ad14-01e9f1742f3c
+
+31. Hautvillers padel municipal
+   Adresse: Hautvillers; 51160
+   Coordonnées: 49.0830468, 3.9433382
+   ID: 77cedd3a-07c9-4435-a9e1-550a87246f2e
+
+32. Hédé-Bazouges tennis
+   Adresse: 35630 Hédé-Bazouges; France
+   Coordonnées: 48.2958022, -1.8022682
+   ID: c74c5717-86de-40ad-9c92-e2ee5684368c
+
+33. Jscoulaines
+   Adresse: RUE DU PONCEAU
+72190 Coulaines
+   Coordonnées: 48.0259846, 0.2139843
+   ID: 40936125-ce32-4847-9b4f-feae931c046b
+
+34. L’usine Complexe Sportif
+   Adresse: 98 Rue Sarrault; 18200 Saint-Amand-Montrond; France
+   Coordonnées: 46.736641, 2.493825
+   ID: 8d0983f2-b1ab-4d43-925a-24d9a095d574
+
+35. LA RAQUETTE PIONSATOISE
+   Adresse: Ancienne gare; 63330 Pionsat; France
+   Coordonnées: 46.0931293, 2.6595536
+   ID: e4956887-feb1-4723-b8df-64127f7d21cb
+
+36. Lahitte-Toupière
+   Adresse: 65700 Lahitte-Toupière; France
+   Coordonnées: 43.4557074, -0.0165403
+   ID: b481ac4e-8a8a-4d10-a94e-b4477ed9805b
+
+37. Le Sporting Club Nantes
+   Adresse: 3 Impasse du Bourrelier; 44800 Nantes; France
+   Coordonnées: 47.2219348, -1.6422037
+   ID: fd2658df-8441-4028-a18a-33b9877a1ff5
+
+38. Lonlay-l'Abbaye
+   Adresse: 61700 Lonlay-l'Abbaye; France
+   Coordonnées: 48.6458961, -0.7100244
+   ID: 58b4da88-c6ac-45b5-a15a-7a409bd5455b
+
+39. Loudeac padel automatique
+   Adresse: 4 Rue Honoré Michard; 22600 Loudéac; France
+   Coordonnées: 48.1806011, -2.7343856
+   ID: dd6bd2ab-4a9c-4887-9f30-fd7c2c594e2d
+
+40. Maison Helena
+   Adresse: 3 Rte de l'Ancienne Gare; 89560 Lain
+   Coordonnées: 47.606339, 3.336532
+   ID: c19533ed-d258-4eee-9fef-74c019babb1b
+
+41. mont municipal
+   Adresse: 64300 mont
+   Coordonnées: 43.4339567, -0.6543572
+   ID: e76e81f4-a0fb-496a-842b-a2b84cdca8ba
+
+42. MONTAGNE-ST EMILION
+   Adresse: parc Guadet
+33330 ST EMILION
+   Coordonnées: 44.8820581, -0.1402846
+   ID: 3134675a-9092-4956-b49d-c6709bdb1f64
+
+43. Monte Carlo Beach Club
+   Adresse: Av. Princesse Grâce; 06190 Roquebrune-Cap-Martin; France
+   Coordonnées: 43.7511531, 7.4414065
+   ID: 93e37a75-76bc-4af4-bf8f-ebfa98c5419a
+
+44. MONTELO PADEL
+   Adresse: Quartier Blaches; 26740 Savasse; France
+   Coordonnées: 44.6045, 4.78037
+   ID: 65a8c3a6-8016-4509-a546-7180c88dc6f5
+
+45. Nans les pins
+   Adresse: 100 Allée Paulette et Jacques Tomei Route de; Chem. de Pierrefeu; 83860 Nans-les-Pins; France
+   Coordonnées: 43.3813257, 5.7849902
+   ID: 3e25ab4f-1d5b-40c4-9eae-3de379e02cc0
+
+46. Nokort Padel
+   Adresse: 5 Rue Alphonse Daudet; 47300 Villeneuve-sur-Lot; France
+   Coordonnées: 44.3980072, 0.7078351
+   ID: 60682172-fe9e-444c-a047-9d0f234db5e4
+
+47. Nouste Padel
+   Adresse: Chem. de la Montjoie; 64510 Assat; France
+   Coordonnées: 43.2495978, -0.2990176
+   ID: e0db7195-e2f5-4a6a-adba-06a9f95e85e6
+
+48. Padel 16 - Municipal - sportfield
+   Adresse: 3 Av. du Président Kennedy; 75016
+   Coordonnées: 48.700843, 2.516431
+   ID: 31c82594-75cf-4157-b660-081c8f8b8e1c
+
+49. Padel Cambrai
+   Adresse: 50 Rue de Péronne; 59400 Cambrai; France
+   Coordonnées: 50.1669921, 3.2335688
+   ID: 7cc23614-c940-4511-b9e7-4efdcc47692b
+
+50. Padel castanet
+   Adresse: 18 Rue des Transports; 31320 Castanet-Tolosan
+   Coordonnées: 43.5163465, 1.5217747
+   ID: c3d99d85-cd13-4478-a98a-71fec4afa760
+
+51. Padel District
+   Adresse: Padel District
+Av. de la Boutillerie; 59320 Sequedin; France
+   Coordonnées: 50.6186163, 2.940276
+   ID: 223c363b-11fc-4506-a73f-247b46b06774
+
+52. Padel Eaunes
+   Adresse: Chem. des Bertoulots; 31600 Eaunes; France
+   Coordonnées: 43.4247066, 1.3569079
+   ID: 63f307e3-4730-48dc-8c13-94b096658049
+
+53. Padel evolution Digne les Bains
+   Adresse: 1 Rte du Chaffaut; 04000 Digne-les-Bains; France
+   Coordonnées: 44.0708556, 6.2012166
+   ID: 7ac66932-50af-4888-ab15-b5e8cf314e7e
+
+54. Padel municipal Ax les thermes
+   Adresse: Parc d'Espagne; 09110 Ax-les-Thermes; France
+   Coordonnées: 42.7147051, 1.8414953
+   ID: 48787227-06e5-4728-b6cb-3849b9548e0e
+
+55. Padel municipal chatelus le marcheix
+   Adresse: Unnamed Road 23430; Châtelus-le-Marcheix
+   Coordonnées: 45.9986977, 1.6073427
+   ID: 3279a84f-bde1-4ec9-9c5d-6dc8ebd46864
+
+56. Padel municipal Chavagnes en Pailers
+   Adresse: Pumptrack; Plaine des Sports; 85250 Chavagnes-en-Paillers; France
+   Coordonnées: 46.8627092, -1.2086084
+   ID: e32179dd-1eec-4fd1-92d4-046d9b1b11ea
+
+57. Padel municipal le croisic
+   Adresse: Stade Constant Germon - Stade; 21 Avenue des Moulins; le croisic 44490
+   Coordonnées: 47.2933971, -2.5094404
+   ID: 9b3cc075-d6e0-4be3-a9bd-392ff8b3b395
+
+58. Padel municipal Longeville sur mer
+   Adresse: Chem. du Clouzy; 85560 Longeville-sur-Mer
+   Coordonnées: 46.4281572, -1.4678222
+   ID: 318cb8f7-34b8-4b92-b3d5-135b13414bea
+
+59. Padel municipal; Parc St Bertrand
+   Adresse: 182 Rte de Laval; 11500 Quillan; France
+   Coordonnées: 42.866333, 2.2240662
+   ID: b40c6491-d734-40c1-905b-f83e2bc9feb2
+
+60. Padel plus
+   Adresse: 39 Chemin du Moulin de Naudin; 31700 Blagnac; France
+   Coordonnées: 43.6553276, 1.3932703
+   ID: 696a30cc-688e-406d-a7e0-26c621e7a4e1
+
+61. Padel Sévignacq (Padel du Gabas)
+   Adresse: Chem. des Barthes; 64160 Sévignacq; France
+   Coordonnées: 43.4414794, -0.2627696
+   ID: 351d8345-b8d3-46f2-9158-14ed6ac32dec
+
+62. Padel Up
+   Adresse: 26 Rue de l'Aubetin; 77120 Coulommiers; France
+   Coordonnées: 48.8036095, 3.0938981
+   ID: e44fa261-32a9-41e4-8cb1-62315eea499d
+
+63. Padl de ginasservis
+   Adresse: 2 Chem. de la Table Ronde; 83560 Ginasservis; France
+   Coordonnées: 43.6709232, 5.8484679
+   ID: c12907fc-e289-48e5-8760-a1f03f7a8a2d
+
+64. Parc de la Tourre
+   Adresse: 06510 Carros; France
+   Coordonnées: 43.8044966, 7.1261357
+   ID: ef9d43ce-eb20-4e59-aa8f-852a42956650
+
+65. Parc Eugène Freyssinet
+   Adresse: 18 Route de Lyon; 71100 Chalon-sur-Saône
+   Coordonnées: 46.7704105, 4.8434639
+   ID: 567021c9-6c3d-4a01-839f-bdc1db5d2b4f
+
+66. parc guadet saint emilion
+   Adresse: parc guadet saint emilion
+   Coordonnées: 44.8962961, -0.156196
+   ID: 2a410c25-b99b-4712-80c1-d13251d4a0b3
+
+67. Parc mont olympe
+   Adresse: 133 Rue des Pâquis; 08000 Charleville-Mézières
+   Coordonnées: 49.7762498, 4.7259027
+   ID: d5cd3efd-ccc4-4cb2-a1d9-94e83ef1bc0b
+
+68. Paulhenc municipal
+   Adresse: 15230 Paulhenc; France
+   Coordonnées: 44.8895151, 2.8174107
+   ID: 6ac476e0-78c3-4019-ae5d-44cf782d2282
+
+69. Plaine des sports d’Arlod Muncipal
+   Adresse: 23 Rue de l'Industrie; 01200 Valserhône; France
+   Coordonnées: 46.0972954, 5.8193886
+   ID: ada2e31b-9307-42a6-855f-e102e0cae77e
+
+70. Royal padel
+   Adresse: Royal padel; 13370 Mallemort; France
+   Coordonnées: 43.7090693, 5.2160478
+   ID: c5e2fd51-53ec-4ebf-a0ba-34b58ab16135
+
+71. Safran ASTT TENNIS PADEL
+   Adresse: Rue de la Grande Baye; 40220 Tarnos; France
+   Coordonnées: 43.5387437, -1.4888515
+   ID: 20c620b6-e429-45a3-97c9-ac5c605a0177
+
+72. Saint Florentin ES
+   Adresse: 58 Rue des Bruyères; 89600 Saint-Florentin
+   Coordonnées: 47.9872066, 3.6913592
+   ID: 7b093fc2-d0af-4b07-a00b-eb6b2fdd6b6d
+
+73. SAINT MARTIN D'ARDECHE T.C.
+   Adresse: 11 rue de l'église; 07700 Bidon; France
+   Coordonnées: 44.3661239, 4.5331544
+   ID: 50acf339-9215-4e0e-bb36-fc1b1b8f42a4
+
+74. Saint Pardoux soutiers
+   Adresse: 79310 Saint-Pardoux-Soutiers; France
+   Coordonnées: 46.5738172, -0.3113289
+   ID: 46dffbaf-f9ad-436d-b6a1-d82873c5d5b3
+
+75. Saint-Denis-de-Jouhet
+   Adresse: 36230 Saint-Denis-de-Jouhet; France
+   Coordonnées: 46.5301854, 1.871109
+   ID: 2730fcf9-6da8-4788-8443-570f9f1b6e03
+
+76. Salle de l'Envolée tennis club chatebourg
+   Adresse: 35220 Châteaubourg
+   Coordonnées: 48.1108554, -1.3982411
+   ID: 9b05e9c7-134c-468e-9459-506c03e3b8c4
+
+77. Salle Socio-sportive la Fouillouse
+   Adresse: 37 Rue de Saint-Just; 42480 La Fouillouse; France
+   Coordonnées: 45.5041081, 4.3093983
+   ID: 88d51e3f-c37d-4870-8bd3-fc7426e10456
+
+78. Sames ( Trinquet Charnegou Ou Xarnegu)
+   Adresse: Sames; France;64520
+   Coordonnées: 43.5233027, -1.157339
+   ID: a15d310b-6001-432a-a059-d2e4333cdd04
+
+79. Sartilly US
+   Adresse: Rue du Manoir; 50530 Sartilly-Baie-Bocage; France
+   Coordonnées: 48.752414, -1.4530009
+   ID: a5b704b0-748a-4b35-a41f-5a05665bae41
+
+80. SAUBENS TENNIS CLUB
+   Adresse: Rte de Muret; 31600 Saubens; France
+   Coordonnées: 43.4777554, 1.3499933
+   ID: 93798410-c6f3-4bf7-b8f5-9e456317f5fb
+
+81. Sengouagnet
+   Adresse: 31160 Sengouagnet; France
+   Coordonnées: 42.9862225, 0.7891059
+   ID: 5609c244-dbb5-45c2-ad02-a2caf3ae9839
+
+82. SENONES TC
+   Adresse: Chem. de la Promenade; 88210 Vieux-Moulin
+   Coordonnées: 48.3960701, 6.9997042
+   ID: 86eece88-5c44-49bb-8738-b957a07b8400
+
+83. Solesmes padel club
+   Adresse: Solesmes 59730
+   Coordonnées: 50.1857534, 3.4975923
+   ID: 833be89d-eeaa-4f38-a3f0-2528ec93111b
+
+84. Spin Padel 88
+   Adresse: 4 Rue des Bolottes; 88600 Aydoilles; France
+   Coordonnées: 48.2109486, 6.5830167
+   ID: 9f5cb55c-ed09-416f-b006-4df034cca212
+
+85. Stade Sainte Lucie Porto-Vecchio (2024)
+   Adresse: Stade Sainte Lucie Porto-Vecchio (2024)
+   Coordonnées: 41.6973945, 9.3501936
+   ID: 212a6b67-c956-489d-b740-6f8678c4a9b8
+
+86. Stadium Riom 2024
+   Adresse: 4 Av. Georges Gershwin; 63200 Riom; France
+   Coordonnées: 45.8971371, 3.1370537
+   ID: 3939d7c2-11f4-4fe3-ae8b-170f97641ea6
+
+87. T.C. MAGNANVILLE
+   Adresse: 78200 Magnanville; France
+   Coordonnées: 48.9689565, 1.6862419
+   ID: 570061ef-6460-42d0-ba96-5b7ca8880786
+
+88. TC CANCON
+   Adresse: 10 avenue du Parc de; 47290 Cancon; France
+   Coordonnées: 44.5458749, 0.6254524
+   ID: 0a8abbcd-da9c-421e-ada3-7777404f0efd
+
+89. TC GEO ANDRE
+   Adresse: Av. François Mauriac; 51100 Reims; France
+   Coordonnées: 49.2407111, 3.9971693
+   ID: 92b4ddfb-b69d-4163-99fb-976a81bb7625
+
+90. TC GERMINY
+   Adresse: Rue Degas; 77910 Germigny-l'Évêque; France
+   Coordonnées: 48.9975599, 2.9544652
+   ID: 4a441059-eae9-46bd-8b56-ff484eab35de
+
+91. tc morainvilliers
+   Adresse: Unnamed Road; 78630; 78630 Morainvilliers
+   Coordonnées: 48.9274749, 1.9416886
+   ID: e519fafe-db9b-40c3-85b8-0788b6c7c07e
+
+92. tc val de l'isle (ancien us coutras tennis
+   Adresse: 28 Rue Victor Hugo; 33230 Coutras; France
+   Coordonnées: 45.0418315, -0.1297038
+   ID: 843260c4-027c-4044-affb-64fcacb961a7
+
+93. Tcholé padel club
+   Adresse: ZA de la Lande; 50290 Coudeville-sur-Mer; France
+   Coordonnées: 48.8819917, -1.5278364
+   ID: fc4a996d-bcf9-488b-9b81-6beda16a05a4
+
+94. Tennis Bourgs sur Colagne
+   Adresse: Chirac; 48100 Bourgs-sur-Colagne; France
+   Coordonnées: 44.5243, 3.2663
+   ID: b1dccf71-3d3f-4013-8adc-b154824129b1
+
+95. tennis cazes mondenard
+   Adresse: Terrain de tennis
+Las pradelles 82110 Cazes-Mondenard
+   Coordonnées: 44.2277778, 1.2030556
+   ID: 7ec5feb1-2a3b-4b00-b7b7-615ab77a9b8d
+
+96. Tennis château gontier
+   Adresse: Chem. de Prés l'Eau; 53200 Château-Gontier-sur-Mayenne; France
+   Coordonnées: 47.8192412, -0.7076712
+   ID: c5551892-714a-413b-964c-a8a038e1db97
+
+97. Tennis club castelsarrasin
+   Adresse: Parc de Clairefont; 82100 Castelsarrasin
+   Coordonnées: 44.0514311, 1.0986597
+   ID: 75d8d284-b847-4d3c-bd2b-9c66669a4e97
+
+98. Tennis Club Condéen
+   Adresse: Promenade Castle Cary; 61110; 61110 Sablons-sur-Huisne; France
+   Coordonnées: 48.3798793, 0.8430187
+   ID: 7b1610c5-f1bb-4ef9-8da2-09737da13fa3
+
+99. Tennis Club D'ozoir la Ferriere
+   Adresse: Allée Brèche aux Loups; 77330 Ozoir-la-Ferrière; France
+   Coordonnées: 48.7643519, 2.6760456
+   ID: 56815b31-a7bd-42d4-8347-e2c66f753cf7
+
+100. Tennis Club de Bischwiller
+   Adresse: Rue du Stade; 67240 Bischwiller
+   Coordonnées: 48.7780474, 7.8457194
+   ID: 48d8679f-76e3-4eca-bda3-86929120a66f
+
+101. Tennis club de Casteljoux (padel de l'avance)
+   Adresse: 20 Rue Baptiste Marcet; 47700 Casteljaloux; France
+   Coordonnées: 44.3091371, 0.0812009
+   ID: bbe41143-b560-4c2e-9118-dafb3e88ffae
+
+102. Tennis club de Jullouville
+   Adresse: Tennis Club de Jullouville; 50610 Jullouville; France
+   Coordonnées: 48.7713045, -1.5658162
+   ID: df5b5418-45f3-4caf-b53d-ddd9b436b669
+
+103. Tennis club de Mandres les Roses
+   Adresse: place des tours grises; 94520 Mandres-les-Roses; France
+   Coordonnées: 48.7026887, 2.5435031
+   ID: 8ba7a90f-f928-4af6-9b46-aa50db3f6b45
+
+104. Tennis club de sedan
+   Adresse: 1 Rue Jean Rogissart; 08200 Sedan
+   Coordonnées: 49.6930461, 4.9477725
+   ID: 85ab0739-e5d7-4bef-a9ba-a0ee8b723ea1
+
+105. tennis club de sissonne
+   Adresse: 19 Rue du 8 Mai 1945; 02150 Sissonne; France
+   Coordonnées: 49.568624, 3.902571
+   ID: 583a8f08-36c5-454f-bade-bdc45dfe3147
+
+106. TENNIS CLUB DE ST AFFRIQUE
+   Adresse: 40 Bd de la Capelle; 12400 Saint-Affrique
+   Coordonnées: 43.9542972, 2.8908653
+   ID: f184f188-a351-409f-a8bb-392d28498682
+
+107. Tennis Club Dominicain
+   Adresse: 1 Av. Raymond Barre; L'Étang-Salé 97427; La Réunion
+   Coordonnées: 44.2972241, 0.1144666
+   ID: 1deb2d2d-05bc-4410-9b35-0f6f5a1cb0e2
+
+108. Tennis club gannat
+   Adresse: 47 Rue Jules Bertin; 03800 Gannat; France
+   Coordonnées: 46.0825297, 3.1974507
+   ID: 904b2b2f-c82e-460f-aab1-37451574ac56
+
+109. Tennis Club Joyeuse Laurac
+   Adresse: Chem. du Berguier; 07110 Laurac-en-Vivarais; France
+   Coordonnées: 44.5091242, 4.2908403
+   ID: 5fbc9a73-fc43-471f-83ee-815d4a4248bc
+
+110. Tennis club le briolet
+   Adresse: Avenue du Stade; 11570 Cazilhac
+   Coordonnées: 43.1796333, 2.3694855
+   ID: 4c078471-5a57-43b3-a6f0-18aa100556d7
+
+111. tennis club montfort l'amaury
+   Adresse: 3 Place Nickenich
+78490 Montfort l’Amaury
+   Coordonnées: 48.7747644, 1.8152158
+   ID: 7beb2812-8358-4722-be7f-18d923042e0b
+
+112. TENNIS CLUB PONTCHARRA
+   Adresse: 38530 Pontcharra; France
+   Coordonnées: 45.4317696, 6.0206008
+   ID: 6c907ef4-9d48-4ea9-9a24-71454c3a3e5f
+
+113. Tennis Club Pouzauges
+   Adresse: 5 Rue Charles Largeteau; 85700 Pouzauges; France
+   Coordonnées: 46.777081, -0.843061
+   ID: 0d221746-90e1-4eed-a051-f20012bafeab
+
+114. Tennis club saint bonnet les oules
+   Adresse: Stade; Lapra; 42330 Saint-Bonnet-les-Oules; France
+   Coordonnées: 45.5439729, 4.3277946
+   ID: 1dac6ef6-0b50-4960-a5b1-7c7df3110ee7
+
+115. Tennis Club Saint-Georges Charmes
+   Adresse: Tennis Club Saint-Georges Charmes; Quartier Gare; 07800 Charmes-sur-Rhône; France
+   Coordonnées: 44.8621, 4.83424
+   ID: 9cad004e-b15c-422e-a218-0a4fa420ebd4
+
+116. Tennis club satolas
+   Adresse: 225 Mnt des Lurons 217; 38290 Satolas-et-Bonce
+   Coordonnées: 45.681868, 5.1203082
+   ID: 551b63f4-867c-4fee-93d8-78480c1c5ddb
+
+117. Tennis cluses scionzier
+   Adresse: 55 rue Paul Zen; Cluses 74300
+   Coordonnées: 46.0634172, 6.5628779
+   ID: 11af29ed-a44b-4270-a1d6-3fe536f918ca
+
+118. Tennis espira
+   Adresse: Avenue du Clos d'en Cante; 66600 Espira-de-l'Agly
+   Coordonnées: 42.7710364, 2.842545
+   ID: a032fefd-9b76-436b-a05f-258f2b18bebd
+
+119. TENNIS ET CYCLISME MEREVILLOIS
+   Adresse: COMPLEXE MUNICIPAL MICHEL VERNIER; 54850
+   Coordonnées: 48.5968296, 6.1325264
+   ID: d303ac4b-0de5-490a-b7f1-21a7d4ea0437
+
+120. tennis geispolsheim
+   Adresse: rue de l'ehn 67118; 67118 Geispolsheim
+   Coordonnées: 48.5180942, 7.6852137
+   ID: 534abc74-29c5-4df3-b2d4-5c5faaf60242
+
+121. Tennis grand Besancon
+   Adresse: Route de Belfort; 25220 Thise; France
+   Coordonnées: 47.2836567, 6.0790996
+   ID: a546e093-d503-4bf1-9ad6-fc18d8648444
+
+122. TENNIS PADEL LABOUHEYRE
+   Adresse: Rue de la Grande Lande; 40210 Labouheyre; France
+   Coordonnées: 44.1905865, -0.917194
+   ID: a9b8bb6e-2cf4-4289-8007-eebb243147d4
+
+123. Tennis Padel nezignan
+   Adresse: 1 Rue du 4 septembre; 34120; Nézignan-l'Évêque
+   Coordonnées: 43.4205793, 3.4074475
+   ID: ea0712cd-b30e-4099-9939-2684927c8558
+
+124. TENNIS PLUS BRISON ST INNOCENT
+   Adresse: STADES DES BAUCHES; 73100 Brison-Saint-Innocent; France
+   Coordonnées: 45.7213, 5.89004
+   ID: 917a3f40-e015-4b19-a689-367825a5d39d
+
+125. tennis Saint-Rémy-sur-Avre
+   Adresse: Saint-Rémy-sur-Avre
+   Coordonnées: 48.7628087, 1.2405119
+   ID: d2a8328b-fc9e-4503-985a-c0e5fa279f2f
+
+126. Terrain Le Padel Français Boën-sur-Lignon
+   Adresse: Chem. de Giraud; 42130 Boën-sur-Lignon; France
+   Coordonnées: 45.747352, 4.0422069
+   ID: f9351e18-0641-4380-80d4-15d7bdd53037
+
+127. Terrain municipal argèles sur mer
+   Adresse: Argeles sur Mer
+   Coordonnées: 42.5476734, 3.0253613
+   ID: 0f4a0a03-f854-4297-8964-1a94e2028c0f
+
+128. TOAC Padel
+   Adresse: 20 Chem. de Garric; 31200 Toulouse; France
+   Coordonnées: 43.6391219, 1.4486548
+   ID: ecc6f44b-5c73-4413-82e9-a83d6aee800f
+
+129. Trinquet Village by POZA
+   Adresse: 8 Quai Saint-Exupéry; 75016 Paris
+   Coordonnées: 48.8379027, 2.2651129
+   ID: bf994ce0-733f-4bf8-a256-0aa6b693d3dc
+
+130. U.S.Y LA QUEUE LEZ YVELINES
+   Adresse: 115 D199; 78940 La Queue-lez-Yvelines; France
+   Coordonnées: 48.810356, 1.7665116
+   ID: 43b2c310-fd55-498d-9f41-1a20458b283c
+
+131. UCPA NANTES
+   Adresse: 9 Bd de Berlin; 44000 Nantes; France
+   Coordonnées: 47.2159925, -1.5325462
+   ID: 15e3a055-2bff-4fc9-9b77-a13c76c02660
+
+132. us talence
+   Adresse: Stade Pierre-Paul Bernard; 23 Avenue de la Marne; 33400 Talence
+   Coordonnées: 44.8059703, -0.5892211
+   ID: 48097063-5f1f-45da-9ba7-a5d09ab68bed
+
+133. USPG Tennis Club
+   Adresse: Tennis Court; Ruelle du Stade; Le Port 97420; La Réunion
+   Coordonnées: 44.2972241, 0.1144666
+   ID: f9541b99-0c9e-4775-8a01-aa4a9f6251e8
+
+134. Vercors Padel
+   Adresse: 180 Chem. des Côtes de Trellins; 38470 Vinay; France
+   Coordonnées: 45.2069846, 5.4358048
+   ID: 0dbfbc97-69a9-4aef-b017-9d54517027c6
+
+135. Vic en Bigorre
+   Adresse: Vic en bigorre
+   Coordonnées: 43.3860159, 0.0548805
+   ID: d58b97a8-e191-46f7-99dc-02a78d4ecd35
+
+136. Vindry Padel Club
+   Adresse: Vindry Padel Club; 1583 Chem. de Grange Louis; 69490 Vindry-sur-Turdine; France
+   Coordonnées: 45.8655907, 4.4890137
+   ID: 4d5f8eef-df51-47cc-a22b-e81809c715d1
+

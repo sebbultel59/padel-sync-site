@@ -16,22 +16,6 @@
         "destination": "/invite.html"
       }
     ],
-    "routes": [
-      {
-        "src": "/invite(.*)",
-        "dest": "/invite.html",
-        "status": 200
-      },
-      {
-        "src": "/invite.html",
-        "dest": "/invite.html",
-        "status": 200
-      },
-      {
-        "src": "/(.*\\.html)",
-        "dest": "/$1"
-      }
-    ],
     "headers": [
       {
         "source": "/apple-app-site-association",

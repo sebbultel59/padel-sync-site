@@ -3,13 +3,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
   FlatList,
   Image,
+  InteractionManager,
   Linking,
   Modal,
   Platform,
@@ -172,6 +174,10 @@ export default function MatchesScreen() {
   const [rsvpsByMatch, setRsvpsByMatch] = useState({});
   const [profilesById, setProfilesById] = useState({});
   const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
+  const [dataVersion, setDataVersion] = useState(0); // Version pour forcer le re-render des listes
+  // États pour les données affichées (mis à jour explicitement)
+  const [displayLongSections, setDisplayLongSections] = useState([]);
+  const [displayHourReady, setDisplayHourReady] = useState([]);
   // Bandeau réseau
   const [networkNotice, setNetworkNotice] = useState(null);
   const retryRef = React.useRef(0);
@@ -462,7 +468,7 @@ const longReadyWeek = React.useMemo(
       console.log('[longReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', longReady?.length || 0);
       return finalFiltered;
     },
-    [longReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm]
+    [longReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
   );
   
 const hourReadyWeek = React.useMemo(
@@ -628,9 +634,10 @@ const hourReadyWeek = React.useMemo(
         console.log('[hourReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
       });
       console.log('[hourReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', hourReady?.length || 0);
-      return finalFiltered;
+      // Forcer une nouvelle référence pour garantir que React détecte le changement
+      return finalFiltered.map(item => ({ ...item }));
     },
-  [hourReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm]
+  [hourReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
 );
   
 // Fonction helper pour vérifier si un match n'est pas périmé
@@ -767,8 +774,12 @@ const longSectionsWeek = React.useMemo(() => {
     return new Date(a0) - new Date(b0);
   });
   console.log('[longSectionsWeek] Sections créées:', sections.length);
-  return sections;
-}, [longReadyWeek]);
+  // Forcer une nouvelle référence pour garantir que React détecte le changement
+  return sections.map(section => ({
+    ...section,
+    data: [...section.data].map(item => ({ ...item }))
+  }));
+}, [longReadyWeek, dataVersion]);
 
 // Helper functions
 
@@ -1078,14 +1089,16 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
   // Compteurs pour les onglets (filtrer par semaine aussi)
   const proposedTabCount = React.useMemo(() => 
-    (hourReadyWeek || []).filter(it => {
+    (displayHourReady || []).filter(it => {
       const endTime = new Date(it.ends_at);
       return endTime > new Date();
-    }).length + (longReadyWeek || []).filter(it => {
+    }).length + (displayLongSections || []).reduce((sum, section) => {
+      return sum + (section.data || []).filter(it => {
       const endTime = new Date(it.ends_at);
       return endTime > new Date();
-    }).length
-  , [hourReadyWeek, longReadyWeek]);
+      }).length;
+    }, 0)
+  , [displayHourReady, displayLongSections]);
   
   const rsvpTabCount = React.useMemo(() => {
     if (!meId) return 0;
@@ -1207,9 +1220,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         if (availabilityError) {
           console.warn('[Matches] RPC indisponible, fallback table availability:', availabilityError?.message || availabilityError);
           const { data: avFallback, error: avFallbackErr } = await supabase
-            .from('availability')
+          .from('availability')
             .select('user_id, start, end, status')
-            .eq('group_id', groupId)
+          .eq('group_id', groupId)
             .eq('status', 'available')
             .gte('start', wsBound?.toISOString?.() || wsBound)
             .lt('start', weBound?.toISOString?.() || weBound);
@@ -1566,21 +1579,21 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               }
             } else if (st === 'confirmed') {
               // Pour les matches confirmed, garder la logique actuelle (même jour + chevauchement)
-              const ms = m?.time_slots?.starts_at || null;
-              const me = m?.time_slots?.ends_at || null;
-              if (!ms || !me) return;
-              const now = new Date();
-              if (new Date(me) <= now) return; // ignorer les matches passés
-              
-              // Vérifier d'abord si c'est le même jour
-              if (!isSameDay(startsAt, ms)) {
-                return; // Skip si pas le même jour
-              }
-              
-              // Puis vérifier si les horaires se chevauchent (même jour)
-              if (!overlaps(startsAt, endsAt, ms, me)) return;
-              
-              reservedUsersForMatch(m.id).forEach(uid => booked.add(uid));
+            const ms = m?.time_slots?.starts_at || null;
+            const me = m?.time_slots?.ends_at || null;
+            if (!ms || !me) return;
+            const now = new Date();
+            if (new Date(me) <= now) return; // ignorer les matches passés
+            
+            // Vérifier d'abord si c'est le même jour
+            if (!isSameDay(startsAt, ms)) {
+              return; // Skip si pas le même jour
+            }
+            
+            // Puis vérifier si les horaires se chevauchent (même jour)
+            if (!overlaps(startsAt, endsAt, ms, me)) return;
+            
+            reservedUsersForMatch(m.id).forEach(uid => booked.add(uid));
               console.log('[Matches] Joueur "maybe/accepted" trouvé sur match confirmed qui chevauche (même jour):', ms);
             }
           });
@@ -1611,6 +1624,57 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         setReady(adjusted);
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
+        setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
+        
+        // Sur mobile, recalculer et mettre à jour immédiatement les états display
+        if (Platform.OS !== 'web') {
+          // Recalculer les valeurs filtrées (même logique que dans les useMemo)
+          const now = new Date();
+          const longFiltered = longReadyFiltered.filter(it => {
+            if (!it.starts_at || !it.ends_at) return false;
+            const endTime = new Date(it.ends_at);
+            return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+          }).sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
+          
+          const hourFiltered = hourReadyFiltered.filter(it => {
+            if (!it.starts_at || !it.ends_at) return false;
+            const endTime = new Date(it.ends_at);
+            return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+          }).sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
+          
+          // Créer les sections pour longReady
+          const byDay = new Map();
+          for (const it of longFiltered) {
+            const d = new Date(it.starts_at);
+            const dayKey = d.toLocaleDateString('fr-FR', { weekday: "long", year: "numeric", month: "2-digit", day: "2-digit" });
+            const row = { 
+              key: it.time_slot_id + "-long", 
+              ...it,
+            };
+            const arr = byDay.get(dayKey) || [];
+            arr.push(row);
+            byDay.set(dayKey, arr);
+          }
+          const sections = Array.from(byDay.entries()).map(([title, data]) => ({ 
+            title, 
+            data: data.sort((a,b)=> new Date(a.starts_at)-new Date(b.starts_at)) 
+          }));
+          sections.sort((A, B) => {
+            const a0 = A.data[0]?.starts_at || A.title;
+            const b0 = B.data[0]?.starts_at || B.title;
+            return new Date(a0) - new Date(b0);
+          });
+          
+          // Mettre à jour immédiatement les états display
+          InteractionManager.runAfterInteractions(() => {
+            console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile, sections:', sections.length, 'hour:', hourFiltered.length);
+            setDisplayLongSections(sections.map(section => ({
+              ...section,
+              data: section.data.map(item => ({ ...item }))
+            })));
+            setDisplayHourReady(hourFiltered.map(item => ({ ...item })));
+          });
+        }
       } catch (e) {
         console.warn('[Matches] Post-process propositions failed, falling back to raw ready list:', e?.message || e);
         const longReadyFiltered = (tempReady || []).filter(s => durationMinutes(s.starts_at, s.ends_at) > 60);
@@ -1618,6 +1682,54 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         setReady(tempReady || []);
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
+        setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
+        
+        // Sur mobile, recalculer et mettre à jour immédiatement les états display
+        if (Platform.OS !== 'web') {
+          const now = new Date();
+          const longFiltered = longReadyFiltered.filter(it => {
+            if (!it.starts_at || !it.ends_at) return false;
+            const endTime = new Date(it.ends_at);
+            return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+          }).sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
+          
+          const hourFiltered = hourReadyFiltered.filter(it => {
+            if (!it.starts_at || !it.ends_at) return false;
+            const endTime = new Date(it.ends_at);
+            return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+          }).sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime());
+          
+          const byDay = new Map();
+          for (const it of longFiltered) {
+            const d = new Date(it.starts_at);
+            const dayKey = d.toLocaleDateString('fr-FR', { weekday: "long", year: "numeric", month: "2-digit", day: "2-digit" });
+            const row = { 
+              key: it.time_slot_id + "-long", 
+              ...it,
+            };
+            const arr = byDay.get(dayKey) || [];
+            arr.push(row);
+            byDay.set(dayKey, arr);
+          }
+          const sections = Array.from(byDay.entries()).map(([title, data]) => ({ 
+            title, 
+            data: data.sort((a,b)=> new Date(a.starts_at)-new Date(b.starts_at)) 
+          }));
+          sections.sort((A, B) => {
+            const a0 = A.data[0]?.starts_at || A.title;
+            const b0 = B.data[0]?.starts_at || B.title;
+            return new Date(a0) - new Date(b0);
+          });
+          
+          InteractionManager.runAfterInteractions(() => {
+            console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile (fallback), sections:', sections.length, 'hour:', hourFiltered.length);
+            setDisplayLongSections(sections.map(section => ({
+              ...section,
+              data: section.data.map(item => ({ ...item }))
+            })));
+            setDisplayHourReady(hourFiltered.map(item => ({ ...item })));
+          });
+        }
       }
       
       console.log('[Matches] fetchData completed');
@@ -1647,6 +1759,30 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setLoading(false);
     }
   }, [groupId, weekOffset]); // ✅ relance aussi quand la semaine visible change
+
+  // Mettre à jour explicitement les données affichées quand les données calculées changent
+  // Utiliser useLayoutEffect pour une mise à jour synchrone avant le rendu
+  useLayoutEffect(() => {
+    console.log('[Matches] useLayoutEffect: Mise à jour des données affichées, dataVersion:', dataVersion, 'longSectionsWeek:', longSectionsWeek.length, 'hourReadyWeek:', hourReadyWeek.length);
+    // Créer de nouvelles copies profondes pour forcer React à détecter le changement
+    const newLongSections = longSectionsWeek.map(section => ({
+      ...section,
+      data: section.data.map(item => ({ ...item }))
+    }));
+    const newHourReady = hourReadyWeek.map(item => ({ ...item }));
+    console.log('[Matches] useLayoutEffect: Mise à jour effective des états display, newLongSections:', newLongSections.length, 'newHourReady:', newHourReady.length);
+    
+    // Sur mobile, utiliser setTimeout pour différer légèrement et laisser React Native terminer les mises à jour
+    if (Platform.OS !== 'web') {
+      setTimeout(() => {
+        setDisplayLongSections(newLongSections);
+        setDisplayHourReady(newHourReady);
+      }, 0); // Utiliser setTimeout(0) pour différer après le rendu actuel
+    } else {
+      setDisplayLongSections(newLongSections);
+      setDisplayHourReady(newHourReady);
+    }
+  }, [longSectionsWeek, hourReadyWeek, dataVersion]);
 
   useEffect(() => {
     (async () => {
@@ -1856,6 +1992,26 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     };
   }, [groupId, fetchData]);
 
+  // Listener pour les changements de disponibilité depuis la page semaine
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener('AVAILABILITY_CHANGED', (data) => {
+      console.log('[Matches] AVAILABILITY_CHANGED event received:', data);
+      if (data?.groupId && String(data.groupId) === String(groupId)) {
+        console.log('[Matches] ✅ Availability changed for current group, reloading fetchData...');
+        // Délai court pour laisser le temps à la base de données de se mettre à jour
+        setTimeout(() => {
+          fetchData();
+        }, 100);
+      } else {
+        console.log('[Matches] ⏭️ Availability changed for different group, skipping');
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [groupId, fetchData]);
+
   // --- Flash Match helpers ---
   async function loadGroupMembersForFlash() {
     if (!groupId) return [];
@@ -1941,7 +2097,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   async function openFlashMatchPlayersModal() {
     try {
       setFlashLoading(true);
-      
+
       // Assure-toi d'avoir mon UID même si meId n'est pas encore peuplé
       let uid = meId;
       if (!uid) {
@@ -1952,10 +2108,10 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       }
 
       // Calculer les dates de début et fin
-      const startsIso = flashStart instanceof Date ? flashStart.toISOString() : new Date().toISOString();
-      const endDate = new Date(flashStart);
-      endDate.setMinutes(endDate.getMinutes() + (flashDurationMin || 90));
-      const endsIso = endDate.toISOString();
+        const startsIso = flashStart instanceof Date ? flashStart.toISOString() : new Date().toISOString();
+        const endDate = new Date(flashStart);
+        endDate.setMinutes(endDate.getMinutes() + (flashDurationMin || 90));
+        const endsIso = endDate.toISOString();
 
       // 1. Récupérer les IDs des joueurs disponibles sur le créneau (comme pour les matchs possibles)
       const availableIds = await computeAvailableUserIdsForInterval(groupId, startsIso, endsIso);
@@ -2031,6 +2187,397 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
     Alert.alert('Match Éclair', 'Match créé et invitations envoyées.');
   }
+
+  const onCreateIntervalMatch = useCallback(
+    async (starts_at_iso, ends_at_iso, selectedUserIds = []) => {
+      if (!groupId) return;
+      // Preflight: prevent overlapping creation with same players
+      try {
+        if (Array.isArray(selectedUserIds) && selectedUserIds.length) {
+          const conflicts = await findConflictingUsers({
+            groupId,
+            startsAt: starts_at_iso,
+            endsAt: ends_at_iso,
+            userIds: selectedUserIds,
+          });
+          if (conflicts.size > 0) {
+            // Auto-resolve: remove conflicting users from selection instead of blocking
+            const conflictIds = new Set(Array.from(conflicts).map(String));
+            const filteredUserIds = (selectedUserIds || [])
+              .map(String)
+              .filter((id) => !conflictIds.has(id));
+
+            if (filteredUserIds.length < 4) {
+              const txt = `Conflit: ${conflicts.size} joueur(s) déjà réservé(s) sur un créneau qui chevauche.\nIl ne reste pas 4 joueurs disponibles pour cet intervalle.`;
+              if (Platform.OS === 'web') window.alert(txt); else Alert.alert('Conflit', txt);
+              return;
+            }
+
+            // Use the filtered list for the rest of the creation flow
+            selectedUserIds = filteredUserIds;
+          }
+        }
+      } catch {}
+      try {
+        // 1) Primary path: RPC returns the created match id (uuid) directly
+        let newMatchId = null;
+        let rpcErr = null;
+        try {
+          const { data, error } = await supabase.rpc('create_match_from_interval_safe', {
+            p_group: groupId,
+            p_starts_at: starts_at_iso,
+            p_ends_at: ends_at_iso,
+          });
+          console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
+          if (error) rpcErr = error; else newMatchId = data;
+        } catch (e) {
+          rpcErr = e;
+        }
+
+        // 1.b) Fallback for unique-constraint on time_slots (same group + same start)
+        const isUniqueViolation = !!rpcErr && (
+          rpcErr?.code === '23505' ||
+          String(rpcErr?.message || rpcErr?.details || rpcErr?.hint || rpcErr).includes('duplicate key value') ||
+          String(rpcErr?.message || rpcErr).includes('uniq_time_slots')
+        );
+        if (isUniqueViolation) {
+          // Reuse the existing time_slot that starts at (or very close to) the same time for this group
+          const starts = new Date(starts_at_iso);
+          const FUZZ_MS = 5 * 60 * 1000; // ±5 minutes tolerance for existing start
+          const lo = new Date(starts.getTime() - FUZZ_MS).toISOString();
+          const hi = new Date(starts.getTime() + FUZZ_MS).toISOString();
+
+          // Try exact match first
+          let { data: slot, error: eSlot } = await supabase
+            .from('time_slots')
+            .select('id, starts_at, ends_at')
+            .eq('group_id', groupId)
+            .eq('starts_at', starts_at_iso)
+            .maybeSingle();
+
+          // If not found, try a fuzzy window ±5 minutes
+          if (!slot) {
+            const { data: slots2 } = await supabase
+              .from('time_slots')
+              .select('id, starts_at, ends_at')
+              .eq('group_id', groupId)
+              .gte('starts_at', lo)
+              .lte('starts_at', hi)
+              .limit(1);
+            slot = Array.isArray(slots2) && slots2.length ? slots2[0] : null;
+          }
+
+          if (slot?.id) {
+            // Vérifier si un match existe déjà pour ce slot
+            const { data: exist } = await supabase
+              .from('matches')
+              .select('id')
+              .eq('group_id', groupId)
+              .eq('time_slot_id', slot.id)
+              .limit(1);
+            
+            // Si un match existe déjà, créer un nouveau time_slot pour permettre la création d'un nouveau match distinct
+            if (Array.isArray(exist) && exist.length) {
+              console.log('[onCreateIntervalMatch] Match existant trouvé pour ce slot. Création d\'un nouveau time_slot pour un nouveau match distinct.');
+              
+              // Créer un nouveau time_slot pour ce nouveau match (même horaire mais slot distinct)
+              const { data: newSlot, error: eNewSlot } = await supabase
+                .from('time_slots')
+                .insert({
+                  group_id: groupId,
+                  starts_at: starts_at_iso,
+                  ends_at: ends_at_iso,
+                })
+                .select('id, starts_at, ends_at')
+                .single();
+              
+              if (eNewSlot) {
+                console.error('[onCreateIntervalMatch] Erreur création nouveau time_slot:', eNewSlot);
+                throw eNewSlot;
+              }
+              
+              // Créer le match avec le nouveau slot
+              const { data: ins, error: eIns } = await supabase
+                .from('matches')
+                .insert({ group_id: groupId, time_slot_id: newSlot.id, status: 'pending' })
+                .select('id, status')
+                .single();
+              
+              if (eIns) throw eIns;
+              newMatchId = ins?.id || null;
+              console.log('[onCreateIntervalMatch] Nouveau match créé avec nouveau time_slot:', newMatchId, 'status:', ins?.status);
+              
+              // Utiliser les horaires du nouveau slot
+              if (newSlot?.starts_at && newSlot?.ends_at) {
+                starts_at_iso = newSlot.starts_at;
+                ends_at_iso = newSlot.ends_at || ends_at_iso;
+              }
+            } else {
+              // Pas de match existant, réutiliser le slot existant
+              const { data: ins, error: eIns } = await supabase
+                .from('matches')
+                .insert({ group_id: groupId, time_slot_id: slot.id, status: 'pending' })
+                .select('id, status')
+                .single();
+              if (eIns) throw eIns;
+              newMatchId = ins?.id || null;
+              console.log('[onCreateIntervalMatch] Match créé:', newMatchId, 'status:', ins?.status);
+              // Ensure ends_at we propagate below is coherent with the slot row
+              if (slot?.starts_at && slot?.ends_at) {
+                starts_at_iso = slot.starts_at;
+                ends_at_iso = slot.ends_at || ends_at_iso;
+              }
+            }
+          } else {
+            // If we cannot resolve the existing slot, rethrow the original error
+            throw rpcErr;
+          }
+        } else if (rpcErr) {
+          // Different error → rethrow
+          throw rpcErr;
+        }
+
+        if (!newMatchId) {
+          // Nothing created (likely <4 players). Give a clean message and exit.
+          if (Platform.OS === 'web') {
+            window.alert('Action impossible\nAucun match créé pour cet intervalle.');
+          } else {
+            Alert.alert('Action impossible', 'Aucun match créé pour cet intervalle.');
+          }
+          return;
+        }
+        
+        // Vérifier et mettre à jour le statut si nécessaire pour qu'il soit 'pending'
+        try {
+          const { data: matchCheck } = await supabase
+            .from('matches')
+            .select('id, status')
+            .eq('id', newMatchId)
+            .maybeSingle();
+          console.log('[onCreateIntervalMatch] Match status after RPC:', matchCheck?.status);
+          
+          if (matchCheck && matchCheck.status !== 'pending') {
+            console.log('[onCreateIntervalMatch] Updating status from', matchCheck.status, 'to pending');
+            await supabase
+              .from('matches')
+              .update({ status: 'pending' })
+              .eq('id', newMatchId);
+          }
+        } catch (e) {
+          console.warn('[onCreateIntervalMatch] Error checking/updating match status:', e);
+        }
+
+        // 2) Nettoyer TOUS les RSVPs créés par la RPC et ne garder QUE le créateur + les joueurs sélectionnés
+        let uid = meId;
+        if (!uid) {
+          const { data: u } = await supabase.auth.getUser();
+          uid = u?.user?.id ?? null;
+        }
+        
+        if (newMatchId && uid) {
+          try {
+            // Préparer la liste des joueurs autorisés : créateur + sélectionnés uniquement
+            const allowedUserIds = new Set();
+            allowedUserIds.add(String(uid)); // Créateur toujours inclus
+            
+            // Ajouter les joueurs explicitement sélectionnés
+            if (Array.isArray(selectedUserIds) && selectedUserIds.length > 0) {
+              selectedUserIds.forEach(id => allowedUserIds.add(String(id)));
+            }
+            
+            // ATTENTION: La RPC peut avoir ajouté des joueurs automatiquement
+            // On doit supprimer TOUS les RSVPs sauf ceux autorisés
+            const { data: allRsvps } = await supabase
+              .from('match_rsvps')
+              .select('user_id')
+              .eq('match_id', newMatchId);
+            
+            // Identifier tous les RSVPs à supprimer (ceux qui ne sont pas dans allowedUserIds)
+            const toDelete = (allRsvps || [])
+              .map(r => String(r.user_id))
+              .filter(id => !allowedUserIds.has(id));
+            
+            // SUPPRIMER tous les RSVPs non autorisés en une seule fois
+            if (toDelete.length > 0) {
+              await supabase
+                .from('match_rsvps')
+                .delete()
+                .eq('match_id', newMatchId)
+                .in('user_id', toDelete);
+            }
+            
+            // Maintenant, créer/mettre à jour les RSVPs uniquement pour les joueurs autorisés
+            
+            // 1. Créateur en "accepted"
+            await supabase
+              .from('match_rsvps')
+              .upsert(
+                { match_id: newMatchId, user_id: uid, status: 'accepted' },
+                { onConflict: 'match_id,user_id' }
+              );
+            
+            // 2. Joueurs sélectionnés en "maybe" (sauf le créateur)
+            const selectedForMaybe = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
+              ? (selectedUserIds || [])
+                  .map(String)
+                  .filter(id => id && id !== String(uid))
+              : [];
+            
+            if (selectedForMaybe.length > 0) {
+              const maybeRows = selectedForMaybe.map(userId => ({
+                match_id: newMatchId,
+                user_id: userId,
+                status: 'maybe'
+              }));
+              
+              await supabase
+                .from('match_rsvps')
+                .upsert(maybeRows, { onConflict: 'match_id,user_id' });
+            }
+            
+            // Mettre à jour l'état local avec la liste exacte
+            setRsvpsByMatch((prev) => {
+              const next = { ...prev };
+              const finalRsvps = [
+                { user_id: String(uid), status: 'accepted' },
+                ...selectedForMaybe.map(id => ({ user_id: id, status: 'maybe' }))
+              ];
+              next[newMatchId] = finalRsvps;
+              return next;
+            });
+            
+            console.log('[onCreateIntervalMatch] RSVPs nettoyés. Créateur +', selectedForMaybe.length, 'joueurs sélectionnés uniquement.');
+          } catch (e) {
+            console.error('[Matches] cleanup RSVPs failed:', e?.message || e);
+          }
+        }
+
+
+        // 4) Verify the match was created with correct status
+        if (newMatchId) {
+          const { data: checkMatch } = await supabase
+            .from('matches')
+            .select('id, status')
+            .eq('id', newMatchId)
+            .maybeSingle();
+          console.log('[onCreateIntervalMatch] Match créé check:', checkMatch);
+        }
+        
+        // 5) Refresh lists and notify UX
+        await fetchData();
+        
+        // 6) Nettoyage final APRÈS fetchData avec délai pour garantir que seuls les joueurs sélectionnés sont présents
+        // (au cas où fetchData, la RPC ou des triggers SQL auraient ré-ajouté des joueurs)
+        if (newMatchId && uid) {
+          try {
+            // Attendre un peu pour laisser le temps aux triggers/processus en arrière-plan de terminer
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Préparer la liste exacte des joueurs autorisés
+            const allowedIds = new Set();
+            allowedIds.add(String(uid)); // Créateur toujours inclus
+            
+            // Ajouter les joueurs explicitement sélectionnés
+            if (Array.isArray(selectedUserIds) && selectedUserIds.length > 0) {
+              selectedUserIds.forEach(id => allowedIds.add(String(id)));
+            }
+            
+            // Récupérer TOUS les RSVPs actuels après fetchData
+            const { data: finalRsvps } = await supabase
+              .from('match_rsvps')
+              .select('user_id, status')
+              .eq('match_id', newMatchId);
+            
+            console.log('[onCreateIntervalMatch] RSVPs après fetchData:', finalRsvps?.length || 0, 'joueurs');
+            
+            // Identifier tous les RSVPs à supprimer (ceux qui ne sont pas autorisés)
+            const finalToDelete = (finalRsvps || [])
+              .map(r => String(r.user_id))
+              .filter(id => !allowedIds.has(id));
+            
+            if (finalToDelete.length > 0) {
+              console.log('[onCreateIntervalMatch] Nettoyage final: suppression de', finalToDelete.length, 'joueurs non sélectionnés:', finalToDelete);
+              
+              // SUPPRIMER tous les RSVPs non autorisés
+              await supabase
+                .from('match_rsvps')
+                .delete()
+                .eq('match_id', newMatchId)
+                .in('user_id', finalToDelete);
+              
+              // S'assurer que les RSVPs autorisés ont le bon statut
+              // 1. Créateur en "accepted"
+              await supabase
+                .from('match_rsvps')
+                .upsert(
+                  { match_id: newMatchId, user_id: uid, status: 'accepted' },
+                  { onConflict: 'match_id,user_id' }
+                );
+              
+              // 2. Joueurs sélectionnés en "maybe" (sauf le créateur)
+              const selectedForMaybe = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
+                ? (selectedUserIds || [])
+                    .map(String)
+                    .filter(id => id && id !== String(uid))
+                : [];
+              
+              if (selectedForMaybe.length > 0) {
+                const maybeRows = selectedForMaybe.map(userId => ({
+                  match_id: newMatchId,
+                  user_id: userId,
+                  status: 'maybe'
+                }));
+                
+                await supabase
+                  .from('match_rsvps')
+                  .upsert(maybeRows, { onConflict: 'match_id,user_id' });
+              }
+              
+              // Recharger les RSVPs après nettoyage
+              const { data: cleanedRsvps } = await supabase
+                .from('match_rsvps')
+                .select('user_id, status')
+                .eq('match_id', newMatchId);
+              
+              console.log('[onCreateIntervalMatch] RSVPs après nettoyage final:', cleanedRsvps?.length || 0, 'joueurs');
+              
+              // Mettre à jour l'état local avec les RSVPs nettoyés
+              if (cleanedRsvps) {
+                setRsvpsByMatch((prev) => {
+                  const next = { ...prev };
+                  next[newMatchId] = cleanedRsvps.map(r => ({
+                    user_id: r.user_id,
+                    status: r.status
+                  }));
+                  return next;
+                });
+                
+                // Recharger les données après nettoyage pour mettre à jour l'affichage
+                await fetchData();
+              }
+            } else {
+              console.log('[onCreateIntervalMatch] Aucun nettoyage nécessaire, tous les joueurs sont autorisés');
+            }
+          } catch (e) {
+            console.error('[Matches] final cleanup after fetchData failed:', e?.message || e);
+          }
+        }
+        
+        if (Platform.OS === 'web') {
+          window.alert('Match créé 🎾\nLe créneau a été transformé en match.');
+        } else {
+          Alert.alert('Match créé 🎾', 'Le créneau a été transformé en match.');
+        }
+      } catch (e) {
+        if (Platform.OS === 'web') {
+          window.alert('Erreur\n' + (e.message ?? String(e)));
+        } else {
+          Alert.alert('Erreur', e.message ?? String(e));
+        }
+      }
+    },
+    [groupId, fetchData]
+  );
 
   // Handler pour valider date/heure/durée et passer à la sélection des joueurs
   const onValidateFlashDate = React.useCallback(async () => {
@@ -2516,7 +3063,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         
         if (latestMatch?.id) {
           await supabase
-            .from('matches')
+        .from('matches')
             .update({ club_id: selectedClub.id })
             .eq('id', latestMatch.id);
         }
@@ -2754,397 +3301,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
           window.alert("Impossible de créer le match\n" + (e.message ?? String(e)));
         } else {
           Alert.alert("Impossible de créer le match", e.message ?? String(e));
-        }
-      }
-    },
-    [groupId, fetchData]
-  );
-
-  const onCreateIntervalMatch = useCallback(
-    async (starts_at_iso, ends_at_iso, selectedUserIds = []) => {
-      if (!groupId) return;
-      // Preflight: prevent overlapping creation with same players
-      try {
-        if (Array.isArray(selectedUserIds) && selectedUserIds.length) {
-          const conflicts = await findConflictingUsers({
-            groupId,
-            startsAt: starts_at_iso,
-            endsAt: ends_at_iso,
-            userIds: selectedUserIds,
-          });
-          if (conflicts.size > 0) {
-            // Auto-resolve: remove conflicting users from selection instead of blocking
-            const conflictIds = new Set(Array.from(conflicts).map(String));
-            const filteredUserIds = (selectedUserIds || [])
-              .map(String)
-              .filter((id) => !conflictIds.has(id));
-
-            if (filteredUserIds.length < 4) {
-              const txt = `Conflit: ${conflicts.size} joueur(s) déjà réservé(s) sur un créneau qui chevauche.\nIl ne reste pas 4 joueurs disponibles pour cet intervalle.`;
-              if (Platform.OS === 'web') window.alert(txt); else Alert.alert('Conflit', txt);
-              return;
-            }
-
-            // Use the filtered list for the rest of the creation flow
-            selectedUserIds = filteredUserIds;
-          }
-        }
-      } catch {}
-      try {
-        // 1) Primary path: RPC returns the created match id (uuid) directly
-        let newMatchId = null;
-        let rpcErr = null;
-        try {
-          const { data, error } = await supabase.rpc('create_match_from_interval_safe', {
-            p_group: groupId,
-            p_starts_at: starts_at_iso,
-            p_ends_at: ends_at_iso,
-          });
-          console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
-          if (error) rpcErr = error; else newMatchId = data;
-        } catch (e) {
-          rpcErr = e;
-        }
-
-        // 1.b) Fallback for unique-constraint on time_slots (same group + same start)
-        const isUniqueViolation = !!rpcErr && (
-          rpcErr?.code === '23505' ||
-          String(rpcErr?.message || rpcErr?.details || rpcErr?.hint || rpcErr).includes('duplicate key value') ||
-          String(rpcErr?.message || rpcErr).includes('uniq_time_slots')
-        );
-        if (isUniqueViolation) {
-          // Reuse the existing time_slot that starts at (or very close to) the same time for this group
-          const starts = new Date(starts_at_iso);
-          const FUZZ_MS = 5 * 60 * 1000; // ±5 minutes tolerance for existing start
-          const lo = new Date(starts.getTime() - FUZZ_MS).toISOString();
-          const hi = new Date(starts.getTime() + FUZZ_MS).toISOString();
-
-          // Try exact match first
-          let { data: slot, error: eSlot } = await supabase
-            .from('time_slots')
-            .select('id, starts_at, ends_at')
-            .eq('group_id', groupId)
-            .eq('starts_at', starts_at_iso)
-            .maybeSingle();
-
-          // If not found, try a fuzzy window ±5 minutes
-          if (!slot) {
-            const { data: slots2 } = await supabase
-              .from('time_slots')
-              .select('id, starts_at, ends_at')
-              .eq('group_id', groupId)
-              .gte('starts_at', lo)
-              .lte('starts_at', hi)
-              .limit(1);
-            slot = Array.isArray(slots2) && slots2.length ? slots2[0] : null;
-          }
-
-          if (slot?.id) {
-            // Vérifier si un match existe déjà pour ce slot
-            const { data: exist } = await supabase
-              .from('matches')
-              .select('id')
-              .eq('group_id', groupId)
-              .eq('time_slot_id', slot.id)
-              .limit(1);
-            
-            // Si un match existe déjà, créer un nouveau time_slot pour permettre la création d'un nouveau match distinct
-            if (Array.isArray(exist) && exist.length) {
-              console.log('[onCreateIntervalMatch] Match existant trouvé pour ce slot. Création d\'un nouveau time_slot pour un nouveau match distinct.');
-              
-              // Créer un nouveau time_slot pour ce nouveau match (même horaire mais slot distinct)
-              const { data: newSlot, error: eNewSlot } = await supabase
-                .from('time_slots')
-                .insert({
-                  group_id: groupId,
-                  starts_at: starts_at_iso,
-                  ends_at: ends_at_iso,
-                })
-                .select('id, starts_at, ends_at')
-                .single();
-              
-              if (eNewSlot) {
-                console.error('[onCreateIntervalMatch] Erreur création nouveau time_slot:', eNewSlot);
-                throw eNewSlot;
-              }
-              
-              // Créer le match avec le nouveau slot
-              const { data: ins, error: eIns } = await supabase
-                .from('matches')
-                .insert({ group_id: groupId, time_slot_id: newSlot.id, status: 'pending' })
-                .select('id, status')
-                .single();
-              
-              if (eIns) throw eIns;
-              newMatchId = ins?.id || null;
-              console.log('[onCreateIntervalMatch] Nouveau match créé avec nouveau time_slot:', newMatchId, 'status:', ins?.status);
-              
-              // Utiliser les horaires du nouveau slot
-              if (newSlot?.starts_at && newSlot?.ends_at) {
-                starts_at_iso = newSlot.starts_at;
-                ends_at_iso = newSlot.ends_at || ends_at_iso;
-              }
-            } else {
-              // Pas de match existant, réutiliser le slot existant
-              const { data: ins, error: eIns } = await supabase
-                .from('matches')
-                .insert({ group_id: groupId, time_slot_id: slot.id, status: 'pending' })
-                .select('id, status')
-                .single();
-              if (eIns) throw eIns;
-              newMatchId = ins?.id || null;
-              console.log('[onCreateIntervalMatch] Match créé:', newMatchId, 'status:', ins?.status);
-              // Ensure ends_at we propagate below is coherent with the slot row
-              if (slot?.starts_at && slot?.ends_at) {
-                starts_at_iso = slot.starts_at;
-                ends_at_iso = slot.ends_at || ends_at_iso;
-              }
-            }
-          } else {
-            // If we cannot resolve the existing slot, rethrow the original error
-            throw rpcErr;
-          }
-        } else if (rpcErr) {
-          // Different error → rethrow
-          throw rpcErr;
-        }
-
-        if (!newMatchId) {
-          // Nothing created (likely <4 players). Give a clean message and exit.
-          if (Platform.OS === 'web') {
-            window.alert('Action impossible\nAucun match créé pour cet intervalle.');
-          } else {
-            Alert.alert('Action impossible', 'Aucun match créé pour cet intervalle.');
-          }
-          return;
-        }
-        
-        // Vérifier et mettre à jour le statut si nécessaire pour qu'il soit 'pending'
-        try {
-          const { data: matchCheck } = await supabase
-            .from('matches')
-            .select('id, status')
-            .eq('id', newMatchId)
-            .maybeSingle();
-          console.log('[onCreateIntervalMatch] Match status after RPC:', matchCheck?.status);
-          
-          if (matchCheck && matchCheck.status !== 'pending') {
-            console.log('[onCreateIntervalMatch] Updating status from', matchCheck.status, 'to pending');
-            await supabase
-              .from('matches')
-              .update({ status: 'pending' })
-              .eq('id', newMatchId);
-          }
-        } catch (e) {
-          console.warn('[onCreateIntervalMatch] Error checking/updating match status:', e);
-        }
-
-        // 2) Nettoyer TOUS les RSVPs créés par la RPC et ne garder QUE le créateur + les joueurs sélectionnés
-        let uid = meId;
-        if (!uid) {
-          const { data: u } = await supabase.auth.getUser();
-          uid = u?.user?.id ?? null;
-        }
-        
-        if (newMatchId && uid) {
-          try {
-            // Préparer la liste des joueurs autorisés : créateur + sélectionnés uniquement
-            const allowedUserIds = new Set();
-            allowedUserIds.add(String(uid)); // Créateur toujours inclus
-            
-            // Ajouter les joueurs explicitement sélectionnés
-            if (Array.isArray(selectedUserIds) && selectedUserIds.length > 0) {
-              selectedUserIds.forEach(id => allowedUserIds.add(String(id)));
-            }
-            
-            // ATTENTION: La RPC peut avoir ajouté des joueurs automatiquement
-            // On doit supprimer TOUS les RSVPs sauf ceux autorisés
-            const { data: allRsvps } = await supabase
-              .from('match_rsvps')
-              .select('user_id')
-              .eq('match_id', newMatchId);
-            
-            // Identifier tous les RSVPs à supprimer (ceux qui ne sont pas dans allowedUserIds)
-            const toDelete = (allRsvps || [])
-              .map(r => String(r.user_id))
-              .filter(id => !allowedUserIds.has(id));
-            
-            // SUPPRIMER tous les RSVPs non autorisés en une seule fois
-            if (toDelete.length > 0) {
-              await supabase
-                .from('match_rsvps')
-                .delete()
-                .eq('match_id', newMatchId)
-                .in('user_id', toDelete);
-            }
-            
-            // Maintenant, créer/mettre à jour les RSVPs uniquement pour les joueurs autorisés
-            
-            // 1. Créateur en "accepted"
-            await supabase
-              .from('match_rsvps')
-              .upsert(
-                { match_id: newMatchId, user_id: uid, status: 'accepted' },
-                { onConflict: 'match_id,user_id' }
-              );
-            
-            // 2. Joueurs sélectionnés en "maybe" (sauf le créateur)
-            const selectedForMaybe = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
-              ? (selectedUserIds || [])
-                  .map(String)
-                  .filter(id => id && id !== String(uid))
-              : [];
-            
-            if (selectedForMaybe.length > 0) {
-              const maybeRows = selectedForMaybe.map(userId => ({
-                match_id: newMatchId,
-                user_id: userId,
-                status: 'maybe'
-              }));
-              
-              await supabase
-                .from('match_rsvps')
-                .upsert(maybeRows, { onConflict: 'match_id,user_id' });
-            }
-            
-            // Mettre à jour l'état local avec la liste exacte
-            setRsvpsByMatch((prev) => {
-              const next = { ...prev };
-              const finalRsvps = [
-                { user_id: String(uid), status: 'accepted' },
-                ...selectedForMaybe.map(id => ({ user_id: id, status: 'maybe' }))
-              ];
-              next[newMatchId] = finalRsvps;
-              return next;
-            });
-            
-            console.log('[onCreateIntervalMatch] RSVPs nettoyés. Créateur +', selectedForMaybe.length, 'joueurs sélectionnés uniquement.');
-          } catch (e) {
-            console.error('[Matches] cleanup RSVPs failed:', e?.message || e);
-          }
-        }
-
-
-        // 4) Verify the match was created with correct status
-        if (newMatchId) {
-          const { data: checkMatch } = await supabase
-            .from('matches')
-            .select('id, status')
-            .eq('id', newMatchId)
-            .maybeSingle();
-          console.log('[onCreateIntervalMatch] Match créé check:', checkMatch);
-        }
-        
-        // 5) Refresh lists and notify UX
-        await fetchData();
-        
-        // 6) Nettoyage final APRÈS fetchData avec délai pour garantir que seuls les joueurs sélectionnés sont présents
-        // (au cas où fetchData, la RPC ou des triggers SQL auraient ré-ajouté des joueurs)
-        if (newMatchId && uid) {
-          try {
-            // Attendre un peu pour laisser le temps aux triggers/processus en arrière-plan de terminer
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Préparer la liste exacte des joueurs autorisés
-            const allowedIds = new Set();
-            allowedIds.add(String(uid)); // Créateur toujours inclus
-            
-            // Ajouter les joueurs explicitement sélectionnés
-            if (Array.isArray(selectedUserIds) && selectedUserIds.length > 0) {
-              selectedUserIds.forEach(id => allowedIds.add(String(id)));
-            }
-            
-            // Récupérer TOUS les RSVPs actuels après fetchData
-            const { data: finalRsvps } = await supabase
-              .from('match_rsvps')
-              .select('user_id, status')
-              .eq('match_id', newMatchId);
-            
-            console.log('[onCreateIntervalMatch] RSVPs après fetchData:', finalRsvps?.length || 0, 'joueurs');
-            
-            // Identifier tous les RSVPs à supprimer (ceux qui ne sont pas autorisés)
-            const finalToDelete = (finalRsvps || [])
-              .map(r => String(r.user_id))
-              .filter(id => !allowedIds.has(id));
-            
-            if (finalToDelete.length > 0) {
-              console.log('[onCreateIntervalMatch] Nettoyage final: suppression de', finalToDelete.length, 'joueurs non sélectionnés:', finalToDelete);
-              
-              // SUPPRIMER tous les RSVPs non autorisés
-              await supabase
-                .from('match_rsvps')
-                .delete()
-                .eq('match_id', newMatchId)
-                .in('user_id', finalToDelete);
-              
-              // S'assurer que les RSVPs autorisés ont le bon statut
-              // 1. Créateur en "accepted"
-              await supabase
-                .from('match_rsvps')
-                .upsert(
-                  { match_id: newMatchId, user_id: uid, status: 'accepted' },
-                  { onConflict: 'match_id,user_id' }
-                );
-              
-              // 2. Joueurs sélectionnés en "maybe" (sauf le créateur)
-              const selectedForMaybe = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
-                ? (selectedUserIds || [])
-                    .map(String)
-                    .filter(id => id && id !== String(uid))
-                : [];
-              
-              if (selectedForMaybe.length > 0) {
-                const maybeRows = selectedForMaybe.map(userId => ({
-                  match_id: newMatchId,
-                  user_id: userId,
-                  status: 'maybe'
-                }));
-                
-                await supabase
-                  .from('match_rsvps')
-                  .upsert(maybeRows, { onConflict: 'match_id,user_id' });
-              }
-              
-              // Recharger les RSVPs après nettoyage
-              const { data: cleanedRsvps } = await supabase
-                .from('match_rsvps')
-                .select('user_id, status')
-                .eq('match_id', newMatchId);
-              
-              console.log('[onCreateIntervalMatch] RSVPs après nettoyage final:', cleanedRsvps?.length || 0, 'joueurs');
-              
-              // Mettre à jour l'état local avec les RSVPs nettoyés
-              if (cleanedRsvps) {
-                setRsvpsByMatch((prev) => {
-                  const next = { ...prev };
-                  next[newMatchId] = cleanedRsvps.map(r => ({
-                    user_id: r.user_id,
-                    status: r.status
-                  }));
-                  return next;
-                });
-                
-                // Recharger les données après nettoyage pour mettre à jour l'affichage
-                await fetchData();
-              }
-            } else {
-              console.log('[onCreateIntervalMatch] Aucun nettoyage nécessaire, tous les joueurs sont autorisés');
-            }
-          } catch (e) {
-            console.error('[Matches] final cleanup after fetchData failed:', e?.message || e);
-          }
-        }
-        
-        if (Platform.OS === 'web') {
-          window.alert('Match créé 🎾\nLe créneau a été transformé en match.');
-        } else {
-          Alert.alert('Match créé 🎾', 'Le créneau a été transformé en match.');
-        }
-      } catch (e) {
-        if (Platform.OS === 'web') {
-          window.alert('Erreur\n' + (e.message ?? String(e)));
-        } else {
-          Alert.alert('Erreur', e.message ?? String(e));
         }
       }
     },
@@ -3837,6 +3993,14 @@ const HourSlotRow = ({ item }) => {
     const [loadedSlot, setLoadedSlot] = React.useState(initialSlot);
     const slot = loadedSlot || {};
     
+    // États pour le modal de sélection de clubs
+    const [clubModalOpen, setClubModalOpen] = React.useState(false);
+    const [clubsWithDistance, setClubsWithDistance] = React.useState([]);
+    const [clubSearchQuery, setClubSearchQuery] = React.useState('');
+    const [clubRadiusKm, setClubRadiusKm] = React.useState(50); // Rayon par défaut: 50km
+    const [loadingClubs, setLoadingClubs] = React.useState(false);
+    const [userLocation, setUserLocation] = React.useState(null);
+    
     // Charger le time_slot si manquant
     React.useEffect(() => {
       console.log('[MatchCardConfirmed] Render for match:', m?.id, 'slot_id:', m?.time_slot_id);
@@ -3873,6 +4037,122 @@ const HourSlotRow = ({ item }) => {
 
     const [reserved, setReserved] = React.useState(!!m?.is_court_reserved);
     const [savingReserved, setSavingReserved] = React.useState(false);
+
+    // Charger la position de l'utilisateur pour calculer les distances
+    React.useEffect(() => {
+      (async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({});
+            setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          }
+        } catch (e) {
+          console.warn('[MatchCardConfirmed] Erreur position:', e);
+        }
+      })();
+    }, []);
+
+    // Charger les clubs quand le modal s'ouvre
+    const loadClubs = React.useCallback(async () => {
+      setLoadingClubs(true);
+      try {
+        // Pagination: Supabase retourne max ~1000 lignes par requête → charger par pages
+        const pageSize = 1000;
+        let from = 0;
+        let to = pageSize - 1;
+        let allClubs = [];
+        /* eslint-disable no-constant-condition */
+        while (true) {
+          const { data: page, error } = await supabase
+            .from('clubs')
+            .select('*')
+            .not('lat', 'is', null)
+            .not('lng', 'is', null)
+            .order('id', { ascending: true })
+            .range(from, to);
+          if (error) {
+            console.error('[MatchCardConfirmed] Erreur Supabase (page):', error);
+            throw error;
+          }
+          const batch = Array.isArray(page) ? page : [];
+          allClubs = allClubs.concat(batch);
+          if (batch.length < pageSize) break; // dernière page atteinte
+          from += pageSize;
+          to += pageSize;
+        }
+        
+        // Calculer la distance pour chaque club si on a la position de l'utilisateur
+        const refPoint = userLocation || { lat: 48.8566, lng: 2.3522 }; // Fallback Paris si pas de position
+        const clubsWithDist = (allClubs || []).map(club => ({
+          ...club,
+          distanceKm: haversineKm(refPoint, { lat: club.lat, lng: club.lng }),
+          phoneNumber: club.phone || null
+        })).sort((a, b) => a.distanceKm - b.distanceKm);
+        
+        console.log('[MatchCardConfirmed] Clubs chargés:', clubsWithDist.length, 'Position ref:', refPoint);
+        const herculeClub = clubsWithDist.find(c => c.name && c.name.toLowerCase().includes('hercule'));
+        console.log('[MatchCardConfirmed] Hercule & Hops trouvé:', herculeClub ? {
+          name: herculeClub.name,
+          phone: herculeClub.phoneNumber,
+          distance: herculeClub.distanceKm,
+          id: herculeClub.id
+        } : 'NON TROUVÉ');
+        console.log('[MatchCardConfirmed] Tous les clubs avec "hercule" dans le nom:', clubsWithDist.filter(c => c.name && c.name.toLowerCase().includes('hercule')).map(c => ({ name: c.name, phone: c.phoneNumber })));
+        
+        setClubsWithDistance(clubsWithDist);
+      } catch (e) {
+        console.error('[MatchCardConfirmed] Erreur chargement clubs:', e);
+        Alert.alert('Erreur', `Impossible de charger la liste des clubs: ${e?.message || String(e)}`);
+        setClubsWithDistance([]);
+      } finally {
+        setLoadingClubs(false);
+      }
+    }, [userLocation]);
+    
+    React.useEffect(() => {
+      if (clubModalOpen) {
+        setClubSearchQuery(''); // Réinitialiser la recherche à l'ouverture
+        loadClubs();
+      }
+    }, [clubModalOpen, loadClubs]);
+
+    const visibleClubs = React.useMemo(() => {
+      const base = clubsWithDistance || [];
+      const q = (clubSearchQuery || '').trim().toLowerCase();
+      
+      // 1. Filtrer par rayon kilométrique
+      let filtered = base.filter((c) => {
+        const distance = c.distanceKm || Infinity;
+        return distance <= clubRadiusKm;
+      });
+      
+      // 2. Filtrer par recherche textuelle si une recherche est active
+      if (q) {
+        filtered = filtered.filter((c) => {
+          const name = (c.name || '').toLowerCase().replace(/&/g, 'et').replace(/\s+/g, ' ');
+          const address = (c.address || '').toLowerCase();
+          const searchTerm = q.replace(/&/g, 'et').replace(/\s+/g, ' ');
+          return name.includes(searchTerm) || address.includes(q);
+        });
+      }
+      
+      // 3. Trier : par nom si recherche active, sinon par distance
+      if (q) {
+        filtered.sort((a, b) => {
+          const nameA = (a.name || '').toLowerCase();
+          const nameB = (b.name || '').toLowerCase();
+          return nameA.localeCompare(nameB, 'fr');
+        });
+      } else {
+        // Déjà trié par distance dans loadClubs, mais on peut retrier si nécessaire
+        filtered.sort((a, b) => (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+      }
+      
+      console.log('[MatchCardConfirmed] Recherche:', q || '(aucune)', 'Rayon:', clubRadiusKm, 'km', 'Total clubs:', base.length, 'Résultats:', filtered.length);
+      
+      return filtered;
+    }, [clubsWithDistance, clubSearchQuery, clubRadiusKm]);
 
     const toggleReserved = React.useCallback(async () => {
       if (savingReserved) return;
@@ -3948,54 +4228,30 @@ const HourSlotRow = ({ item }) => {
         >
           {/* Bouton contacter un club */}
           <Pressable
-            onPress={() => Linking.openURL('tel:0376451967')}
+            onPress={() => setClubModalOpen(true)}
             style={{
               flex: 1,
               backgroundColor: '#480c3d', // violine
-              paddingVertical: 2,
-              paddingHorizontal: 0,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
               borderRadius: 8,
               alignSelf: 'center',
-            }}
-          >
-            <View
-              style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: '100%',
-              }}
-            >
-              <Image
-                source={require('../../../assets/icons/hercule.png')}
-                style={{
-                  width: 55,
-                  height: 55,
-                  resizeMode: 'contain',
-                  tintColor: 'white',
-                  marginRight:0,
-                  marginLeft: -12,
-                  shadowColor: '#fff',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8,
-                  shadowRadius: 3,          // espace entre icône et texte
-                }}
-              />
+            }}
+          >
+            <Ionicons name="call" size={24} color="#ffffff" style={{ marginRight: 8 }} />
               <Text
                 style={{
-                  color: '#ea5b0c',
-                  fontWeight: '900',
+                color: '#ffffff',
+                fontWeight: '800',
                   fontSize: 14,
                   textAlign: 'center',
-                  textAlignVertical: 'center', // Android
-                  includeFontPadding: false,
-                  marginTop: 4,   // Android: supprime le padding haut/bas de la police
-                  lineHeight: 14,
                 }}
               >
-                APPELER{'\n'}HERCULE
+              APPELER un{'\n'}club
               </Text>
-            </View>
           </Pressable>
 
           {/* Bouton réserver / réservé */}
@@ -4053,6 +4309,143 @@ const HourSlotRow = ({ item }) => {
             </Text>
           </Pressable>
         </View>
+
+        {/* Modal de sélection de clubs */}
+        <Modal visible={clubModalOpen} transparent animationType="fade" onRequestClose={() => setClubModalOpen(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Appeler un club</Text>
+                <Pressable onPress={() => setClubModalOpen(false)} style={{ padding: 8 }}>
+                  <Ionicons name="close" size={24} color="#111827" />
+                </Pressable>
+              </View>
+              
+              {loadingClubs ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color="#156bc9" />
+                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+                    <TextInput
+                      placeholder="Rechercher un club (nom ou adresse)"
+                      placeholderTextColor="#9ca3af"
+                      value={clubSearchQuery}
+                      onChangeText={setClubSearchQuery}
+                      style={{
+                        backgroundColor: '#ffffff',
+                        borderWidth: 1,
+                        borderColor: '#e5e7eb',
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        color: '#111827',
+                        marginBottom: 12
+                      }}
+                      returnKeyType="search"
+                    />
+                    
+                    {/* Sélecteur de rayon */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 11, color: '#6b7280', fontWeight: '600' }}>Rayon</Text>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {[10, 25, 50].map((radius) => (
+                          <Pressable
+                            key={radius}
+                            onPress={() => setClubRadiusKm(radius)}
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              borderRadius: 6,
+                              backgroundColor: clubRadiusKm === radius ? '#156bc9' : '#f3f4f6',
+                              borderWidth: 1,
+                              borderColor: clubRadiusKm === radius ? '#156bc9' : '#e5e7eb'
+                            }}
+                          >
+                            <Text style={{
+                              fontSize: 11,
+                              fontWeight: '700',
+                              color: clubRadiusKm === radius ? '#ffffff' : '#6b7280'
+                            }}>
+                              {radius}km
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                  {visibleClubs.length === 0 ? (
+                    <View style={{ padding: 20 }}>
+                      <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 8 }}>
+                        {clubSearchQuery ? 'Aucun club ne correspond à votre recherche.' : clubsWithDistance.length === 0 ? 'Aucun club chargé.' : 'Aucun club affiché.'}
+                      </Text>
+                      {clubSearchQuery && clubsWithDistance.length > 0 && (
+                        <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 11 }}>
+                          Total: {clubsWithDistance.length} club(s) chargé(s)
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <ScrollView style={{ maxHeight: 400 }}>
+                      {visibleClubs.map((club) => {
+                    const hasPhone = !!club.phoneNumber;
+                    return (
+                      <Pressable
+                        key={club.id}
+                        onPress={() => {
+                          if (hasPhone) {
+                            Linking.openURL(`tel:${club.phoneNumber}`);
+                            setClubModalOpen(false);
+                          } else {
+                            Alert.alert('Information', `Le club "${club.name}" n'a pas de numéro de téléphone renseigné.`);
+                          }
+                        }}
+                        disabled={!hasPhone}
+                        style={({ pressed }) => ({
+                          paddingVertical: 12,
+                          paddingHorizontal: 12,
+                          borderRadius: 10,
+                          backgroundColor: pressed && hasPhone ? '#f3f4f6' : '#ffffff',
+                          borderWidth: 1,
+                          borderColor: hasPhone ? '#e5e7eb' : '#f3f4f6',
+                          marginBottom: 8,
+                          opacity: hasPhone ? 1 : 0.6,
+                        })}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
+                              {club.name}
+                            </Text>
+                            {club.address && (
+                              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                                {club.address}
+                              </Text>
+                            )}
+                            {club.distanceKm !== Infinity && (
+                              <Text style={{ fontSize: 12, color: '#156bc9', fontWeight: '700' }}>
+                                📍 {club.distanceKm.toFixed(1)} km
+                              </Text>
+                            )}
+                          </View>
+                          {hasPhone ? (
+                            <Ionicons name="call" size={24} color="#15803d" />
+                          ) : (
+                            <Text style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>Pas de téléphone</Text>
+                          )}
+                        </View>
+                      </Pressable>
+                    );
+                      })}
+                    </ScrollView>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   };
@@ -4867,7 +5260,7 @@ const HourSlotRow = ({ item }) => {
           }}
         >
           <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
-            {longReadyWeek?.length || 0} Créneaux 1h30
+            {displayLongSections.reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0} Créneaux 1h30
           </Text>
       </Pressable>
       <Pressable
@@ -4884,7 +5277,7 @@ const HourSlotRow = ({ item }) => {
           }}
         >
           <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
-            {hourReadyWeek?.length || 0} Créneaux 1h
+            {displayHourReady?.length || 0} Créneaux 1h
           </Text>
       </Pressable>
     </View>
@@ -4892,11 +5285,12 @@ const HourSlotRow = ({ item }) => {
 
             {mode === 'long' ? (
               <>
-                {longSectionsWeek.length === 0 ? (
+                {displayLongSections.length === 0 ? (
                   <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
                 ) : (
                   <SectionList
-                    sections={longSectionsWeek}
+                    key={`long-list-${dataVersion}-${displayLongSections.length}-${displayLongSections.map(s => s.data?.length || 0).join(',')}`}
+                    sections={displayLongSections}
                     keyExtractor={(item) => item.key}
                     renderSectionHeader={({ section }) => (
                       <View style={{ paddingHorizontal: 0, paddingVertical: 0, height: 0 }}>
@@ -4909,23 +5303,26 @@ const HourSlotRow = ({ item }) => {
                     contentContainerStyle={{ paddingBottom: bottomPad }}
                     scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
                     ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-                    extraData={{ profilesById }}
+                    extraData={{ profilesById, displayLongSections, dataVersion }}
+                    removeClippedSubviews={false}
                   />
                 )}
               </>
             ) : (
               <>
-                {hourReadyWeek.length === 0 ? (
+                {displayHourReady.length === 0 ? (
                   <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
                 ) : (
                   <FlatList
-                    data={hourReadyWeek}
+                    key={`hour-list-${dataVersion}-${displayHourReady.length}-${displayHourReady.map(x => x.time_slot_id).slice(0, 3).join(',')}`}
+                    data={displayHourReady}
                     keyExtractor={(x) => x.time_slot_id + '-hour'}
                     renderItem={({ item }) => <HourSlotRow item={item} />}
                     contentContainerStyle={{ paddingBottom: bottomPad }}
                     scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
                     ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-                    extraData={{ profilesById }}
+                    extraData={{ profilesById, displayHourReady, dataVersion }}
+                    removeClippedSubviews={false}
                   />
                 )}
               </>
@@ -5189,7 +5586,7 @@ const HourSlotRow = ({ item }) => {
                   setTempTime({ hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() });
                   setFlashDateModalOpen(false); // Fermer temporairement le modal parent
                   setTimeout(() => {
-                    setFlashDatePickerModalOpen(true);
+                  setFlashDatePickerModalOpen(true);
                   }, 300);
                 }}
                 style={{
@@ -5233,8 +5630,8 @@ const HourSlotRow = ({ item }) => {
                     </Text>
                   )}
                 </View>
-                <Pressable
-                  onPress={() => {
+              <Pressable
+                onPress={() => {
                     console.log('[FlashMatch] Calendar icon pressed');
                     const now = new Date(flashStart);
                     setTempDate(now);
@@ -5245,19 +5642,19 @@ const HourSlotRow = ({ item }) => {
                     }, 300);
                   }}
                   hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                  style={{
-                    padding: 10,
+                style={{
+                  padding: 10,
                     borderRadius: 4,
                     minWidth: 36,
                     minHeight: 36,
-                    alignItems: 'center',
+                  alignItems: 'center',
                     justifyContent: 'center',
                     backgroundColor: 'rgba(0,0,0,0.05)',
                     ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
                   }}
                 >
                   <Ionicons name="calendar-outline" size={20} color={flashStart ? "#ffffff" : "#6b7280"} />
-                </Pressable>
+                      </Pressable>
               </Pressable>
             </View>
 
@@ -5431,9 +5828,9 @@ const HourSlotRow = ({ item }) => {
                     );
                   });
                 })()}
-              </ScrollView>
-            </View>
-            
+                </ScrollView>
+              </View>
+
             {/* Menu déroulant des heures (tranches de 15 min) */}
             <View style={{ marginTop: 20, marginBottom: 20 }}>
               <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10, textAlign: 'center' }}>Heure</Text>
@@ -5476,9 +5873,9 @@ const HourSlotRow = ({ item }) => {
                     );
                   });
                 })()}
-              </ScrollView>
+                </ScrollView>
             </View>
-            
+
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <Pressable
                 onPress={() => {
@@ -5512,11 +5909,11 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
       </Modal>
-      
+
       {/* Annuler pour le picker - rouvre le modal flash */}
       {flashDatePickerModalOpen && (
-        <Pressable
-          onPress={() => {
+              <Pressable
+                onPress={() => {
             setFlashDatePickerModalOpen(false);
             setTimeout(() => {
               setFlashDateModalOpen(true);
@@ -6376,7 +6773,7 @@ const HourSlotRow = ({ item }) => {
                             {isSelected && (
                               <View style={{ marginLeft: 8 }}>
                                 <Ionicons name="checkmark-circle" size={24} color="#ffffff" />
-                              </View>
+                          </View>
                             )}
                           </Pressable>
                         );
@@ -6411,37 +6808,37 @@ const HourSlotRow = ({ item }) => {
 
                   {clubs.length > 0 && (
                     <View style={{ marginBottom: 12 }}>
-                      <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
-                        {clubs.map((club) => {
-                          const isSelected = selectedClub?.id === club.id;
-                          return (
-                            <Pressable
-                              key={club.id}
-                              onPress={() => setSelectedClub(club)}
-                              style={{
-                                padding: 12,
-                                borderRadius: 8,
-                                backgroundColor: isSelected ? COLORS.primary : '#f9fafb',
-                                borderWidth: isSelected ? 2 : 1,
-                                borderColor: isSelected ? COLORS.primary : '#e5e7eb',
-                                marginBottom: 8,
-                              }}
-                            >
-                              <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '600', color: isSelected ? '#ffffff' : '#111827', marginBottom: 4 }}>
-                                {club.name}
-                              </Text>
-                              {club.address && (
-                                <Text style={{ fontSize: 12, color: isSelected ? '#ffffff' : '#6b7280', marginBottom: 4 }}>
-                                  {club.address}
+                        <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+                          {clubs.map((club) => {
+                            const isSelected = selectedClub?.id === club.id;
+                            return (
+                              <Pressable
+                                key={club.id}
+                                onPress={() => setSelectedClub(club)}
+                                style={{
+                                  padding: 12,
+                                  borderRadius: 8,
+                                  backgroundColor: isSelected ? COLORS.primary : '#f9fafb',
+                                  borderWidth: isSelected ? 2 : 1,
+                                  borderColor: isSelected ? COLORS.primary : '#e5e7eb',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '600', color: isSelected ? '#ffffff' : '#111827', marginBottom: 4 }}>
+                                  {club.name}
                                 </Text>
-                              )}
-                              <Text style={{ fontSize: 12, color: isSelected ? '#ffffff' : '#6b7280' }}>
-                                📍 {Math.round(club.distanceKm * 10) / 10} km
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </ScrollView>
+                                {club.address && (
+                                  <Text style={{ fontSize: 12, color: isSelected ? '#ffffff' : '#6b7280', marginBottom: 4 }}>
+                                    {club.address}
+                                  </Text>
+                                )}
+                                <Text style={{ fontSize: 12, color: isSelected ? '#ffffff' : '#6b7280' }}>
+                                  📍 {Math.round(club.distanceKm * 10) / 10} km
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </ScrollView>
                     </View>
                   )}
                 </View>

@@ -7,7 +7,7 @@ import isoWeek from "dayjs/plugin/isoWeek";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
@@ -609,6 +609,9 @@ export default function Semaine() {
           });
           if (error) { await fetchData(); throw error; }
         }
+        
+        // Notifier les autres pages (notamment matches) que la disponibilité a changé
+        DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       } else if (mine.status === 'available') {
         // passe à neutre → suppression
         setSlots((prev) => prev.filter((s) => !(s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso)));
@@ -633,6 +636,9 @@ export default function Semaine() {
             .eq('end', endIso);
           if (error) { await fetchData(); throw error; }
         }
+        
+        // Notifier les autres pages (notamment matches) que la disponibilité a changé
+        DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       } else {
         // quel que soit l'état (absent/neutre), force à available
         setSlots((prev) => prev.map((s) => (
@@ -660,6 +666,9 @@ export default function Semaine() {
           });
           if (error) { await fetchData(); throw error; }
         }
+        
+        // Notifier les autres pages (notamment matches) que la disponibilité a changé
+        DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       }
 
       scheduleRefresh(200);
@@ -812,6 +821,9 @@ export default function Semaine() {
         if (error) throw error;
       }
 
+      // Notifier les autres pages (notamment matches) que la disponibilité a changé
+      DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
+      
       // Optionnel : resync silencieux
       scheduleRefresh(200);
     } catch (e) {
@@ -853,6 +865,9 @@ export default function Semaine() {
         if (error) throw error;
       }
 
+      // Notifier les autres pages (notamment matches) que la disponibilité a changé
+      DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
+      
       scheduleRefresh(200);
     } catch (e) {
       console.warn('[setMyNeutralBulk] error:', e);
