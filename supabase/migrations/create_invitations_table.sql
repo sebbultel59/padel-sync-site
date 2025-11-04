@@ -67,3 +67,66 @@ CREATE POLICY "Users can use unused invitation codes"
     AND used_by = auth.uid()
   );
 
+-- Fonction RPC pour accepter une invitation par code
+CREATE OR REPLACE FUNCTION accept_invite(p_code TEXT)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_invitation RECORD;
+  v_group_id UUID;
+BEGIN
+  -- Récupérer l'ID de l'utilisateur actuel
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Utilisateur non authentifié';
+  END IF;
+  
+  -- Chercher l'invitation par code
+  SELECT id, group_id, used, expires_at
+  INTO v_invitation
+  FROM invitations
+  WHERE code = UPPER(TRIM(p_code))
+  LIMIT 1;
+  
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Code d''invitation invalide';
+  END IF;
+  
+  -- Vérifier si le code a déjà été utilisé
+  IF v_invitation.used THEN
+    RAISE EXCEPTION 'Ce code d''invitation a déjà été utilisé';
+  END IF;
+  
+  -- Vérifier si le code a expiré
+  IF v_invitation.expires_at IS NOT NULL AND v_invitation.expires_at < NOW() THEN
+    RAISE EXCEPTION 'Ce code d''invitation a expiré';
+  END IF;
+  
+  v_group_id := v_invitation.group_id;
+  
+  -- Vérifier que l'utilisateur n'est pas déjà membre
+  IF EXISTS (SELECT 1 FROM group_members WHERE group_id = v_group_id AND user_id = v_user_id) THEN
+    -- Déjà membre, marquer le code comme utilisé et retourner le group_id
+    UPDATE invitations
+    SET used = true, used_by = v_user_id, used_at = NOW()
+    WHERE id = v_invitation.id;
+    RETURN v_group_id;
+  END IF;
+  
+  -- Ajouter l'utilisateur au groupe
+  INSERT INTO group_members (group_id, user_id, role)
+  VALUES (v_group_id, v_user_id, 'member')
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+  
+  -- Marquer le code comme utilisé
+  UPDATE invitations
+  SET used = true, used_by = v_user_id, used_at = NOW()
+  WHERE id = v_invitation.id;
+  
+  RETURN v_group_id;
+END;
+$$;
+
