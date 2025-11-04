@@ -278,6 +278,8 @@ export default function GroupesScreen() {
 
   const [members, setMembers] = useState([]);
   const [membersModalVisible, setMembersModalVisible] = useState(false);
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [joinRequestsModalVisible, setJoinRequestsModalVisible] = useState(false);
   const [contactProfile, setContactProfile] = useState(null);
   const [contactVisible, setContactVisible] = useState(false);
   const [profileProfile, setProfileProfile] = useState(null);
@@ -453,9 +455,52 @@ export default function GroupesScreen() {
     }
   }, []);
 
+  // Charger les demandes de rejoindre pour le groupe actif
+  const loadJoinRequests = useCallback(async (groupId) => {
+    if (!groupId) {
+      setJoinRequests([]);
+      return;
+    }
+    
+    try {
+      // Charger les demandes en attente pour ce groupe
+      const { data: requests, error } = await supabase
+        .from('group_join_requests')
+        .select(`
+          id,
+          user_id,
+          status,
+          requested_at,
+          profiles:user_id (
+            id,
+            name,
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('group_id', groupId)
+        .eq('status', 'pending')
+        .order('requested_at', { ascending: false });
+      
+      if (error) {
+        console.error('[loadJoinRequests] Error:', error);
+        return;
+      }
+      
+      setJoinRequests(requests || []);
+    } catch (e) {
+      console.error('[loadJoinRequests] Exception:', e);
+    }
+  }, []);
+
   useEffect(() => {
-    if (authChecked) loadMembersAndAdmin(activeGroup?.id ?? null);
-  }, [authChecked, activeGroup?.id, loadMembersAndAdmin]);
+    if (authChecked) {
+      loadMembersAndAdmin(activeGroup?.id ?? null);
+      if (isAdmin && activeGroup?.id) {
+        loadJoinRequests(activeGroup.id);
+      }
+    }
+  }, [authChecked, activeGroup?.id, loadMembersAndAdmin, isAdmin, loadJoinRequests]);
 
   // --- Activer un groupe ---
   const onActivate = useCallback(async (g) => {
@@ -737,6 +782,50 @@ Padel Sync — Ton match en 3 clics 🎾`;
       Alert.alert("Erreur", e?.message ?? "Impossible d'envoyer la demande");
     }
   }, [pendingJoinGroupId, pendingJoinGroupName]);
+
+  // Approuver une demande de rejoindre
+  const approveJoinRequest = useCallback(async (requestId) => {
+    try {
+      const { data: groupId, error } = await supabase.rpc('approve_join_request', {
+        p_request_id: requestId
+      });
+      
+      if (error) {
+        Alert.alert("Erreur", error.message);
+        return;
+      }
+      
+      // Recharger les demandes et les membres
+      await loadJoinRequests(activeGroup?.id);
+      await loadMembersAndAdmin(activeGroup?.id);
+      await loadGroups();
+      
+      Alert.alert("Demande approuvée ✅", "L'utilisateur a rejoint le groupe.");
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? "Impossible d'approuver la demande");
+    }
+  }, [activeGroup?.id, loadJoinRequests, loadMembersAndAdmin, loadGroups]);
+
+  // Rejeter une demande de rejoindre
+  const rejectJoinRequest = useCallback(async (requestId) => {
+    try {
+      const { data: groupId, error } = await supabase.rpc('reject_join_request', {
+        p_request_id: requestId
+      });
+      
+      if (error) {
+        Alert.alert("Erreur", error.message);
+        return;
+      }
+      
+      // Recharger les demandes
+      await loadJoinRequests(activeGroup?.id);
+      
+      Alert.alert("Demande rejetée", "La demande a été rejetée.");
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? "Impossible de rejeter la demande");
+    }
+  }, [activeGroup?.id, loadJoinRequests]);
   const onLeaveGroup = useCallback(() => {
     if (!activeGroup?.id) return;
 
@@ -1258,10 +1347,18 @@ Padel Sync — Ton match en 3 clics 🎾`;
             </View>
 
             {/* Actions groupe actif */}
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
+            <View style={{ flexDirection: "row", marginTop: 12, gap: 8 }}>
               <Pressable onPress={press("open-members-modal", () => setMembersModalVisible(true))} style={[s.btn, { backgroundColor: "#f3f4f6", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
                 <Text style={[s.btnTxt, { color: "#111827" }]}>Voir les membres ({members.length})</Text>
               </Pressable>
+              {isAdmin && joinRequests.length > 0 && (
+                <Pressable 
+                  onPress={press("open-join-requests-modal", () => setJoinRequestsModalVisible(true))} 
+                  style={[s.btn, { backgroundColor: "#dc2626", flex: 1, position: "relative" }, Platform.OS === "web" && { cursor: "pointer" }]}
+                >
+                  <Text style={[s.btnTxt, { color: "#ffffff" }]}>Demandes ({joinRequests.length})</Text>
+                </Pressable>
+              )}
             </View>
 
             {/* Invite buttons row (moved under "Voir les membres") */}
