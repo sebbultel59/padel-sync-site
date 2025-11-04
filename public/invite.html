@@ -4,6 +4,52 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Padel Sync – Invitation</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #001831 0%, #1a4b97 100%);
+        color: white;
+        text-align: center;
+        padding: 20px;
+      }
+      .container {
+        max-width: 400px;
+      }
+      h1 {
+        font-size: 24px;
+        margin-bottom: 20px;
+      }
+      p {
+        font-size: 16px;
+        line-height: 1.5;
+        margin-bottom: 20px;
+      }
+      .spinner {
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top: 3px solid white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .error {
+        background: rgba(255, 0, 0, 0.2);
+        border: 1px solid rgba(255, 0, 0, 0.5);
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 20px;
+      }
+    </style>
     <script>
       // Récupère le group_id dans l'URL: /invite?group_id=ABC123 ou /invite/ABC123
       const params = new URLSearchParams(window.location.search);
@@ -18,26 +64,75 @@
         }
       }
       
+      function showError(message) {
+        document.body.innerHTML = `
+          <div class="container">
+            <h1>Erreur</h1>
+            <div class="error">
+              <p>${message}</p>
+            </div>
+          </div>
+        `;
+      }
+      
       if (!groupId) {
-        // Pas de group_id, redirige vers la page de téléchargement
-        window.location.href = '/download';
-        document.body.innerHTML = '<p style="padding: 20px; text-align: center;">Lien d\'invitation invalide</p>';
+        // Pas de group_id, afficher un message d'erreur
+        showError('Lien d\'invitation invalide. Le lien doit contenir un group_id.');
       } else {
+        // Afficher le message de chargement
+        document.body.innerHTML = `
+          <div class="container">
+            <h1>Ouverture de l'invitation…</h1>
+            <div class="spinner"></div>
+            <p>Redirection vers l'app Padel Sync…</p>
+            <p style="font-size: 14px; opacity: 0.8;">Si l'app ne s'ouvre pas automatiquement, vérifiez qu'elle est installée.</p>
+          </div>
+        `;
+        
         // Essaie d'ouvrir l'app via le schéma custom
         const scheme = `padelsync://join?group_id=${groupId}`;
-        const fallback = '/download'; // page de secours
         
-        // Lance l'ouverture de l'app
-        window.location.href = scheme;
+        // Détecter si on est sur mobile ou desktop
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         
-        // Si l'app n'est pas installée, redirige après ~1.2s
-        setTimeout(() => {
-          window.location.href = fallback;
-        }, 1200);
+        if (isMobile) {
+          // Sur mobile, essayer d'ouvrir l'app directement
+          window.location.href = scheme;
+          
+          // Si l'app n'est pas installée, on restera sur la page
+          // On peut afficher un message après un délai
+          setTimeout(() => {
+            document.querySelector('.container').innerHTML = `
+              <h1>App non installée</h1>
+              <p>L'app Padel Sync n'est pas installée sur votre appareil.</p>
+              <p style="margin-top: 20px;">
+                <a href="https://apps.apple.com/app/padel-sync/id6754223924" style="color: white; text-decoration: underline;">Télécharger sur l'App Store</a><br>
+                <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" style="color: white; text-decoration: underline;">Télécharger sur Google Play</a>
+              </p>
+            `;
+          }, 2000);
+        } else {
+          // Sur desktop, afficher un message et un lien QR code
+          document.querySelector('.container').innerHTML = `
+            <h1>Invitation reçue</h1>
+            <p>Pour rejoindre le groupe, ouvrez ce lien sur votre appareil mobile avec l'app Padel Sync installée.</p>
+            <p style="font-size: 14px; margin-top: 20px;">
+              Lien direct : <code style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px;">${scheme}</code>
+            </p>
+            <p style="font-size: 14px; margin-top: 20px;">
+              Ou scannez ce QR code avec l'app :
+            </p>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(scheme)}" alt="QR Code" style="margin: 20px auto; display: block; border-radius: 8px;" />
+          `;
+        }
       }
     </script>
   </head>
   <body>
-    <p style="padding: 20px; text-align: center;">Ouverture de l'invitation…</p>
+    <div class="container">
+      <h1>Ouverture de l'invitation…</h1>
+      <div class="spinner"></div>
+      <p>Redirection vers l'app Padel Sync…</p>
+    </div>
   </body>
 </html>
