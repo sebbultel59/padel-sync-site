@@ -9,23 +9,15 @@
     "routes": [
       {
         "src": "/invite",
-        "dest": "/public/invite.html"
+        "dest": "/invite.html"
       },
       {
         "src": "/join",
-        "dest": "/public/join.html"
-      },
-      {
-        "src": "/invite.html",
-        "dest": "/public/invite.html"
-      },
-      {
-        "src": "/join.html",
-        "dest": "/public/join.html"
+        "dest": "/join.html"
       },
       {
         "src": "/(.*)",
-        "dest": "/public/$1"
+        "dest": "/$1"
       }
     ],
     "headers": [
