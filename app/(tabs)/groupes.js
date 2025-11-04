@@ -471,7 +471,7 @@ export default function GroupesScreen() {
           user_id,
           status,
           requested_at,
-          profiles:user_id (
+          profiles!group_join_requests_user_id_fkey (
             id,
             name,
             display_name,
@@ -484,12 +484,50 @@ export default function GroupesScreen() {
       
       if (error) {
         console.error('[loadJoinRequests] Error:', error);
+        // Si la foreign key join ne fonctionne pas, charger les profils séparément
+        const { data: simpleRequests, error: simpleError } = await supabase
+          .from('group_join_requests')
+          .select('id, user_id, status, requested_at')
+          .eq('group_id', groupId)
+          .eq('status', 'pending')
+          .order('requested_at', { ascending: false });
+        
+        if (simpleError) {
+          console.error('[loadJoinRequests] Simple query error:', simpleError);
+          setJoinRequests([]);
+          return;
+        }
+        
+        // Charger les profils séparément
+        if (simpleRequests && simpleRequests.length > 0) {
+          const userIds = simpleRequests.map(r => r.user_id);
+          const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, name, display_name, avatar_url')
+            .in('id', userIds);
+          
+          if (profilesError) {
+            console.error('[loadJoinRequests] Profiles error:', profilesError);
+            setJoinRequests([]);
+            return;
+          }
+          
+          const profilesById = Object.fromEntries((profiles || []).map(p => [p.id, p]));
+          const requestsWithProfiles = simpleRequests.map(r => ({
+            ...r,
+            profiles: profilesById[r.user_id] || null
+          }));
+          setJoinRequests(requestsWithProfiles);
+        } else {
+          setJoinRequests([]);
+        }
         return;
       }
       
       setJoinRequests(requests || []);
     } catch (e) {
       console.error('[loadJoinRequests] Exception:', e);
+      setJoinRequests([]);
     }
   }, []);
 
