@@ -511,8 +511,8 @@ export default function GroupesScreen() {
     try {
       const deepLink = buildInviteDeepLink(activeGroup.id);
       // Liens de téléchargement de l'app
-      const iosAppLink = "https://apps.apple.com/app/padel-sync/id6738336258"; // À mettre à jour avec le vrai lien App Store
-      const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app"; // À mettre à jour avec le vrai lien Play Store
+      const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
+      const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app"; // À mettre à jour avec le vrai lien Play Store si nécessaire
       
       const message = `Rejoins mon groupe Padel Sync ! 🎾
 
