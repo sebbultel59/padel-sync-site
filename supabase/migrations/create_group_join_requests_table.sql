@@ -123,8 +123,8 @@ BEGIN
     RAISE EXCEPTION 'Vous avez déjà une demande en attente pour ce groupe';
   END IF;
   
-  -- Vérifier que c'est un groupe public avec join_policy = 'request'
-  IF v_visibility != 'public' OR v_join_policy != 'request' THEN
+  -- Vérifier que c'est un groupe public avec join_policy = 'request' ou 'invite'
+  IF v_visibility != 'public' OR (v_join_policy != 'request' AND v_join_policy != 'invite') THEN
     RAISE EXCEPTION 'Ce groupe ne nécessite pas de demande';
   END IF;
   

@@ -770,9 +770,10 @@ Padel Sync — Ton match en 3 clics 🎾`;
         
         console.log('[onJoinPublic] Normalized values:', { visibility, joinPolicy });
         
-        // Si c'est un groupe public "sur demande", afficher la popup de confirmation
-        if (visibility === 'public' && joinPolicy === 'request') {
-          console.log('[onJoinPublic] Groupe "sur demande" détecté, affichage popup');
+        // Si c'est un groupe public "sur demande" ou "sur invitation", afficher la popup de confirmation
+        // Note: "invite" et "request" nécessitent tous deux une demande d'approbation
+        if (visibility === 'public' && (joinPolicy === 'request' || joinPolicy === 'invite')) {
+          console.log('[onJoinPublic] Groupe "sur demande/sur invitation" détecté, affichage popup');
           setPendingJoinGroupId(groupId);
           setPendingJoinGroupName(groupData.name);
           setJoinRequestConfirmVisible(true);
