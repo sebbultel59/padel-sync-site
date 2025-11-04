@@ -8,8 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint",
-    "vercel-build": "echo 'Static files in public/' && ls -la public/"
+    "lint": "expo lint"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
