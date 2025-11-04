@@ -759,11 +759,19 @@ Padel Sync — Ton match en 3 clics 🎾`;
           id: groupData.id, 
           name: groupData.name, 
           visibility: groupData.visibility, 
-          join_policy: groupData.join_policy 
+          join_policy: groupData.join_policy,
+          visibilityType: typeof groupData.visibility,
+          joinPolicyType: typeof groupData.join_policy
         });
         
+        // Normaliser les valeurs (au cas où il y aurait des espaces ou des variations)
+        const visibility = (groupData.visibility || '').trim().toLowerCase();
+        const joinPolicy = (groupData.join_policy || '').trim().toLowerCase();
+        
+        console.log('[onJoinPublic] Normalized values:', { visibility, joinPolicy });
+        
         // Si c'est un groupe public "sur demande", afficher la popup de confirmation
-        if (groupData.visibility === 'public' && groupData.join_policy === 'request') {
+        if (visibility === 'public' && joinPolicy === 'request') {
           console.log('[onJoinPublic] Groupe "sur demande" détecté, affichage popup');
           setPendingJoinGroupId(groupId);
           setPendingJoinGroupName(groupData.name);
@@ -772,7 +780,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
         
         // Pour les groupes publics "ouverts", rejoindre directement
-        if (groupData.visibility === 'public' && groupData.join_policy === 'open') {
+        if (visibility === 'public' && joinPolicy === 'open') {
           console.log('[onJoinPublic] Groupe "ouvert" détecté, rejoindre directement');
           const { data: rpcData, error: rpcError } = await supabase.rpc('join_public_group', {
             p_group_id: groupId
@@ -797,7 +805,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
         
         // Pour les autres types de groupes, ne pas permettre
-        Alert.alert("Impossible de rejoindre", "Ce groupe nécessite une invitation valide.");
+        console.warn('[onJoinPublic] Type de groupe non géré:', { visibility, joinPolicy });
+        Alert.alert("Impossible de rejoindre", `Ce groupe nécessite une invitation valide. (visibility: ${visibility}, join_policy: ${joinPolicy})`);
       } catch (e) {
         console.error('[onJoinPublic] Exception:', e);
         Alert.alert("Impossible de rejoindre", e?.message ?? String(e));
