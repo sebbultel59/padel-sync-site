@@ -1,5 +1,4 @@
 {
-    "buildCommand": "mkdir -p public && ls -la public/",
     "outputDirectory": "public",
     "framework": null,
     "headers": [
