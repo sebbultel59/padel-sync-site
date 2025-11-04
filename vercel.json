@@ -1,6 +1,6 @@
 {
-    "cleanUrls": true,
-    "trailingSlash": false,
+    "buildCommand": "echo 'Static files ready'",
+    "outputDirectory": "public",
     "rewrites": [
       {
         "source": "/invite",
@@ -9,6 +9,10 @@
       {
         "source": "/join",
         "destination": "/join.html"
+      },
+      {
+        "source": "/(.*)",
+        "destination": "/$1"
       }
     ],
     "headers": [

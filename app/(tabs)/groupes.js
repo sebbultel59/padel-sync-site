@@ -509,7 +509,7 @@ export default function GroupesScreen() {
   const onInviteLink = useCallback(async () => {
     if (!activeGroup?.id) return;
     try {
-      const deepLink = buildInviteDeepLink(activeGroup.id);
+      const webLink = buildInviteWebLink(activeGroup.id);
       // Liens de téléchargement de l'app
       const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
       const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
@@ -520,20 +520,15 @@ export default function GroupesScreen() {
    iOS : ${iosAppLink}
    Android : ${androidAppLink}
 
-🔗 Une fois l'app installée :
-1. Ouvre l'app Padel Sync
-2. Va dans l'onglet "Groupes" 
-3. Clique sur "Rejoindre un groupe"
-4. Entre le code d'invitation ou clique sur le lien ci-dessous
+🔗 Une fois l'app installée, clique sur ce lien pour rejoindre :
+${webLink}
 
-Lien direct : ${deepLink}
-
-(Copie-colle ce lien dans ton navigateur ou utilise-le directement dans l'app)`;
+Ce lien ouvrira automatiquement l'app et te permettra de rejoindre le groupe.`;
       await Share.share({ message });
     } catch (e) {
       Alert.alert("Partage impossible", e?.message ?? String(e));
     }
-  }, [activeGroup?.id, buildInviteDeepLink]);
+  }, [activeGroup?.id, buildInviteWebLink]);
 
   const onInviteQR = useCallback(() => {
     if (!activeGroup?.id) return;
