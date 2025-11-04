@@ -1116,6 +1116,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
           </View>
         )}
 
+        {/* Bouton Rejoindre un groupe */}
+        <Pressable 
+          onPress={press("join-group", () => nav.push("/join"))} 
+          style={[s.btn, { backgroundColor: "#1a4b97", marginTop: 12, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+        >
+          <Ionicons name="add-circle-outline" size={20} color="#ffffff" />
+          <Text style={[s.btnTxt, { fontSize: 16 }]}>Rejoindre un groupe</Text>
+        </Pressable>
+
         {/* Mes groupes */}
         <View style={s.sectionHeader}>
           <Text style={s.sectionTitle}>Mes groupes</Text>
@@ -1157,16 +1166,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
         {/* Groupes publics */}
         <View style={s.sectionHeader}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={s.sectionTitle}>Groupes publics</Text>
-            <Pressable 
-              onPress={press("join-group", () => nav.push("/join"))} 
-              style={[s.btnTiny, { backgroundColor: "#1a4b97", paddingHorizontal: 12, paddingVertical: 6 }, Platform.OS === "web" && { cursor: "pointer" }]}
-            >
-              <Ionicons name="add-circle-outline" size={16} color="#ffffff" style={{ marginRight: 4 }} />
-              <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>Rejoindre un groupe</Text>
-            </Pressable>
-          </View>
+          <Text style={s.sectionTitle}>Groupes publics</Text>
         </View>
         {(groups.open ?? []).length === 0 ? (
           <View style={[s.card, { alignItems: "center" }]}>
