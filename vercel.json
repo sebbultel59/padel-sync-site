@@ -1,23 +1,14 @@
 {
-    "version": 2,
-    "builds": [
+    "cleanUrls": true,
+    "trailingSlash": false,
+    "rewrites": [
       {
-        "src": "public/**",
-        "use": "@vercel/static"
-      }
-    ],
-    "routes": [
-      {
-        "src": "/invite",
-        "dest": "/invite.html"
+        "source": "/invite",
+        "destination": "/invite.html"
       },
       {
-        "src": "/join",
-        "dest": "/join.html"
-      },
-      {
-        "src": "/(.*)",
-        "dest": "/$1"
+        "source": "/join",
+        "destination": "/join.html"
       }
     ],
     "headers": [

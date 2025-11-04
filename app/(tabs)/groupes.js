@@ -1110,7 +1110,16 @@ Lien direct : ${deepLink}
 
         {/* Groupes publics */}
         <View style={s.sectionHeader}>
-          <Text style={s.sectionTitle}>Groupes publics</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={s.sectionTitle}>Groupes publics</Text>
+            <Pressable 
+              onPress={press("join-group", () => nav.push("/join"))} 
+              style={[s.btnTiny, { backgroundColor: "#1a4b97", paddingHorizontal: 12, paddingVertical: 6 }, Platform.OS === "web" && { cursor: "pointer" }]}
+            >
+              <Ionicons name="add-circle-outline" size={16} color="#ffffff" style={{ marginRight: 4 }} />
+              <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>Rejoindre un groupe</Text>
+            </Pressable>
+          </View>
         </View>
         {(groups.open ?? []).length === 0 ? (
           <View style={[s.card, { alignItems: "center" }]}>
