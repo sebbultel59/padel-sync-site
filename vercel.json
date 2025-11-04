@@ -9,15 +9,17 @@
         }
       }
     ],
+    "rewrites": [
+      {
+        "source": "/invite",
+        "destination": "/invite.html"
+      },
+      {
+        "source": "/join",
+        "destination": "/join.html"
+      }
+    ],
     "routes": [
-      {
-        "src": "/invite",
-        "dest": "/invite.html"
-      },
-      {
-        "src": "/join",
-        "dest": "/join.html"
-      },
       {
         "src": "/(.*\\.html)",
         "dest": "/$1"
