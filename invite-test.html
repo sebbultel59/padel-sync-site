@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Padel Sync – Invitation</title>
+    <script>
+      // Récupère le group_id dans l'URL: /invite?group_id=ABC123 ou /invite/ABC123
+      const params = new URLSearchParams(window.location.search);
+      let groupId = params.get('group_id') || '';
+      
+      // Si pas de group_id dans les query params, essayer de le récupérer du path
+      if (!groupId) {
+        const path = location.pathname;
+        const pathParts = path.split("/").filter(p => p);
+        if (pathParts.length > 0 && pathParts[pathParts.length - 1] !== 'invite') {
+          groupId = pathParts[pathParts.length - 1];
+        }
+      }
+      
+      if (!groupId) {
+        // Pas de group_id, redirige vers la page de téléchargement
+        window.location.href = '/download';
+        document.body.innerHTML = '<p style="padding: 20px; text-align: center;">Lien d\'invitation invalide</p>';
+      } else {
+        // Essaie d'ouvrir l'app via le schéma custom
+        const scheme = `padelsync://join?group_id=${groupId}`;
+        const fallback = '/download'; // page de secours
+        
+        // Lance l'ouverture de l'app
+        window.location.href = scheme;
+        
+        // Si l'app n'est pas installée, redirige après ~1.2s
+        setTimeout(() => {
+          window.location.href = fallback;
+        }, 1200);
+      }
+    </script>
+  </head>
+  <body>
+    <p style="padding: 20px; text-align: center;">Ouverture de l'invitation…</p>
+  </body>
+</html>
