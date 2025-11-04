@@ -1,5 +1,5 @@
 {
-    "buildCommand": "echo 'Static files - no build needed'",
+    "buildCommand": "mkdir -p public && ls -la public/",
     "outputDirectory": "public",
     "framework": null,
     "headers": [
