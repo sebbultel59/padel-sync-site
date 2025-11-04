@@ -1,6 +1,25 @@
 {
-    "outputDirectory": "public",
-    "framework": null,
+    "version": 2,
+    "builds": [
+      {
+        "src": "public/**",
+        "use": "@vercel/static"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/invite",
+        "dest": "/invite.html"
+      },
+      {
+        "src": "/join",
+        "dest": "/join.html"
+      },
+      {
+        "src": "/(.*)",
+        "dest": "/$1"
+      }
+    ],
     "headers": [
       {
         "source": "/apple-app-site-association",
@@ -19,16 +38,6 @@
             "value": "application/json"
           }
         ]
-      }
-    ],
-    "rewrites": [
-      {
-        "source": "/invite",
-        "destination": "/invite.html"
-      },
-      {
-        "source": "/join",
-        "destination": "/join.html"
       }
     ]
   }
