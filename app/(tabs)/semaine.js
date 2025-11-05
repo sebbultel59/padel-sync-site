@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
+import racketIcon from '../../assets/icons/racket.png';
 
 
 // Fallback alert helper (web/mobile)
@@ -103,6 +104,8 @@ export default function Semaine() {
   const [persistedGroupId, setPersistedGroupId] = useState(null);
   const [groupMembers, setGroupMembers] = useState([]); // membres du groupe actuel
   const [applyToAllGroups, setApplyToAllGroups] = useState(true); // toggle global vs groupe spécifique
+  const [isAdmin, setIsAdmin] = useState(false); // admin du groupe ou super admin
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // super admin
   // Sélecteur de groupe
   const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
   const [myGroups, setMyGroups] = useState([]);
@@ -162,6 +165,58 @@ export default function Semaine() {
   useEffect(() => {
     loadGroupMembers(groupId);
   }, [groupId, loadGroupMembers]);
+
+  // Charger le statut admin et super admin
+  useEffect(() => {
+    (async () => {
+      if (!meId || !groupId) {
+        setIsAdmin(false);
+        setIsSuperAdmin(false);
+        return;
+      }
+      
+      try {
+        // Vérifier si l'utilisateur est admin du groupe
+        const { data: meRow, error: eMe } = await supabase
+          .from("group_members")
+          .select("role")
+          .eq("group_id", groupId)
+          .eq("user_id", meId)
+          .maybeSingle();
+        
+        if (eMe) throw eMe;
+        
+        const isGroupAdmin = meRow?.role === "admin" || meRow?.role === "owner";
+        
+        // Vérifier si l'utilisateur est owner du groupe
+        const { data: groupData, error: eGroup } = await supabase
+          .from("groups")
+          .select("owner_id")
+          .eq("id", groupId)
+          .maybeSingle();
+        
+        if (eGroup) throw eGroup;
+        
+        const isOwner = groupData?.owner_id === meId;
+        
+        // Vérifier si l'utilisateur est super admin
+        const { data: saRow, error: saErr } = await supabase
+          .from('super_admins')
+          .select('user_id')
+          .eq('user_id', meId)
+          .maybeSingle();
+        
+        if (saErr) console.warn('[Semaine] super_admins check failed:', saErr.message);
+        
+        setIsSuperAdmin(!!saRow?.user_id);
+        setIsAdmin(isGroupAdmin || isOwner || !!saRow?.user_id);
+      } catch (e) {
+        console.warn('[Semaine] Erreur chargement admin:', e?.message ?? String(e));
+        setIsAdmin(false);
+        setIsSuperAdmin(false);
+      }
+    })();
+  }, [meId, groupId]);
 
   const params = useLocalSearchParams();
 
@@ -1507,23 +1562,47 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 opacity: pressed ? 0.92 : 1,
               })}
             >
-              {/* Point bleu en haut à droite si JE suis dispo sur ce créneau */}
-              {myStatus === 'available' && (
-                <View style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: 3, backgroundColor: '#1d4ed8' }} />
+              {/* Affichage pour les admins : nombre de disponibilités */}
+              {isAdmin ? (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      lineHeight: 14,
+                      fontWeight: '900',
+                      color: availableCount >= 4 ? '#0b2240' : '#0b2240',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {availableCount}
+                  </Text>
+                </View>
+              ) : (
+                /* Affichage pour les joueurs : icône raquette sur fond vert si disponible */
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                  {myStatus === 'available' ? (
+                    <View style={{
+                      backgroundColor: '#2dc149',
+                      borderRadius: 6,
+                      padding: 4,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 24,
+                      height: 24,
+                    }}>
+                      <Image
+                        source={racketIcon}
+                        style={{
+                          width: 16,
+                          height: 16,
+                          tintColor: '#ffffff',
+                        }}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  ) : null}
+                </View>
               )}
-              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    lineHeight: 14,
-                    fontWeight: '900',
-                    color: availableCount >= 4 ? '#0b2240' : '#0b2240',
-                    textAlign: 'center',
-                  }}
-                >
-                  {availableCount}
-                </Text>
-              </View>
             </Pressable>
           );
         })}
