@@ -267,6 +267,12 @@ export default function MatchesScreen() {
   // Modale des matchs en feu
   const [hotMatchesModalVisible, setHotMatchesModalVisible] = useState(false);
   
+  // Modale d'invitation de membres pour les matchs en feu
+  const [inviteHotMatchModalVisible, setInviteHotMatchModalVisible] = useState(false);
+  const [hotMatchMembers, setHotMatchMembers] = useState([]);
+  const [loadingHotMatchMembers, setLoadingHotMatchMembers] = useState(false);
+  const [selectedHotMatch, setSelectedHotMatch] = useState(null);
+  
   // Le filtre géographique est actif si un point de référence est défini
   const filterByGeo = filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null;
   
