@@ -921,7 +921,7 @@ const hotMatches = React.useMemo(
       me_id: meId,
     }));
   },
-  [ready, meId, groupId, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
+  [readyAll, meId, groupId, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
 );
 
   const confirmedHour = React.useMemo(
@@ -1829,6 +1829,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           return { ...slot, ready_user_ids: nextIds };
         });
 
+        // Stocker adjusted AVANT le filtrage à 4 joueurs pour les matchs en feu
+        setReadyAll(adjusted);
+        
         // Keep only slots with >=4 remaining players
         adjusted = adjusted.filter(slot => Array.isArray(slot.ready_user_ids) && slot.ready_user_ids.length >= 4);
 
@@ -1839,7 +1842,6 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         const hourReadyFiltered = adjusted.filter(s => durationMinutes(s.starts_at, s.ends_at) <= 60);
 
         setReady(adjusted);
-        setReadyAll(adjusted); // Stocker aussi adjusted (après enlèvement des joueurs engagés) pour les matchs en feu
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
         setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
