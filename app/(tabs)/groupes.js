@@ -1402,9 +1402,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Avatar url={activeRecord.avatar_url} fallback={activeRecord.name} size={56} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: "800", fontSize: 18, color: "#001831", textTransform: 'uppercase' }}>
-                  {activeRecord.name}
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ fontWeight: "800", fontSize: 18, color: "#001831", textTransform: 'uppercase' }}>
+                    {activeRecord.name}
+                  </Text>
+                  {isAdmin && (
+                    <Text style={{ fontSize: 16, lineHeight: 20 }}>👑</Text>
+                  )}
+                </View>
                 <Text style={{ color: "#5b89b8", marginTop: 2, fontWeight: "700" }}>
                   {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
                 </Text>
