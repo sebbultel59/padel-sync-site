@@ -7328,7 +7328,7 @@ const HourSlotRow = ({ item }) => {
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   backgroundColor: isMe ? '#fef3c7' : '#ffffff',
-                                  padding: 2,
+                                  padding: 0,
                                   borderRadius: 20,
                                   borderWidth: isMe ? 1.5 : 0.5,
                                   borderColor: isMe ? '#f59e0b' : '#e5e7eb',
