@@ -7453,110 +7453,83 @@ const HourSlotRow = ({ item }) => {
                   <Pressable
                     key={member.id}
                     onPress={async () => {
-                      if (!selectedHotMatch) return;
+                      if (!selectedHotMatch) {
+                        console.warn('[InviteHotMatch] selectedHotMatch is null');
+                        return;
+                      }
                       try {
-                        // Créer un match pour ce créneau
-                        const timeSlotId = selectedHotMatch.time_slot_id;
-                        if (!timeSlotId || timeSlotId.startsWith('virtual-')) {
-                          // Pour les créneaux virtuels, on doit créer un time_slot d'abord
-                          Alert.alert('Info', 'Pour inviter un joueur, vous devez d\'abord créer un match depuis ce créneau.');
-                          setInviteHotMatchModalVisible(false);
+                        console.log('[InviteHotMatch] Invitation de', member.id, 'pour créneau', selectedHotMatch.time_slot_id);
+                        
+                        const slot = selectedHotMatch.time_slots || {};
+                        if (!slot.starts_at || !slot.ends_at) {
+                          Alert.alert('Erreur', 'Créneau invalide');
                           return;
                         }
                         
-                        // Créer le match si nécessaire
-                        const { data: existingMatch } = await supabase
-                          .from('matches')
-                          .select('id')
-                          .eq('group_id', groupId)
-                          .eq('time_slot_id', timeSlotId)
-                          .maybeSingle();
-                        
-                        let matchId = existingMatch?.id;
-                        
-                        if (!matchId) {
-                          // Créer le match
-                          const { error: createError } = await supabase.rpc("create_match_from_slot", {
-                            p_group: groupId,
-                            p_time_slot: timeSlotId,
+                        // Créer une disponibilité pour ce joueur sur ce créneau
+                        const { error: availabilityError } = await supabase
+                          .from('availability')
+                          .upsert({
+                            group_id: groupId,
+                            user_id: member.id,
+                            start: slot.starts_at,
+                            end: slot.ends_at,
+                            status: 'available',
+                          }, { 
+                            onConflict: 'group_id,user_id,start,end',
+                            ignoreDuplicates: false 
                           });
-                          if (createError) throw createError;
-                          
-                          // Récupérer l'ID du match créé
-                          const { data: newMatch } = await supabase
-                            .from('matches')
-                            .select('id')
-                            .eq('group_id', groupId)
-                            .eq('time_slot_id', timeSlotId)
-                            .order('created_at', { ascending: false })
-                            .limit(1)
-                            .maybeSingle();
-                          
-                          matchId = newMatch?.id;
-                          
-                          // Auto-RSVP pour le créateur
-                          if (matchId && meId) {
-                            await supabase
-                              .from('match_rsvps')
-                              .upsert(
-                                { match_id: matchId, user_id: meId, status: 'accepted' },
-                                { onConflict: 'match_id,user_id' }
-                              );
+                        
+                        if (availabilityError) {
+                          console.error('[InviteHotMatch] Erreur création disponibilité:', availabilityError);
+                          throw availabilityError;
+                        }
+                        
+                        // Envoyer une notification au joueur pour qu'il valide sa disponibilité
+                        if (member.expo_push_token && member.expo_push_token.startsWith('ExponentPushToken')) {
+                          try {
+                            const dateStr = new Date(slot.starts_at).toLocaleDateString('fr-FR', { 
+                              weekday: 'long', 
+                              day: 'numeric', 
+                              month: 'long',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            });
+                            
+                            const response = await fetch('https://exp.host/--/api/v2/push/send', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                to: member.expo_push_token,
+                                sound: 'default',
+                                title: '🔥 Match en feu',
+                                body: `Il ne manque qu'un joueur pour un match le ${dateStr} ! Valide ta disponibilité.`,
+                                data: { 
+                                  type: 'hot_match_invite', 
+                                  group_id: groupId,
+                                  starts_at: slot.starts_at,
+                                  ends_at: slot.ends_at
+                                },
+                              }),
+                            });
+                            
+                            if (!response.ok) {
+                              console.warn('[InviteHotMatch] Échec envoi notification:', await response.text());
+                            }
+                          } catch (notifError) {
+                            console.warn('[InviteHotMatch] Erreur notification:', notifError);
                           }
                         }
                         
-                        if (matchId) {
-                          // Inviter le joueur en créant un RSVP "maybe"
-                          const { error: rsvpError } = await supabase
-                            .from('match_rsvps')
-                            .upsert({
-                              match_id: matchId,
-                              user_id: member.id,
-                              status: 'maybe',
-                            }, { onConflict: 'match_id,user_id' });
-                          
-                          if (rsvpError) throw rsvpError;
-                          
-                          // Envoyer une notification au joueur invité
-                          if (member.expo_push_token && member.expo_push_token.startsWith('ExponentPushToken')) {
-                            try {
-                              const slot = selectedHotMatch.time_slots || {};
-                              const dateStr = slot.starts_at && slot.ends_at 
-                                ? new Date(slot.starts_at).toLocaleDateString('fr-FR', { 
-                                    weekday: 'long', 
-                                    day: 'numeric', 
-                                    month: 'long',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
-                                : 'ce match';
-                              
-                              const response = await fetch('https://exp.host/--/api/v2/push/send', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  to: member.expo_push_token,
-                                  sound: 'default',
-                                  title: '🎾 Invitation à un match',
-                                  body: `Il ne manque qu'un joueur pour ton match du ${dateStr} !`,
-                                  data: { type: 'match_invite', match_id: matchId, group_id: groupId },
-                                }),
-                              });
-                              
-                              if (!response.ok) {
-                                console.warn('[Invite] Échec envoi notification:', await response.text());
-                              }
-                            } catch (notifError) {
-                              console.warn('[Invite] Erreur notification:', notifError);
-                            }
-                          }
-                          
-                          Alert.alert('Invitation envoyée', `${member.display_name || member.email} a été invité au match.`);
-                          setInviteHotMatchModalVisible(false);
-                          // Recharger les données
-                          fetchData();
-                        }
+                        Alert.alert(
+                          'Disponibilité créée', 
+                          `${member.display_name || member.email} a été alerté pour valider sa disponibilité sur ce créneau.`
+                        );
+                        setInviteHotMatchModalVisible(false);
+                        // Recharger les données
+                        fetchData();
                       } catch (e) {
+                        console.error('[InviteHotMatch] Erreur:', e);
                         Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
                       }
                     }}
