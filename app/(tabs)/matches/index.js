@@ -7504,6 +7504,242 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Modale de contacts du joueur */}
+      <Modal visible={playerContactsModalVisible} transparent animationType="fade" onRequestClose={() => setPlayerContactsModalVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Contacts</Text>
+              <Pressable onPress={() => setPlayerContactsModalVisible(false)} style={{ padding: 8 }}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+            
+            {selectedPlayerForContacts ? (
+              <>
+                {/* Avatar et nom */}
+                <View style={{ alignItems: 'center', marginBottom: 24 }}>
+                  {selectedPlayerForContacts.avatar_url ? (
+                    <Image
+                      source={{ uri: selectedPlayerForContacts.avatar_url }}
+                      style={{ width: 80, height: 80, borderRadius: 40, marginBottom: 12 }}
+                    />
+                  ) : (
+                    <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                      <Text style={{ color: '#156bc9', fontWeight: '800', fontSize: 32 }}>
+                        {(selectedPlayerForContacts.display_name || selectedPlayerForContacts.email || 'J').substring(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={{ fontWeight: '800', color: '#111827', fontSize: 18, marginBottom: 4 }}>
+                    {selectedPlayerForContacts.display_name || selectedPlayerForContacts.email || 'Joueur'}
+                  </Text>
+                  {selectedPlayerForContacts.niveau && (
+                    <Text style={{ fontSize: 14, color: '#6b7280' }}>
+                      Niveau {selectedPlayerForContacts.niveau}
+                    </Text>
+                  )}
+                </View>
+
+                {/* Boutons de contact */}
+                <View style={{ gap: 12 }}>
+                  {selectedPlayerForContacts.phone ? (
+                    <Pressable
+                      onPress={() => {
+                        const telUrl = `tel:${selectedPlayerForContacts.phone}`;
+                        Linking.openURL(telUrl).catch(() => {
+                          Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
+                        });
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 14,
+                        paddingHorizontal: 16,
+                        backgroundColor: '#f3f4f6',
+                        borderRadius: 10,
+                        gap: 12,
+                      }}
+                    >
+                      <Ionicons name="call" size={24} color="#15803d" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: '#111827', fontSize: 16 }}>Téléphone</Text>
+                        <Text style={{ color: '#6b7280', fontSize: 14 }}>{selectedPlayerForContacts.phone}</Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+
+                  {selectedPlayerForContacts.email ? (
+                    <Pressable
+                      onPress={() => {
+                        const mailUrl = `mailto:${selectedPlayerForContacts.email}`;
+                        Linking.openURL(mailUrl).catch(() => {
+                          Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application email');
+                        });
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 14,
+                        paddingHorizontal: 16,
+                        backgroundColor: '#f3f4f6',
+                        borderRadius: 10,
+                        gap: 12,
+                      }}
+                    >
+                      <Ionicons name="mail" size={24} color="#156bc9" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: '#111827', fontSize: 16 }}>Email</Text>
+                        <Text style={{ color: '#6b7280', fontSize: 14 }}>{selectedPlayerForContacts.email}</Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+
+                  {selectedPlayerForContacts.phone ? (
+                    <Pressable
+                      onPress={() => {
+                        const smsUrl = `sms:${selectedPlayerForContacts.phone}`;
+                        Linking.openURL(smsUrl).catch(() => {
+                          Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application SMS');
+                        });
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 14,
+                        paddingHorizontal: 16,
+                        backgroundColor: '#f3f4f6',
+                        borderRadius: 10,
+                        gap: 12,
+                      }}
+                    >
+                      <Ionicons name="chatbubble" size={24} color="#7c3aed" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: '#111827', fontSize: 16 }}>SMS</Text>
+                        <Text style={{ color: '#6b7280', fontSize: 14 }}>{selectedPlayerForContacts.phone}</Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+
+                  {/* Bouton pour inviter le joueur */}
+                  {selectedHotMatch && (
+                    <Pressable
+                      onPress={async () => {
+                        if (!selectedHotMatch) return;
+                        try {
+                          const slot = selectedHotMatch.time_slots || {};
+                          if (!slot.starts_at || !slot.ends_at) {
+                            Alert.alert('Erreur', 'Créneau invalide');
+                            return;
+                          }
+                          
+                          // Créer une disponibilité pour ce joueur sur ce créneau
+                          const { error: availabilityError } = await supabase
+                            .from('availability')
+                            .upsert({
+                              group_id: groupId,
+                              user_id: selectedPlayerForContacts.id,
+                              start: slot.starts_at,
+                              end: slot.ends_at,
+                              status: 'available',
+                            }, { 
+                              onConflict: 'group_id,user_id,start,end',
+                              ignoreDuplicates: false 
+                            });
+                          
+                          if (availabilityError) {
+                            console.error('[InviteHotMatch] Erreur création disponibilité:', availabilityError);
+                            throw availabilityError;
+                          }
+                          
+                          // Envoyer une notification au joueur pour qu'il valide sa disponibilité
+                          if (selectedPlayerForContacts.expo_push_token && selectedPlayerForContacts.expo_push_token.startsWith('ExponentPushToken')) {
+                            try {
+                              const dateStr = new Date(slot.starts_at).toLocaleDateString('fr-FR', { 
+                                weekday: 'long', 
+                                day: 'numeric', 
+                                month: 'long',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              });
+                              
+                              const response = await fetch('https://exp.host/--/api/v2/push/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  to: selectedPlayerForContacts.expo_push_token,
+                                  sound: 'default',
+                                  title: '🔥 Match en feu',
+                                  body: `Il ne manque qu'un joueur pour un match le ${dateStr} ! Valide ta disponibilité.`,
+                                  data: { 
+                                    type: 'hot_match_invite', 
+                                    group_id: groupId,
+                                    starts_at: slot.starts_at,
+                                    ends_at: slot.ends_at
+                                  },
+                                }),
+                              });
+                              
+                              if (!response.ok) {
+                                console.warn('[InviteHotMatch] Échec envoi notification:', await response.text());
+                              }
+                            } catch (notifError) {
+                              console.warn('[InviteHotMatch] Erreur notification:', notifError);
+                            }
+                          }
+                          
+                          Alert.alert(
+                            'Disponibilité créée', 
+                            `${selectedPlayerForContacts.display_name || selectedPlayerForContacts.email} a été alerté pour valider sa disponibilité sur ce créneau.`
+                          );
+                          setPlayerContactsModalVisible(false);
+                          setInviteHotMatchModalVisible(false);
+                          // Recharger les données
+                          fetchData();
+                        } catch (e) {
+                          console.error('[InviteHotMatch] Erreur:', e);
+                          Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
+                        }
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingVertical: 14,
+                        paddingHorizontal: 16,
+                        backgroundColor: '#ff751f',
+                        borderRadius: 10,
+                        gap: 8,
+                        marginTop: 8,
+                      }}
+                    >
+                      <Ionicons name="person-add" size={24} color="#ffffff" />
+                      <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
+                        Inviter pour ce match
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  {!selectedPlayerForContacts.phone && !selectedPlayerForContacts.email && (
+                    <View style={{ padding: 16, backgroundColor: '#fef3c7', borderRadius: 10 }}>
+                      <Text style={{ color: '#92400e', fontSize: 14, textAlign: 'center' }}>
+                        Aucun contact disponible pour ce joueur
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            ) : (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                  Aucun joueur sélectionné
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
