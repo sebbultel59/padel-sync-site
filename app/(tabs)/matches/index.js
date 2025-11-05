@@ -7361,9 +7361,244 @@ const HourSlotRow = ({ item }) => {
                       <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700', marginTop: 8 }}>
                         🔥 Il ne manque plus qu'un joueur !
                       </Text>
+                      
+                      {/* Bouton Inviter un joueur du groupe */}
+                      <Pressable
+                        onPress={async () => {
+                          setSelectedHotMatch(m);
+                          setLoadingHotMatchMembers(true);
+                          setInviteHotMatchModalVisible(true);
+                          try {
+                            // Charger les membres du groupe
+                            const { data: members, error } = await supabase
+                              .from('group_members')
+                              .select('user_id, role')
+                              .eq('group_id', groupId);
+                            if (error) throw error;
+
+                            const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
+                            if (userIds.length) {
+                              const { data: profs, error: profError } = await supabase
+                                .from('profiles')
+                                .select('id, display_name, avatar_url, niveau, phone, expo_push_token')
+                                .in('id', userIds);
+                              if (profError) throw profError;
+                              
+                              // Exclure les joueurs déjà disponibles sur ce créneau
+                              const availableUserIds = new Set(allAvailableIds.map(String));
+                              const availableMembers = (profs || []).filter(p => !availableUserIds.has(String(p.id)));
+                              
+                              setHotMatchMembers(availableMembers);
+                            } else {
+                              setHotMatchMembers([]);
+                            }
+                          } catch (e) {
+                            Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
+                            setHotMatchMembers([]);
+                          } finally {
+                            setLoadingHotMatchMembers(false);
+                          }
+                        }}
+                        style={{
+                          backgroundColor: '#ff751f',
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginTop: 12,
+                          gap: 6,
+                        }}
+                      >
+                        <Text style={{ fontSize: 16 }}>👋</Text>
+                        <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                          Inviter un joueur du groupe
+                        </Text>
+                      </Pressable>
                     </View>
                   );
                 })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modale d'invitation de membres pour les matchs en feu */}
+      <Modal visible={inviteHotMatchModalVisible} transparent animationType="fade" onRequestClose={() => setInviteHotMatchModalVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Inviter un joueur</Text>
+              <Pressable onPress={() => setInviteHotMatchModalVisible(false)} style={{ padding: 8 }}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+            
+            {loadingHotMatchMembers ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#156bc9" />
+                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
+              </View>
+            ) : hotMatchMembers.length === 0 ? (
+              <View style={{ padding: 20 }}>
+                <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                  Aucun membre disponible à inviter (tous sont déjà disponibles sur ce créneau).
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 400 }}>
+                {hotMatchMembers.map((member) => (
+                  <Pressable
+                    key={member.id}
+                    onPress={async () => {
+                      if (!selectedHotMatch) return;
+                      try {
+                        // Créer un match pour ce créneau
+                        const timeSlotId = selectedHotMatch.time_slot_id;
+                        if (!timeSlotId || timeSlotId.startsWith('virtual-')) {
+                          // Pour les créneaux virtuels, on doit créer un time_slot d'abord
+                          Alert.alert('Info', 'Pour inviter un joueur, vous devez d\'abord créer un match depuis ce créneau.');
+                          setInviteHotMatchModalVisible(false);
+                          return;
+                        }
+                        
+                        // Créer le match si nécessaire
+                        const { data: existingMatch } = await supabase
+                          .from('matches')
+                          .select('id')
+                          .eq('group_id', groupId)
+                          .eq('time_slot_id', timeSlotId)
+                          .maybeSingle();
+                        
+                        let matchId = existingMatch?.id;
+                        
+                        if (!matchId) {
+                          // Créer le match
+                          const { error: createError } = await supabase.rpc("create_match_from_slot", {
+                            p_group: groupId,
+                            p_time_slot: timeSlotId,
+                          });
+                          if (createError) throw createError;
+                          
+                          // Récupérer l'ID du match créé
+                          const { data: newMatch } = await supabase
+                            .from('matches')
+                            .select('id')
+                            .eq('group_id', groupId)
+                            .eq('time_slot_id', timeSlotId)
+                            .order('created_at', { ascending: false })
+                            .limit(1)
+                            .maybeSingle();
+                          
+                          matchId = newMatch?.id;
+                          
+                          // Auto-RSVP pour le créateur
+                          if (matchId && meId) {
+                            await supabase
+                              .from('match_rsvps')
+                              .upsert(
+                                { match_id: matchId, user_id: meId, status: 'accepted' },
+                                { onConflict: 'match_id,user_id' }
+                              );
+                          }
+                        }
+                        
+                        if (matchId) {
+                          // Inviter le joueur en créant un RSVP "maybe"
+                          const { error: rsvpError } = await supabase
+                            .from('match_rsvps')
+                            .upsert({
+                              match_id: matchId,
+                              user_id: member.id,
+                              status: 'maybe',
+                            }, { onConflict: 'match_id,user_id' });
+                          
+                          if (rsvpError) throw rsvpError;
+                          
+                          // Envoyer une notification au joueur invité
+                          if (member.expo_push_token && member.expo_push_token.startsWith('ExponentPushToken')) {
+                            try {
+                              const slot = selectedHotMatch.time_slots || {};
+                              const dateStr = slot.starts_at && slot.ends_at 
+                                ? new Date(slot.starts_at).toLocaleDateString('fr-FR', { 
+                                    weekday: 'long', 
+                                    day: 'numeric', 
+                                    month: 'long',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : 'ce match';
+                              
+                              const response = await fetch('https://exp.host/--/api/v2/push/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  to: member.expo_push_token,
+                                  sound: 'default',
+                                  title: '🎾 Invitation à un match',
+                                  body: `Il ne manque qu'un joueur pour ton match du ${dateStr} !`,
+                                  data: { type: 'match_invite', match_id: matchId, group_id: groupId },
+                                }),
+                              });
+                              
+                              if (!response.ok) {
+                                console.warn('[Invite] Échec envoi notification:', await response.text());
+                              }
+                            } catch (notifError) {
+                              console.warn('[Invite] Erreur notification:', notifError);
+                            }
+                          }
+                          
+                          Alert.alert('Invitation envoyée', `${member.display_name || member.email} a été invité au match.`);
+                          setInviteHotMatchModalVisible(false);
+                          // Recharger les données
+                          fetchData();
+                        }
+                      } catch (e) {
+                        Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
+                      }
+                    }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
+                      borderWidth: 1,
+                      borderColor: '#e5e7eb',
+                      marginBottom: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    })}
+                  >
+                    <View style={{ marginRight: 12 }}>
+                      {member.avatar_url ? (
+                        <Image
+                          source={{ uri: member.avatar_url }}
+                          style={{ width: 48, height: 48, borderRadius: 24 }}
+                        />
+                      ) : (
+                        <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: '#156bc9', fontWeight: '800', fontSize: 18 }}>
+                            {(member.display_name || member.email || 'J').substring(0, 2).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
+                        {member.display_name || member.email || 'Joueur'}
+                      </Text>
+                      {member.niveau && (
+                        <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                          Niveau {member.niveau}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="person-add" size={24} color="#15803d" />
+                  </Pressable>
+                ))}
               </ScrollView>
             )}
           </View>
