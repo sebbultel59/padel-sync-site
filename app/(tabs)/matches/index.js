@@ -755,46 +755,83 @@ const confirmedLongWeek = React.useMemo(
   // Séparer les matchs confirmés en deux groupes : complets (4 joueurs) vs en feu (3 joueurs)
   const confirmedComplete = React.useMemo(
     () => {
-      return confirmedLong.filter(m => {
+      const complete = confirmedLong.filter(m => {
         const rsvps = rsvpsByMatch[m.id] || [];
         const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        return accepted.length === 4;
+        const count = accepted.length;
+        console.log('[Matches] Match', m.id, 'accepted count:', count, 'rsvps total:', rsvps.length);
+        return count === 4;
       });
+      console.log('[Matches] ConfirmedComplete (4 joueurs):', complete.length);
+      return complete;
     },
     [confirmedLong, rsvpsByMatch]
   );
 
   const confirmedHot = React.useMemo(
     () => {
-      return confirmedLong.filter(m => {
+      // Chercher dans les matchs confirmés avec 3 joueurs
+      const hotFromConfirmed = confirmedLong.filter(m => {
         const rsvps = rsvpsByMatch[m.id] || [];
         const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        return accepted.length === 3;
+        const count = accepted.length;
+        console.log('[Matches] Match confirmed', m.id, 'accepted count:', count, '(HOT CHECK)');
+        return count === 3;
       });
+      
+      // Chercher aussi dans les matchs pending avec 3 joueurs acceptés
+      const hotFromPending = pendingLongWeek.filter(m => {
+        const rsvps = rsvpsByMatch[m.id] || [];
+        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+        const count = accepted.length;
+        console.log('[Matches] Match pending', m.id, 'accepted count:', count, '(HOT CHECK)');
+        return count === 3;
+      });
+      
+      const hot = [...hotFromConfirmed, ...hotFromPending];
+      console.log('[Matches] ConfirmedHot (3 joueurs):', hot.length, 'matchs (confirmed:', hotFromConfirmed.length, 'pending:', hotFromPending.length, ')');
+      if (hot.length > 0) {
+        console.log('[Matches] Hot matches IDs:', hot.map(m => m.id));
+      }
+      return hot;
     },
-    [confirmedLong, rsvpsByMatch]
+    [confirmedLong, pendingLongWeek, rsvpsByMatch]
   );
 
   const confirmedHourComplete = React.useMemo(
     () => {
-      return confirmedHour.filter(m => {
+      const complete = confirmedHour.filter(m => {
         const rsvps = rsvpsByMatch[m.id] || [];
         const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
         return accepted.length === 4;
       });
+      console.log('[Matches] ConfirmedHourComplete (4 joueurs):', complete.length);
+      return complete;
     },
     [confirmedHour, rsvpsByMatch]
   );
 
   const confirmedHourHot = React.useMemo(
     () => {
-      return confirmedHour.filter(m => {
+      // Chercher dans les matchs confirmés avec 3 joueurs
+      const hotFromConfirmed = confirmedHour.filter(m => {
         const rsvps = rsvpsByMatch[m.id] || [];
         const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
         return accepted.length === 3;
       });
+      
+      // Chercher aussi dans les matchs pending avec 3 joueurs acceptés
+      const hotFromPending = pendingHourWeek.filter(m => {
+        const rsvps = rsvpsByMatch[m.id] || [];
+        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+        return accepted.length === 3;
+      });
+      
+      const hot = [...hotFromConfirmed, ...hotFromPending];
+      console.log('[Matches] ConfirmedHourHot (3 joueurs):', hot.length, 'matchs (confirmed:', hotFromConfirmed.length, 'pending:', hotFromPending.length, ')');
+      return hot;
     },
-    [confirmedHour, rsvpsByMatch]
+    [confirmedHour, pendingHourWeek, rsvpsByMatch]
   );
 
   // Envoyer automatiquement des notifications aux 3 joueurs des matchs en feu
