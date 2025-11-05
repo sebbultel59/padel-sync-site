@@ -7544,6 +7544,7 @@ const HourSlotRow = ({ item }) => {
                       flexDirection: 'row',
                       alignItems: 'center',
                     })}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <View style={{ marginRight: 12 }}>
                       {member.avatar_url ? (
