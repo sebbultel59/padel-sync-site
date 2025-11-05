@@ -701,6 +701,51 @@ const pendingLongWeek = React.useMemo(
   [pendingWeek, rsvpsByMatch, meId]
 );
 
+// Séparer les matchs pending en deux groupes : complets (4 joueurs) vs en feu (3 joueurs)
+const pendingLongHot = React.useMemo(
+  () => {
+    return pendingLongWeek.filter(m => {
+      const rsvps = rsvpsByMatch[m.id] || [];
+      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+      return accepted.length === 3;
+    });
+  },
+  [pendingLongWeek, rsvpsByMatch]
+);
+
+const pendingLongComplete = React.useMemo(
+  () => {
+    return pendingLongWeek.filter(m => {
+      const rsvps = rsvpsByMatch[m.id] || [];
+      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+      return accepted.length === 4;
+    });
+  },
+  [pendingLongWeek, rsvpsByMatch]
+);
+
+const pendingHourHot = React.useMemo(
+  () => {
+    return pendingHourWeek.filter(m => {
+      const rsvps = rsvpsByMatch[m.id] || [];
+      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+      return accepted.length === 3;
+    });
+  },
+  [pendingHourWeek, rsvpsByMatch]
+);
+
+const pendingHourComplete = React.useMemo(
+  () => {
+    return pendingHourWeek.filter(m => {
+      const rsvps = rsvpsByMatch[m.id] || [];
+      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+      return accepted.length === 4;
+    });
+  },
+  [pendingHourWeek, rsvpsByMatch]
+);
+
 const confirmedHourWeek = React.useMemo(
   () => confirmedWeek.filter(m =>
     durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60
