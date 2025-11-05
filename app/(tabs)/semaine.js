@@ -1566,34 +1566,46 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               {isAdmin ? (
                 <>
                   {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
-                  <View style={{
-                    position: 'absolute',
-                    top: 2,
-                    right: 2,
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                    borderRadius: 4,
-                    paddingHorizontal: 3,
-                    paddingVertical: 1,
-                    minWidth: 16,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        lineHeight: 12,
-                        fontWeight: '900',
-                        color: '#0b2240',
-                        textAlign: 'center',
-                      }}
-                    >
-                      {availableCount}
-                    </Text>
-                  </View>
+                  {availableCount > 0 && (
+                    <View style={{
+                      position: 'absolute',
+                      top: 2,
+                      right: 2,
+                      backgroundColor: '#ffffff',
+                      borderRadius: 4,
+                      paddingHorizontal: 4,
+                      paddingVertical: 2,
+                      minWidth: 18,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderWidth: 1,
+                      borderColor: '#0b2240',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    }}>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          lineHeight: 13,
+                          fontWeight: '900',
+                          color: '#0b2240',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {availableCount}
+                      </Text>
+                    </View>
+                  )}
                   {/* Raquette noire au centre si l'admin est disponible */}
                   {myStatus === 'available' && (
                     <View style={{
-                      flex: 1,
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: [{ translateX: -9 }, { translateY: -9 }],
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
