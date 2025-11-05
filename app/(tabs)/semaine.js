@@ -1529,7 +1529,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 opacity: pressed ? 0.92 : 1,
               })}
             >
-              {/* Affichage pour les admins : nombre en haut à droite + raquette noire au centre si disponible */}
+              {/* Affichage pour les admins : nombre en haut à droite + raquette blanche au centre si disponible */}
               {isAdmin ? (
                 <>
                   {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
@@ -1546,7 +1546,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                           fontSize: 11,
                           lineHeight: 13,
                           fontWeight: '900',
-                          color: '#0b2240',
+                          color: myStatus === 'available' ? '#ffffff' : '#0b2240',
                           textAlign: 'center',
                         }}
                       >
@@ -1554,7 +1554,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       </Text>
                     </View>
                   )}
-                  {/* Raquette noire au centre si l'admin est disponible */}
+                  {/* Raquette blanche au centre si l'admin est disponible */}
                   {myStatus === 'available' && (
                     <View style={{
                       position: 'absolute',
@@ -1569,7 +1569,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                         style={{
                           width: 18,
                           height: 18,
-                          tintColor: '#000000',
+                          tintColor: '#ffffff',
                         }}
                         resizeMode="contain"
                       />
