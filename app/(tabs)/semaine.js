@@ -1440,9 +1440,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
             cellBg = '#105b23';
             cellBorder = '#105b23';
           } else if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
-            // Cellule blanche si le joueur n'est pas disponible
-            cellBg = '#ffffff';
-            cellBorder = '#e5e7eb';
+            // Cellule rouge clair si le joueur n'est pas disponible
+            cellBg = '#fee2e2';
+            cellBorder = '#fecaca';
           }
 
           // Surbrillance de la plage en cours (prévisualisation)
