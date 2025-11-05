@@ -719,26 +719,155 @@ const confirmedLongWeek = React.useMemo(
 );
 
 // Calculer les matchs en feu : 3 joueurs disponibles dont l'utilisateur authentifié
+// Utilise la même logique que longReadyWeek/hourReadyWeek mais avec condition stricte à 3 joueurs
 const hotMatches = React.useMemo(
   () => {
     if (!meId || !groupId) return [];
     
-    // Combiner tous les créneaux disponibles (1h30 + 1h)
-    const allReadySlots = [...(longReady || []), ...(hourReady || [])];
+    // Utiliser la même source de données que les matchs possibles (ready)
+    // ready contient tous les créneaux (y compris ceux avec 3 joueurs)
+    // longReady/hourReady ne contiennent que les créneaux avec >= 4 joueurs
+    const allSlots = [...(ready || [])];
     
-    // Filtrer les créneaux avec exactement 3 joueurs disponibles (dont l'utilisateur)
-    const hotSlots = allReadySlots.filter(slot => {
-      const readyUserIds = slot.ready_user_ids || [];
-      // Vérifier que l'utilisateur est disponible dans la liste
-      const userIsAvailable = readyUserIds.some(id => String(id) === String(meId));
-      
-      // ready_user_ids contient déjà tous les joueurs disponibles y compris l'utilisateur
-      // Vérifier qu'il y a exactement 3 joueurs disponibles (dont l'utilisateur)
-      return readyUserIds.length === 3 && userIsAvailable;
+    // Appliquer les mêmes filtres que longReadyWeek/hourReadyWeek
+    const now = new Date();
+    const filtered = allSlots.filter(it => {
+      if (!it.starts_at || !it.ends_at) return false;
+      const endTime = new Date(it.ends_at);
+      return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
     });
     
+    // Trier par ordre chronologique
+    const sorted = filtered.sort((a, b) => {
+      const aStart = new Date(a.starts_at || 0).getTime();
+      const bStart = new Date(b.starts_at || 0).getTime();
+      return aStart - bStart;
+    });
+    
+    // Appliquer le filtre par niveau si activé (même logique que longReadyWeek)
+    let finalFiltered = sorted;
+    if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
+      const allowedLevels = new Set();
+      filterLevelRanges.forEach(range => {
+        const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+        if (parts.length === 2) {
+          const [min, max] = parts.sort((a, b) => a - b);
+          for (let level = min; level <= max; level++) {
+            allowedLevels.add(level);
+          }
+        }
+      });
+      
+      if (allowedLevels.size > 0) {
+        finalFiltered = sorted.filter(slot => {
+          // Utiliser ready_user_ids qui contient tous les joueurs disponibles (y compris l'utilisateur)
+          const userIds = slot.ready_user_ids || [];
+          const filteredUserIds = userIds.filter(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile?.niveau) return false;
+            const playerLevel = Number(profile.niveau);
+            if (!Number.isFinite(playerLevel)) return false;
+            return allowedLevels.has(playerLevel);
+          });
+          // Pour les matchs en feu : exactement 3 joueurs (dont l'utilisateur)
+          // On vérifie que l'utilisateur est dans la liste filtrée
+          const userInFiltered = filteredUserIds.some(id => String(id) === String(meId));
+          return filteredUserIds.length === 3 && userInFiltered;
+        }).map(slot => {
+          const userIds = slot.ready_user_ids || [];
+          const filteredUserIds = userIds.filter(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile?.niveau) return false;
+            const playerLevel = Number(profile.niveau);
+            if (!Number.isFinite(playerLevel)) return false;
+            return allowedLevels.has(playerLevel);
+          });
+          return {
+            ...slot,
+            ready_user_ids: filteredUserIds,
+          };
+        });
+      }
+    }
+    
+    // Appliquer le filtre géographique si activé (même logique que longReadyWeek)
+    if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
+      finalFiltered = finalFiltered.filter(slot => {
+        const userIds = slot.ready_user_ids || [];
+        const filteredUserIds = userIds.filter(uid => {
+          const profile = profilesById[String(uid)];
+          if (!profile) return false;
+          
+          let playerLat = null;
+          let playerLng = null;
+          if (profile.address_home?.lat && profile.address_home?.lng) {
+            playerLat = profile.address_home.lat;
+            playerLng = profile.address_home.lng;
+          } else if (profile.address_work?.lat && profile.address_work?.lng) {
+            playerLat = profile.address_work.lat;
+            playerLng = profile.address_work.lng;
+          }
+          
+          if (!playerLat || !playerLng) return false;
+          
+          const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+          return distanceKm <= filterGeoRadiusKm;
+        });
+        
+        // Pour les matchs en feu : exactement 3 joueurs (dont l'utilisateur)
+        const userInFiltered = filteredUserIds.some(id => String(id) === String(meId));
+        return filteredUserIds.length === 3 && userInFiltered;
+      }).map(slot => {
+        const userIds = slot.ready_user_ids || [];
+        const filteredUserIds = userIds.filter(uid => {
+          const profile = profilesById[String(uid)];
+          if (!profile) return false;
+          
+          let playerLat = null;
+          let playerLng = null;
+          if (profile.address_home?.lat && profile.address_home?.lng) {
+            playerLat = profile.address_home.lat;
+            playerLng = profile.address_home.lng;
+          } else if (profile.address_work?.lat && profile.address_work?.lng) {
+            playerLat = profile.address_work.lat;
+            playerLng = profile.address_work.lng;
+          }
+          
+          if (!playerLat || !playerLng) return false;
+          
+          const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+          return distanceKm <= filterGeoRadiusKm;
+        });
+        return {
+          ...slot,
+          ready_user_ids: filteredUserIds,
+        };
+      });
+    }
+    
+    // Filtrer les créneaux avec exactement 3 joueurs disponibles (dont l'utilisateur)
+    // Si aucun filtre n'est activé, utiliser directement sorted
+    if (!filterByLevel && !filterByGeo) {
+      finalFiltered = sorted.filter(slot => {
+        // ready_user_ids contient tous les joueurs disponibles (y compris l'utilisateur)
+        const readyUserIds = slot.ready_user_ids || [];
+        const userIsAvailable = readyUserIds.some(id => String(id) === String(meId));
+        // Vérifier qu'il y a exactement 3 joueurs disponibles (dont l'utilisateur)
+        return readyUserIds.length === 3 && userIsAvailable;
+      });
+    }
+    
+    console.log('[hotMatches] 🔥 Matchs en feu trouvés:', finalFiltered.length);
+    if (finalFiltered.length > 0) {
+      console.log('[hotMatches] Exemples:', finalFiltered.slice(0, 3).map(s => ({
+        id: s.time_slot_id,
+        starts_at: s.starts_at,
+        joueurs: s.ready_user_ids?.length || 0
+      })));
+    }
+    
     // Convertir les créneaux en format "match" pour l'affichage
-    return hotSlots.map(slot => ({
+    return finalFiltered.map(slot => ({
       id: slot.time_slot_id || `hot-${slot.starts_at}`,
       time_slot_id: slot.time_slot_id,
       time_slots: {
@@ -749,7 +878,7 @@ const hotMatches = React.useMemo(
       me_id: meId,
     }));
   },
-  [longReady, hourReady, meId, groupId]
+  [ready, meId, groupId, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm]
 );
 
   const confirmedHour = React.useMemo(
