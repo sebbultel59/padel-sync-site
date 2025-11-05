@@ -1330,10 +1330,12 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             const slotEnd90 = new Date(slotStart.getTime() + 90 * 60 * 1000);
 
             // Joueurs qui COUVRENT l'intervalle entier (intersection sur ticks 30 min)
-            const uniquePlayers60 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd60.toISOString(), availabilityData)
-              .filter(uid => String(uid) !== String(meId));
-            const uniquePlayers90 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd90.toISOString(), availabilityData)
-              .filter(uid => String(uid) !== String(meId));
+            // Conserver tous les joueurs disponibles (y compris l'utilisateur) pour le calcul des matchs en feu
+            const allPlayers60 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd60.toISOString(), availabilityData);
+            const allPlayers90 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd90.toISOString(), availabilityData);
+            // Exclure l'utilisateur pour l'affichage normal (4+ joueurs)
+            const uniquePlayers60 = (allPlayers60 || []).filter(uid => String(uid) !== String(meId));
+            const uniquePlayers90 = (allPlayers90 || []).filter(uid => String(uid) !== String(meId));
 
             // Vérifier si ce créneau virtuel chevauche avec un time_slot existant qui a un match bloquant
             // On permet la création de créneaux virtuels même s'il existe un time_slot, car plusieurs matchs peuvent coexister sur le même créneau horaire
@@ -1367,7 +1369,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                   time_slot_id: `virtual-60-${slotStart.getTime()}`,
                   starts_at: slotStartISO,
                   ends_at: slotEnd60ISO,
-                  ready_user_ids: uniquePlayers60,
+                  ready_user_ids: allPlayers60 || [], // Inclure tous les joueurs disponibles (y compris l'utilisateur)
+                  ready_user_ids_without_me: uniquePlayers60, // Pour l'affichage normal
                   hot_user_ids: [],
                 });
                 console.log('[Matches] ✅ Créneau virtuel 1h:', slotStartISO, 'avec', uniquePlayers60.length, 'joueurs');
@@ -1387,7 +1390,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                   time_slot_id: `virtual-90-${slotStart.getTime()}`,
                   starts_at: slotStartISO,
                   ends_at: slotEnd90ISO,
-                  ready_user_ids: uniquePlayers90,
+                  ready_user_ids: allPlayers90 || [], // Inclure tous les joueurs disponibles (y compris l'utilisateur)
+                  ready_user_ids_without_me: uniquePlayers90, // Pour l'affichage normal
                   hot_user_ids: [],
                 });
                 console.log('[Matches] ✅ Créneau virtuel 1h30:', slotStartISO, 'avec', uniquePlayers90.length, 'joueurs');
