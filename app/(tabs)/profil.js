@@ -420,6 +420,86 @@ export default function ProfilScreen() {
     );
   }, [isDirty, onSave, doSignOut]);
 
+  // Suppression de compte avec confirmation
+  const onDeleteAccount = useCallback(() => {
+    // On web, React Native's Alert with multiple buttons is not reliable.
+    if (Platform.OS === "web") {
+      const confirmDelete = window.confirm(
+        "⚠️ ATTENTION : Cette action est irréversible.\n\n" +
+        "Toutes vos données seront définitivement supprimées :\n" +
+        "- Votre profil\n" +
+        "- Vos groupes et membres\n" +
+        "- Vos matchs et disponibilités\n" +
+        "- Toutes vos autres données\n\n" +
+        "Êtes-vous absolument sûr(e) de vouloir supprimer votre compte ?"
+      );
+      if (confirmDelete) {
+        const finalConfirm = window.confirm(
+          "Dernière confirmation : Supprimer définitivement votre compte Padel Sync ?"
+        );
+        if (finalConfirm) {
+          (async () => {
+            try {
+              const { error } = await supabase.rpc('delete_user_account');
+              if (error) throw error;
+              Alert.alert("Compte supprimé", "Votre compte a été supprimé avec succès.");
+              await doSignOut();
+            } catch (e) {
+              Alert.alert("Erreur", e?.message ?? "Impossible de supprimer le compte. Veuillez réessayer.");
+            }
+          })();
+        }
+      }
+      return;
+    }
+
+    // Native (iOS/Android) - première confirmation
+    Alert.alert(
+      "Supprimer mon compte",
+      "⚠️ ATTENTION : Cette action est irréversible.\n\n" +
+      "Toutes vos données seront définitivement supprimées :\n" +
+      "- Votre profil\n" +
+      "- Vos groupes et membres\n" +
+      "- Vos matchs et disponibilités\n" +
+      "- Toutes vos autres données\n\n" +
+      "Êtes-vous absolument sûr(e) ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Oui, supprimer",
+          style: "destructive",
+          onPress: () => {
+            // Deuxième confirmation
+            Alert.alert(
+              "Dernière confirmation",
+              "Supprimer définitivement votre compte Padel Sync ?\n\nCette action ne peut pas être annulée.",
+              [
+                { text: "Annuler", style: "cancel" },
+                {
+                  text: "Oui, supprimer définitivement",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      const { error } = await supabase.rpc('delete_user_account');
+                      if (error) throw error;
+                      Alert.alert("Compte supprimé", "Votre compte a été supprimé avec succès.", [
+                        { text: "OK", onPress: async () => await doSignOut() }
+                      ]);
+                    } catch (e) {
+                      Alert.alert("Erreur", e?.message ?? "Impossible de supprimer le compte. Veuillez réessayer.");
+                    }
+                  },
+                },
+              ],
+              { cancelable: true }
+            );
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [doSignOut]);
+
   const levelInfo = useMemo(() => levelMeta(Number(niveau) || 0), [niveau]);
   const initials = computeInitials(displayName || me?.email || "");
 
@@ -797,6 +877,26 @@ export default function ProfilScreen() {
           <Ionicons name="log-out-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
           <Text style={s.btnTxt}>Se déconnecter</Text>
         </Pressable>
+
+        {/* Suppression de compte */}
+        <Pressable
+          onPress={press("profile-delete-account", onDeleteAccount)}
+          style={[
+            s.btn,
+            {
+              backgroundColor: "#991b1b",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              marginTop: 12,
+            },
+            Platform.OS === "web" && { cursor: "pointer" }
+          ]}
+        >
+          <Ionicons name="trash-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={s.btnTxt}>Supprimer mon compte</Text>
+        </Pressable>
+
         {isDirty ? (
             <Text style={{ marginTop: 8, color: "#b45309", fontSize: 11 }}>
               ⚠️ Modifications non enregistrées
