@@ -1560,20 +1560,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       position: 'absolute',
                       top: 2,
                       right: 2,
-                      backgroundColor: '#ffffff',
-                      borderRadius: 4,
-                      paddingHorizontal: 4,
-                      paddingVertical: 2,
-                      minWidth: 18,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      borderWidth: 1,
-                      borderColor: '#0b2240',
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 1 },
-                      shadowOpacity: 0.2,
-                      shadowRadius: 2,
-                      elevation: 2,
                     }}>
                       <Text
                         style={{
