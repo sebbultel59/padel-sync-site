@@ -729,7 +729,7 @@ const hotMatches = React.useMemo(
     // après enlèvement des joueurs déjà engagés mais avant le filtrage à 4 joueurs
     const allSlots = [...(readyAll || [])];
     
-    // Si readyAll est vide, utiliser ready (fallback)
+    // Si readyAll est vide, retourner une liste vide
     if (allSlots.length === 0) {
       return [];
     }
@@ -749,49 +749,9 @@ const hotMatches = React.useMemo(
       return aStart - bStart;
     });
     
-    // Enlever les joueurs déjà engagés (même logique que adjusted)
-    const overlaps = (aStart, aEnd, bStart, bEnd) => {
-      const aS = new Date(aStart).getTime();
-      const aE = new Date(aEnd).getTime();
-      const bS = new Date(bStart).getTime();
-      const bE = new Date(bEnd).getTime();
-      return aS < bE && aE > bS;
-    };
-    
-    const reservedUsersForMatch = (mid) => {
-      const rsvps = rsvpsByMatch[mid] || [];
-      return rsvps
-        .filter(r => {
-          const st = String(r.status || '').toLowerCase();
-          return st === 'accepted' || st === 'maybe';
-        })
-        .map(r => String(r.user_id));
-    };
-    
-    const bookedUsersForInterval = (startsAt, endsAt) => {
-      const booked = new Set();
-      const allMatches = [...matchesPending || [], ...matchesConfirmed || []];
-      allMatches.forEach(m => {
-        const st = String(m.status || '').toLowerCase();
-        const ms = m?.time_slots?.starts_at || null;
-        const me = m?.time_slots?.ends_at || null;
-        if ((st === 'pending' || st === 'confirmed') && ms && me && overlaps(startsAt, endsAt, ms, me)) {
-          reservedUsersForMatch(m.id).forEach(uid => booked.add(uid));
-        }
-      });
-      return booked;
-    };
-    
-    // Créer adjusted en enlevant les joueurs déjà engagés
-    let adjusted = sorted.map(slot => {
-      const booked = bookedUsersForInterval(slot.starts_at, slot.ends_at);
-      const hasConcerned = (slot.ready_user_ids || []).some(uid => booked.has(String(uid)));
-      if (!hasConcerned) {
-        return slot; // no change for non-concerned slots
-      }
-      const nextIds = (slot.ready_user_ids || []).map(String).filter(uid => !booked.has(uid));
-      return { ...slot, ready_user_ids: nextIds };
-    });
+    // readyAll contient déjà les créneaux après enlèvement des joueurs engagés
+    // On peut utiliser directement sorted
+    let adjusted = sorted;
     
     // Appliquer le filtre par niveau si activé (même logique que longReadyWeek)
     let finalFiltered = adjusted;
