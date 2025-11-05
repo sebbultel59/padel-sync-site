@@ -7451,7 +7451,73 @@ const HourSlotRow = ({ item }) => {
                                 throw availabilityError;
                               }
                               
-                              Alert.alert('Disponibilité créée', 'Vous êtes maintenant disponible sur ce créneau.');
+                              // Créer un time_slot si nécessaire
+                              let timeSlotId = m.time_slot_id;
+                              
+                              if (!timeSlotId || timeSlotId.startsWith('virtual-')) {
+                                // Créer un time_slot pour ce créneau
+                                const { data: newTimeSlot, error: timeSlotError } = await supabase
+                                  .from('time_slots')
+                                  .insert({
+                                    group_id: groupId,
+                                    starts_at: slot.starts_at,
+                                    ends_at: slot.ends_at,
+                                  })
+                                  .select('id')
+                                  .single();
+                                
+                                if (timeSlotError) {
+                                  console.error('[HotMatch] Erreur création time_slot:', timeSlotError);
+                                  throw timeSlotError;
+                                }
+                                
+                                timeSlotId = newTimeSlot?.id;
+                              }
+                              
+                              // Créer le match si le time_slot existe
+                              if (timeSlotId && !timeSlotId.startsWith('virtual-')) {
+                                // Vérifier si un match existe déjà pour ce créneau
+                                const { data: existingMatch } = await supabase
+                                  .from('matches')
+                                  .select('id')
+                                  .eq('group_id', groupId)
+                                  .eq('time_slot_id', timeSlotId)
+                                  .maybeSingle();
+                                
+                                if (!existingMatch) {
+                                  // Créer le match
+                                  const { error: matchError } = await supabase.rpc("create_match_from_slot", {
+                                    p_group: groupId,
+                                    p_time_slot: timeSlotId,
+                                  });
+                                  
+                                  if (matchError) {
+                                    console.error('[HotMatch] Erreur création match:', matchError);
+                                    throw matchError;
+                                  }
+                                  
+                                  // Récupérer l'ID du match créé et créer un RSVP automatique
+                                  const { data: createdMatch } = await supabase
+                                    .from('matches')
+                                    .select('id')
+                                    .eq('group_id', groupId)
+                                    .eq('time_slot_id', timeSlotId)
+                                    .order('created_at', { ascending: false })
+                                    .limit(1)
+                                    .maybeSingle();
+                                  
+                                  if (createdMatch?.id && meId) {
+                                    await supabase
+                                      .from('match_rsvps')
+                                      .upsert(
+                                        { match_id: createdMatch.id, user_id: meId, status: 'accepted' },
+                                        { onConflict: 'match_id,user_id' }
+                                      );
+                                  }
+                                }
+                              }
+                              
+                              Alert.alert('Disponibilité créée', 'Vous êtes maintenant disponible sur ce créneau et un match a été créé.');
                               // Recharger les données
                               fetchData();
                               // Fermer la modale
