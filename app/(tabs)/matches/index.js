@@ -5421,8 +5421,11 @@ const HourSlotRow = ({ item }) => {
     >
       <Text style={{ fontSize: 22 }}>{'⏳'}</Text>
       <View style={{ marginTop: 4, alignItems: 'center' }}>
-        <Text style={{ fontWeight: '900', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
+        <Text style={{ fontWeight: '800', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
+          1H30 ({pendingLongWeek?.length || 0})
+        </Text>
+        <Text style={{ fontWeight: '800', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
+          1H ({pendingHourWeek?.length || 0})
         </Text>
       </View>
     </Pressable>
@@ -5449,11 +5452,11 @@ const HourSlotRow = ({ item }) => {
     >
       <Text style={{ fontSize: 22 }}>{'🎾'}</Text>
       <View style={{ marginTop: 4, alignItems: 'center' }}>
-        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {`${confirmedTabCount} ${matchWord(confirmedTabCount)}`}
+        <Text style={{ fontWeight: '800', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
+          1H30 ({confirmedLongWeek?.length || 0})
         </Text>
-        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {valideWord(confirmedTabCount)}
+        <Text style={{ fontWeight: '800', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
+          1H ({confirmedHourWeek?.length || 0})
         </Text>
       </View>
     </Pressable>
