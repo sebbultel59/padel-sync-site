@@ -1409,6 +1409,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </View>
                 <Text style={{ color: "#5b89b8", marginTop: 2, fontWeight: "700" }}>
                   {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
+                  {isAdmin && ' · Admin'}
                 </Text>
                 <Text style={{ color: "#5b89b8", marginTop: 2 }}>
                   {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
