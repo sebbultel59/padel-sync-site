@@ -1478,7 +1478,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
             {/* Invite buttons row (moved under "Voir les membres") */}
             <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
               <Pressable onPress={press("invite-link", onInviteLink)} style={[s.btn, { backgroundColor: "#ff8c00", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
-                <Text style={s.btnTxt}>Inviter (lien)</Text>
+                <Text style={s.btnTxt}>Inviter</Text>
               </Pressable>
               <Pressable onPress={press("invite-qr", onInviteQR)} style={[s.btn, { backgroundColor: "#111827", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
                 <Text style={s.btnTxt}>QR</Text>
