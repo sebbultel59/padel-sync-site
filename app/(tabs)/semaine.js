@@ -1562,21 +1562,53 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 opacity: pressed ? 0.92 : 1,
               })}
             >
-              {/* Affichage pour les admins : nombre de disponibilités */}
+              {/* Affichage pour les admins : nombre en haut à droite + raquette noire au centre si disponible */}
               {isAdmin ? (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      lineHeight: 14,
-                      fontWeight: '900',
-                      color: availableCount >= 4 ? '#0b2240' : '#0b2240',
-                      textAlign: 'center',
-                    }}
-                  >
-                    {availableCount}
-                  </Text>
-                </View>
+                <>
+                  {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
+                  <View style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    borderRadius: 4,
+                    paddingHorizontal: 3,
+                    paddingVertical: 1,
+                    minWidth: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        lineHeight: 12,
+                        fontWeight: '900',
+                        color: '#0b2240',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {availableCount}
+                    </Text>
+                  </View>
+                  {/* Raquette noire au centre si l'admin est disponible */}
+                  {myStatus === 'available' && (
+                    <View style={{
+                      flex: 1,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <Image
+                        source={racketIcon}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          tintColor: '#000000',
+                        }}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+                </>
               ) : (
                 /* Affichage pour les joueurs : icône raquette sur fond vert si disponible */
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
