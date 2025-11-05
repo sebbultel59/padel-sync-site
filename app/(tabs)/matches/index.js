@@ -7451,6 +7451,9 @@ const HourSlotRow = ({ item }) => {
                                 throw availabilityError;
                               }
                               
+                              // Récupérer les autres joueurs disponibles sur ce créneau (pour les ajouter au match)
+                              const otherAvailableUserIds = allAvailableIds.filter(id => String(id) !== String(meId));
+                              
                               // Récupérer ou créer le time_slot
                               let timeSlotId = m.time_slot_id;
                               
@@ -7541,14 +7544,37 @@ const HourSlotRow = ({ item }) => {
                                     throw matchError;
                                   }
                                   
-                                  // Créer un RSVP automatique pour l'utilisateur
-                                  if (newMatch?.id && meId) {
-                                    await supabase
-                                      .from('match_rsvps')
-                                      .upsert(
-                                        { match_id: newMatch.id, user_id: meId, status: 'accepted' },
-                                        { onConflict: 'match_id,user_id' }
-                                      );
+                                  // Créer les RSVPs pour tous les joueurs disponibles
+                                  if (newMatch?.id) {
+                                    // RSVP 'accepted' pour l'utilisateur qui crée le match
+                                    if (meId) {
+                                      await supabase
+                                        .from('match_rsvps')
+                                        .upsert(
+                                          { match_id: newMatch.id, user_id: meId, status: 'accepted' },
+                                          { onConflict: 'match_id,user_id' }
+                                        );
+                                    }
+                                    
+                                    // RSVP 'pending' pour les autres joueurs disponibles
+                                    if (otherAvailableUserIds.length > 0) {
+                                      const rsvpsToInsert = otherAvailableUserIds.map(userId => ({
+                                        match_id: newMatch.id,
+                                        user_id: userId,
+                                        status: 'pending',
+                                      }));
+                                      
+                                      const { error: rsvpsError } = await supabase
+                                        .from('match_rsvps')
+                                        .upsert(rsvpsToInsert, { onConflict: 'match_id,user_id' });
+                                      
+                                      if (rsvpsError) {
+                                        console.error('[HotMatch] Erreur création RSVPs pour autres joueurs:', rsvpsError);
+                                        // Ne pas faire échouer toute l'opération si les RSVPs échouent
+                                      } else {
+                                        console.log('[HotMatch] RSVPs créés pour', otherAvailableUserIds.length, 'joueurs');
+                                      }
+                                    }
                                   }
                                 }
                               }
