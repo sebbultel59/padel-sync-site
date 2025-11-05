@@ -1358,8 +1358,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               });
             };
 
-            // Afficher les créneaux avec 4+ joueurs disponibles
-            if (uniquePlayers60.length >= 4) {
+            // Afficher les créneaux avec 4+ joueurs disponibles OU 3 joueurs (pour les matchs en feu)
+            if (uniquePlayers60.length >= 3) {
               const slotStartISO = slotStart.toISOString();
               const slotEnd60ISO = slotEnd60.toISOString();
               
@@ -1379,8 +1379,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               }
             }
 
-            // Afficher les créneaux avec 4+ joueurs disponibles
-            if (uniquePlayers90.length >= 4) {
+            // Afficher les créneaux avec 4+ joueurs disponibles OU 3 joueurs (pour les matchs en feu)
+            if (uniquePlayers90.length >= 3) {
               const slotStartISO = slotStart.toISOString();
               const slotEnd90ISO = slotEnd90.toISOString();
               
