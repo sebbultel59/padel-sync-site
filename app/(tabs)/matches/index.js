@@ -718,27 +718,39 @@ const confirmedLongWeek = React.useMemo(
   [confirmedWeek]
 );
 
-// Calculer les matchs en feu : 3 joueurs acceptés dont l'utilisateur authentifié
+// Calculer les matchs en feu : 3 joueurs disponibles dont l'utilisateur authentifié
 const hotMatches = React.useMemo(
   () => {
-    if (!meId) return [];
+    if (!meId || !groupId) return [];
     
-    // Combiner tous les matchs (pending + confirmed)
-    const allMatches = [...pendingWeek, ...confirmedWeek];
+    // Combiner tous les créneaux disponibles (1h30 + 1h)
+    const allReadySlots = [...(longReady || []), ...(hourReady || [])];
     
-    return allMatches.filter(m => {
-      const rsvps = rsvpsByMatch[m.id] || [];
-      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+    // Filtrer les créneaux avec exactement 3 joueurs disponibles (dont l'utilisateur)
+    const hotSlots = allReadySlots.filter(slot => {
+      const readyUserIds = slot.ready_user_ids || [];
+      // Vérifier que l'utilisateur est disponible
+      const userIsAvailable = readyUserIds.some(id => String(id) === String(meId));
+      // Inclure l'utilisateur dans le comptage
+      const totalAvailable = userIsAvailable ? readyUserIds.length + 1 : readyUserIds.length;
       
-      // Vérifier que l'utilisateur a accepté
-      const userAccepted = accepted.find(r => String(r.user_id) === String(meId));
-      if (!userAccepted) return false;
-      
-      // Vérifier qu'il y a exactement 3 joueurs acceptés (dont l'utilisateur)
-      return accepted.length === 3;
+      // Vérifier qu'il y a exactement 3 joueurs disponibles (dont l'utilisateur)
+      return totalAvailable === 3 && userIsAvailable;
     });
+    
+    // Convertir les créneaux en format "match" pour l'affichage
+    return hotSlots.map(slot => ({
+      id: slot.time_slot_id || `hot-${slot.starts_at}`,
+      time_slot_id: slot.time_slot_id,
+      time_slots: {
+        starts_at: slot.starts_at,
+        ends_at: slot.ends_at,
+      },
+      available_user_ids: slot.ready_user_ids || [],
+      me_id: meId,
+    }));
   },
-  [pendingWeek, confirmedWeek, rsvpsByMatch, meId]
+  [longReady, hourReady, meId, groupId]
 );
 
   const confirmedHour = React.useMemo(
@@ -1264,20 +1276,24 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         // D'abord, traiter les time_slots existants
         for (const ts of availableTimeSlots) {
           let availUserIds = computeAvailableUsersForInterval(ts.starts_at, ts.ends_at, availabilityData);
-          // Exclure moi-même de la liste sélectionnable
-          availUserIds = (availUserIds || []).filter(uid => String(uid) !== String(meId));
-          const availCount = availUserIds ? availUserIds.length : 0;
+          // Conserver tous les joueurs disponibles (y compris l'utilisateur) pour le calcul des matchs en feu
+          const allAvailUserIds = availUserIds || [];
+          // Exclure moi-même de la liste sélectionnable pour les matchs normaux
+          const availUserIdsWithoutMe = allAvailUserIds.filter(uid => String(uid) !== String(meId));
+          const availCount = availUserIdsWithoutMe ? availUserIdsWithoutMe.length : 0;
           
           if (availCount >= 4) {
             console.log('[Matches] ✅ Créneau avec 4+ joueurs:', ts.id, 'starts_at:', ts.starts_at, 'joueurs:', availCount);
           }
           
           // Afficher tous les créneaux, même avec moins de 4 joueurs
+          // Stocker tous les joueurs disponibles (y compris l'utilisateur) pour les matchs en feu
           ready.push({
             time_slot_id: ts.id,
             starts_at: ts.starts_at,
             ends_at: ts.ends_at,
-            ready_user_ids: availUserIds || [],
+            ready_user_ids: allAvailUserIds, // Inclure tous les joueurs disponibles (y compris l'utilisateur)
+            ready_user_ids_without_me: availUserIdsWithoutMe, // Pour l'affichage normal
             hot_user_ids: [],
           });
         }
@@ -7127,14 +7143,15 @@ const HourSlotRow = ({ item }) => {
                   Aucun match en feu pour le moment.
                 </Text>
                 <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 14, marginTop: 8 }}>
-                  Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs confirmés dont vous).
+                  Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs disponibles dont vous).
                 </Text>
               </View>
             ) : (
               <ScrollView style={{ maxHeight: 500 }}>
                 {hotMatches.map((m) => {
-                  const rsvps = rsvpsByMatch[m.id] || [];
-                  const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+                  const availableUserIds = m.available_user_ids || [];
+                  // Ajouter l'utilisateur authentifié à la liste
+                  const allAvailableIds = [...new Set([...availableUserIds, meId])];
                   const slot = m.time_slots || {};
                   
                   return (
@@ -7158,16 +7175,16 @@ const HourSlotRow = ({ item }) => {
                       
                       <View style={{ marginTop: 8 }}>
                         <Text style={{ fontWeight: '700', fontSize: 14, color: '#6b7280', marginBottom: 8 }}>
-                          {accepted.length}/4 joueurs confirmés
+                          {allAvailableIds.length}/4 joueurs disponibles
                         </Text>
                         
                         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                          {accepted.map((r) => {
-                            const profile = profilesById[String(r.user_id)] || {};
-                            const isMe = String(r.user_id) === String(meId);
+                          {allAvailableIds.map((userId) => {
+                            const profile = profilesById[String(userId)] || {};
+                            const isMe = String(userId) === String(meId);
                             return (
                               <View
-                                key={r.user_id}
+                                key={userId}
                                 style={{
                                   flexDirection: 'row',
                                   alignItems: 'center',
