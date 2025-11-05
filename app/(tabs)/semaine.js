@@ -1567,8 +1567,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       <Image
                         source={racketIcon}
                         style={{
-                          width: 18,
-                          height: 18,
+                          width: 24,
+                          height: 24,
                           tintColor: '#ffffff',
                         }}
                         resizeMode="contain"
@@ -1586,14 +1586,14 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       padding: 4,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: 24,
-                      height: 24,
+                      width: 30,
+                      height: 30,
                     }}>
                       <Image
                         source={racketIcon}
                         style={{
-                          width: 16,
-                          height: 16,
+                          width: 22,
+                          height: 22,
                           tintColor: '#ffffff',
                         }}
                         resizeMode="contain"
