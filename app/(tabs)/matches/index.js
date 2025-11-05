@@ -4861,8 +4861,9 @@ const HourSlotRow = ({ item }) => {
           {/* Icônes filtres pour afficher/masquer les configurations */}
           <View style={{ 
             flexDirection: 'row', 
+            flexWrap: 'wrap',
             alignItems: 'center', 
-            justifyContent: 'space-between', 
+            justifyContent: 'flex-start', 
             gap: 12,
             marginBottom: (filterConfigVisible || filterGeoVisible) ? 8 : 0,
             marginTop: 4,
