@@ -5094,32 +5094,32 @@ const HourSlotRow = ({ item }) => {
             </Pressable>
             
             {/* Icône flammes pour les matchs en feu */}
-            <Pressable
-              onPress={() => setHotMatchesModalVisible(true)}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingVertical: 8,
-                paddingHorizontal: 8,
-                paddingLeft: 4,
-                borderRadius: 8,
-                backgroundColor: hotMatches.length > 0 ? '#ef4444' : 'transparent',
-                gap: 6,
-                flexShrink: 0,
-              }}
-            >
-              <Text style={{ fontSize: 18 }}>🔥</Text>
-              {hotMatches.length > 0 && (
+            {hotMatches.length > 0 && (
+              <Pressable
+                onPress={() => setHotMatchesModalVisible(true)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  paddingHorizontal: 8,
+                  paddingLeft: 4,
+                  borderRadius: 8,
+                  backgroundColor: '#ef4444',
+                  gap: 6,
+                  flexShrink: 0,
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>🔥</Text>
                 <Text style={{ 
                   color: '#ffffff', 
                   fontWeight: '700', 
                   fontSize: 12,
                   flexShrink: 0,
                 }}>
-                  {hotMatches.length} match{hotMatches.length > 1 ? 's' : ''} en feu
+                  {hotMatches.length}
                 </Text>
-              )}
-            </Pressable>
+              </Pressable>
+            )}
           </View>
           
           {/* Zone de configuration du filtre (masquée par défaut) */}
