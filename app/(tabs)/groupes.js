@@ -1406,9 +1406,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   <Text style={{ fontWeight: "800", fontSize: 18, color: "#001831", textTransform: 'uppercase' }}>
                     {activeRecord.name}
                   </Text>
-                  {isAdmin && (
-                    <Text style={{ fontSize: 16, lineHeight: 20 }}>👑</Text>
-                  )}
                 </View>
                 <Text style={{ color: "#5b89b8", marginTop: 2, fontWeight: "700" }}>
                   {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
