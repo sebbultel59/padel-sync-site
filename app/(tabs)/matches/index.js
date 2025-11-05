@@ -4898,7 +4898,7 @@ const HourSlotRow = ({ item }) => {
               <Text style={{ 
                 color: filterByLevel ? '#15803d' : '#9ca3af', 
                 fontWeight: '700', 
-                fontSize: 14 
+                fontSize: 12 
               }}>
                 {filterByLevel ? `Filtre actif (${filterLevelRanges.length})` : 'Filtrer niveaux'}
               </Text>
@@ -4930,7 +4930,7 @@ const HourSlotRow = ({ item }) => {
               <Text style={{ 
                 color: filterByGeo ? '#15803d' : '#9ca3af', 
                 fontWeight: '700', 
-                fontSize: 14 
+                fontSize: 12 
               }}>
                 {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
               </Text>
@@ -4954,7 +4954,7 @@ const HourSlotRow = ({ item }) => {
                 <Text style={{ 
                   color: '#ffffff', 
                   fontWeight: '700', 
-                  fontSize: 14 
+                  fontSize: 12 
                 }}>
                   {hotMatches.length} match{hotMatches.length > 1 ? 's' : ''} en feu
                 </Text>
