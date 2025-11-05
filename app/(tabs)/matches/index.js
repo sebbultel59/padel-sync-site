@@ -7325,13 +7325,11 @@ const HourSlotRow = ({ item }) => {
                               <View
                                 key={userId}
                                 style={{
-                                  flexDirection: 'row',
                                   alignItems: 'center',
-                                  gap: 6,
+                                  justifyContent: 'center',
                                   backgroundColor: isMe ? '#fef3c7' : '#ffffff',
-                                  paddingVertical: 6,
-                                  paddingHorizontal: 10,
-                                  borderRadius: 8,
+                                  padding: 4,
+                                  borderRadius: 20,
                                   borderWidth: isMe ? 2 : 1,
                                   borderColor: isMe ? '#f59e0b' : '#e5e7eb',
                                 }}
@@ -7339,18 +7337,15 @@ const HourSlotRow = ({ item }) => {
                                 {profile.avatar_url ? (
                                   <Image
                                     source={{ uri: profile.avatar_url }}
-                                    style={{ width: 24, height: 24, borderRadius: 12 }}
+                                    style={{ width: 32, height: 32, borderRadius: 16 }}
                                   />
                                 ) : (
-                                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 10 }}>
+                                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 14 }}>
                                       {(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
                                     </Text>
                                   </View>
                                 )}
-                                <Text style={{ fontWeight: '700', fontSize: 12, color: '#111827' }}>
-                                  {isMe ? 'Vous' : (profile.display_name || profile.email || 'Joueur')}
-                                </Text>
                               </View>
                             );
                           })}
