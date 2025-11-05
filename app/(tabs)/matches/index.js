@@ -729,13 +729,12 @@ const hotMatches = React.useMemo(
     // Filtrer les créneaux avec exactement 3 joueurs disponibles (dont l'utilisateur)
     const hotSlots = allReadySlots.filter(slot => {
       const readyUserIds = slot.ready_user_ids || [];
-      // Vérifier que l'utilisateur est disponible
+      // Vérifier que l'utilisateur est disponible dans la liste
       const userIsAvailable = readyUserIds.some(id => String(id) === String(meId));
-      // Inclure l'utilisateur dans le comptage
-      const totalAvailable = userIsAvailable ? readyUserIds.length + 1 : readyUserIds.length;
       
+      // ready_user_ids contient déjà tous les joueurs disponibles y compris l'utilisateur
       // Vérifier qu'il y a exactement 3 joueurs disponibles (dont l'utilisateur)
-      return totalAvailable === 3 && userIsAvailable;
+      return readyUserIds.length === 3 && userIsAvailable;
     });
     
     // Convertir les créneaux en format "match" pour l'affichage
