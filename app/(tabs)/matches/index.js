@@ -5776,38 +5776,122 @@ const HourSlotRow = ({ item }) => {
           </View>
 
           {rsvpMode === 'hour' ? (
-            (pendingHourWeek?.length || 0) === 0 ? (
-              <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
-            ) : (
-                <FlatList
-                  data={pendingHourWeek}
-          keyExtractor={(m) => `${m.id}-pHour-${(rsvpsByMatch[m.id] || []).length}`}
-                  renderItem={({ item }) => (
-            <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
-                  )}
-          extraData={rsvpsVersion}
+            <>
+              {pendingHourComplete.length === 0 && pendingHourHot.length === 0 && (pendingHourWeek?.length || 0) === 0 ? (
+                <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
+              ) : (
+                <ScrollView 
                   contentContainerStyle={{ paddingBottom: bottomPad }}
                   scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                  ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-                />
-              )
-            ) : (
-              (pendingLongWeek?.length || 0) === 0 ? (
+                >
+                  {/* Bloc 1 : Matchs complets 1h (4 joueurs) */}
+                  {pendingHourComplete.length > 0 && (
+                    <View style={{ marginBottom: 16 }}>
+                      <View style={{ backgroundColor: '#10b981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
+                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
+                          ✅ Matchs prêts à jouer
+                        </Text>
+                      </View>
+                      {pendingHourComplete.map((m) => (
+                        <MatchCardPending key={m.id + '-complete-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Bloc 2 : Matchs en feu 1h (3 joueurs) */}
+                  {pendingHourHot.length > 0 && (
+                    <View style={{ marginBottom: 16 }}>
+                      <View style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
+                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
+                          🔥 3 joueurs dispo — il ne manque plus qu'un joueur !
+                        </Text>
+                      </View>
+                      {pendingHourHot.map((m) => (
+                        <MatchCardPending key={m.id + '-hot-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Autres matchs pending (0, 1 ou 2 joueurs) */}
+                  {pendingHourWeek.filter(m => {
+                    const rsvps = rsvpsByMatch[m.id] || [];
+                    const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+                    const count = accepted.length;
+                    return count !== 3 && count !== 4;
+                  }).length > 0 && (
+                    <View style={{ marginBottom: 16 }}>
+                      {pendingHourWeek.filter(m => {
+                        const rsvps = rsvpsByMatch[m.id] || [];
+                        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+                        const count = accepted.length;
+                        return count !== 3 && count !== 4;
+                      }).map((m) => (
+                        <MatchCardPending key={m.id + '-other-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                      ))}
+                    </View>
+                  )}
+                </ScrollView>
+              )}
+            </>
+          ) : (
+            <>
+              {pendingLongComplete.length === 0 && pendingLongHot.length === 0 && (pendingLongWeek?.length || 0) === 0 ? (
                 <Text style={{ color: '#6b7280' }}>Aucun match 1h30 en attente.</Text>
               ) : (
-                <FlatList
-                  data={pendingLongWeek}
-          keyExtractor={(m) => `${m.id}-pLong-${(rsvpsByMatch[m.id] || []).length}`}
-                  renderItem={({ item }) => (
-            <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
-                  )}
-          extraData={rsvpsVersion}
+                <ScrollView 
                   contentContainerStyle={{ paddingBottom: bottomPad }}
                   scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-        />
-              )
-            )}
+                >
+                  {/* Bloc 1 : Matchs complets 1h30 (4 joueurs) */}
+                  {pendingLongComplete.length > 0 && (
+                    <View style={{ marginBottom: 16 }}>
+                      <View style={{ backgroundColor: '#10b981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
+                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
+                          ✅ Matchs prêts à jouer
+                        </Text>
+                      </View>
+                      {pendingLongComplete.map((m) => (
+                        <MatchCardPending key={m.id + '-complete-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Bloc 2 : Matchs en feu 1h30 (3 joueurs) */}
+                  {pendingLongHot.length > 0 && (
+                    <View style={{ marginBottom: 16 }}>
+                      <View style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
+                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
+                          🔥 3 joueurs dispo — il ne manque plus qu'un joueur !
+                        </Text>
+                      </View>
+                      {pendingLongHot.map((m) => (
+                        <MatchCardPending key={m.id + '-hot-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Autres matchs pending (0, 1 ou 2 joueurs) */}
+                  {pendingLongWeek.filter(m => {
+                    const rsvps = rsvpsByMatch[m.id] || [];
+                    const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+                    const count = accepted.length;
+                    return count !== 3 && count !== 4;
+                  }).length > 0 && (
+                    <View style={{ marginBottom: 16 }}>
+                      {pendingLongWeek.filter(m => {
+                        const rsvps = rsvpsByMatch[m.id] || [];
+                        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+                        const count = accepted.length;
+                        return count !== 3 && count !== 4;
+                      }).map((m) => (
+                        <MatchCardPending key={m.id + '-other-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                      ))}
+                    </View>
+                  )}
+                </ScrollView>
+              )}
+            </>
+          )}
         </>
       )}
 
