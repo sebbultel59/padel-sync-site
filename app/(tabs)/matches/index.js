@@ -4861,7 +4861,7 @@ const HourSlotRow = ({ item }) => {
           {/* Icônes filtres pour afficher/masquer les configurations */}
           <View style={{ 
             flexDirection: 'row', 
-            flexWrap: 'wrap',
+            flexWrap: 'nowrap',
             alignItems: 'center', 
             justifyContent: 'flex-start', 
             gap: 4,
@@ -4945,18 +4945,21 @@ const HourSlotRow = ({ item }) => {
                 flexDirection: 'row',
                 alignItems: 'center',
                 paddingVertical: 8,
-                paddingHorizontal: 12,
+                paddingHorizontal: 8,
+                paddingLeft: 4,
                 borderRadius: 8,
                 backgroundColor: hotMatches.length > 0 ? '#ef4444' : 'transparent',
-                gap: 8,
+                gap: 6,
+                flexShrink: 0,
               }}
             >
-              <Text style={{ fontSize: 20 }}>🔥</Text>
+              <Text style={{ fontSize: 18 }}>🔥</Text>
               {hotMatches.length > 0 && (
                 <Text style={{ 
                   color: '#ffffff', 
                   fontWeight: '700', 
-                  fontSize: 12 
+                  fontSize: 12,
+                  flexShrink: 0,
                 }}>
                   {hotMatches.length} match{hotMatches.length > 1 ? 's' : ''} en feu
                 </Text>
