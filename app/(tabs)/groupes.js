@@ -1528,7 +1528,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         {/* Bouton Rejoindre un groupe */}
         <Pressable 
           onPress={press("join-group", () => setJoinModalVisible(true))} 
-          style={[s.btn, { backgroundColor: "#1a4b97", marginTop: 12, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+          style={[s.btn, { backgroundColor: "#2dc149", marginTop: 12, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
         >
           <Ionicons name="add-circle-outline" size={20} color="#ffffff" />
           <Text style={[s.btnTxt, { fontSize: 16 }]}>Rejoindre un groupe</Text>
