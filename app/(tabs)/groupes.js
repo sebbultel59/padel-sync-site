@@ -216,10 +216,11 @@ function Avatar({ url, fallback, size = 48, level = null, onPress, profile, onLo
           <View
             style={{
               position: 'absolute',
-              top: -4,
+              top: -8,
               right: -4,
               alignItems: 'center',
               justifyContent: 'center',
+              transform: [{ rotate: '25deg' }],
             }}
             accessibilityLabel="Admin"
           >
