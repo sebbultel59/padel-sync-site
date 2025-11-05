@@ -4853,7 +4853,7 @@ const HourSlotRow = ({ item }) => {
     );
   };
 
-  const MatchCardPending = ({ m, rsvps: rsvpsProp }) => {
+  const MatchCardPending = ({ m, rsvps: rsvpsProp, isHot = false }) => {
     const slot = m.time_slots || {};
     const rsvps = Array.isArray(rsvpsProp) ? rsvpsProp : (rsvpsByMatch[m.id] || []);
     // Split RSVP buckets
@@ -4861,6 +4861,11 @@ const HourSlotRow = ({ item }) => {
     const maybes   = rsvps.filter(r => (r.status || '').toString().toLowerCase() === 'maybe');
     const declined = rsvps.filter(r => (r.status || '').toString().toLowerCase() === 'no');
     const acceptedCount = accepted.length;
+    
+    // États pour le modal d'invitation de joueurs du groupe
+    const [inviteMembersModalOpen, setInviteMembersModalOpen] = React.useState(false);
+    const [groupMembers, setGroupMembers] = React.useState([]);
+    const [loadingMembers, setLoadingMembers] = React.useState(false);
     const pendingBg =
       acceptedCount >= 4 ? '#dcfce7' :        // 4 confirmés → vert clair
       acceptedCount === 3 ? '#fef9c3' :       // 3 → jaune clair
@@ -5148,6 +5153,192 @@ const HourSlotRow = ({ item }) => {
           </View>
         ) : null}
         </>
+
+        {/* Bouton Inviter un joueur du groupe (uniquement pour les matchs en feu) */}
+        {isHot && acceptedCount === 3 && (
+          <Pressable
+            onPress={async () => {
+              setLoadingMembers(true);
+              setInviteMembersModalOpen(true);
+              try {
+                const { data: members, error } = await supabase
+                  .from('group_members')
+                  .select('user_id, role')
+                  .eq('group_id', groupId);
+                if (error) throw error;
+
+                const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
+                if (userIds.length) {
+                  const { data: profs, error: profError } = await supabase
+                    .from('profiles')
+                    .select('id, display_name, avatar_url, niveau, phone, expo_push_token')
+                    .in('id', userIds);
+                  if (profError) throw profError;
+                  
+                  // Exclure les joueurs déjà confirmés sur ce match
+                  const confirmedUserIds = new Set(accepted.map(r => String(r.user_id)));
+                  const availableMembers = (profs || []).filter(p => !confirmedUserIds.has(String(p.id)));
+                  
+                  setGroupMembers(availableMembers);
+                } else {
+                  setGroupMembers([]);
+                }
+              } catch (e) {
+                Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
+                setGroupMembers([]);
+              } finally {
+                setLoadingMembers(false);
+              }
+            }}
+            style={{
+              backgroundColor: '#ff751f',
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: 8,
+            }}
+          >
+            <Text style={{ fontSize: 16, marginRight: 6 }}>👋</Text>
+            <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+              Inviter un joueur du groupe
+            </Text>
+          </Pressable>
+        )}
+
+        {/* Modal d'invitation de membres du groupe */}
+        <Modal visible={inviteMembersModalOpen} transparent animationType="fade" onRequestClose={() => setInviteMembersModalOpen(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Inviter un joueur</Text>
+                <Pressable onPress={() => setInviteMembersModalOpen(false)} style={{ padding: 8 }}>
+                  <Ionicons name="close" size={24} color="#111827" />
+                </Pressable>
+              </View>
+              
+              {loadingMembers ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color="#156bc9" />
+                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
+                </View>
+              ) : groupMembers.length === 0 ? (
+                <View style={{ padding: 20 }}>
+                  <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                    Aucun membre disponible à inviter (tous sont déjà confirmés sur ce match).
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: 400 }}>
+                  {groupMembers.map((member) => (
+                    <Pressable
+                      key={member.id}
+                      onPress={async () => {
+                        try {
+                          // Inviter le joueur en créant un RSVP "maybe"
+                          const { error: rsvpError } = await supabase
+                            .from('match_rsvps')
+                            .upsert({
+                              match_id: m.id,
+                              user_id: member.id,
+                              status: 'maybe',
+                            }, { onConflict: 'match_id,user_id' });
+                          
+                          if (rsvpError) throw rsvpError;
+                          
+                          // Envoyer une notification au joueur invité
+                          if (member.expo_push_token && member.expo_push_token.startsWith('ExponentPushToken')) {
+                            try {
+                              const { data: timeSlot } = await supabase
+                                .from('time_slots')
+                                .select('starts_at, ends_at')
+                                .eq('id', m.time_slot_id)
+                                .maybeSingle();
+                              
+                              const dateStr = timeSlot?.starts_at 
+                                ? new Date(timeSlot.starts_at).toLocaleDateString('fr-FR', { 
+                                    weekday: 'long', 
+                                    day: 'numeric', 
+                                    month: 'long',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : 'ce match';
+                              
+                              const response = await fetch('https://exp.host/--/api/v2/push/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  to: member.expo_push_token,
+                                  sound: 'default',
+                                  title: '🎾 Invitation à un match',
+                                  body: `Il ne manque qu'un joueur pour ton match du ${dateStr} !`,
+                                  data: { type: 'match_invite', match_id: m.id, group_id: groupId },
+                                }),
+                              });
+                              
+                              if (!response.ok) {
+                                console.warn('[Invite] Échec envoi notification:', await response.text());
+                              }
+                            } catch (notifError) {
+                              console.warn('[Invite] Erreur notification:', notifError);
+                            }
+                          }
+                          
+                          Alert.alert('Invitation envoyée', `${member.display_name || member.email} a été invité au match.`);
+                          setInviteMembersModalOpen(false);
+                          // Recharger les données du match
+                          fetchData();
+                        } catch (e) {
+                          Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
+                        }
+                      }}
+                      style={({ pressed }) => ({
+                        paddingVertical: 12,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
+                        borderWidth: 1,
+                        borderColor: '#e5e7eb',
+                        marginBottom: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      })}
+                    >
+                      <View style={{ marginRight: 12 }}>
+                        {member.avatar_url ? (
+                          <Image
+                            source={{ uri: member.avatar_url }}
+                            style={{ width: 48, height: 48, borderRadius: 24 }}
+                          />
+                        ) : (
+                          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ color: '#156bc9', fontWeight: '800', fontSize: 18 }}>
+                              {(member.display_name || member.email || 'J').substring(0, 2).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
+                          {member.display_name || member.email || 'Joueur'}
+                        </Text>
+                        {member.niveau && (
+                          <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                            Niveau {member.niveau}
+                          </Text>
+                        )}
+                      </View>
+                      <Ionicons name="person-add" size={24} color="#15803d" />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   };
@@ -5807,7 +5998,7 @@ const HourSlotRow = ({ item }) => {
                         </Text>
                       </View>
                       {pendingHourHot.map((m) => (
-                        <MatchCardPending key={m.id + '-hot-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                        <MatchCardPending key={m.id + '-hot-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} isHot={true} />
                       ))}
                     </View>
                   )}
@@ -5865,7 +6056,7 @@ const HourSlotRow = ({ item }) => {
                         </Text>
                       </View>
                       {pendingLongHot.map((m) => (
-                        <MatchCardPending key={m.id + '-hot-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
+                        <MatchCardPending key={m.id + '-hot-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} isHot={true} />
                       ))}
                     </View>
                   )}
