@@ -4864,7 +4864,7 @@ const HourSlotRow = ({ item }) => {
             flexWrap: 'wrap',
             alignItems: 'center', 
             justifyContent: 'flex-start', 
-            gap: 12,
+            gap: 6,
             marginBottom: (filterConfigVisible || filterGeoVisible) ? 8 : 0,
             marginTop: 4,
           }}>
