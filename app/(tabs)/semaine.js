@@ -1570,6 +1570,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                           width: 24,
                           height: 24,
                           tintColor: '#ffffff',
+                          shadowColor: '#ffffff',
+                          shadowOffset: { width: 0, height: 0 },
+                          shadowOpacity: 1,
+                          shadowRadius: 2,
+                          elevation: 2,
                         }}
                         resizeMode="contain"
                       />
@@ -1595,6 +1600,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                           width: 22,
                           height: 22,
                           tintColor: '#ffffff',
+                          shadowColor: '#ffffff',
+                          shadowOffset: { width: 0, height: 0 },
+                          shadowOpacity: 1,
+                          shadowRadius: 2,
+                          elevation: 2,
                         }}
                         resizeMode="contain"
                       />
