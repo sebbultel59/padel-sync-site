@@ -7452,7 +7452,11 @@ const HourSlotRow = ({ item }) => {
                               }
                               
                               // Récupérer les autres joueurs disponibles sur ce créneau (pour les ajouter au match)
-                              const otherAvailableUserIds = allAvailableIds.filter(id => String(id) !== String(meId));
+                              // Utiliser m.available_user_ids directement car allAvailableIds n'est pas accessible dans ce scope
+                              const availableUserIdsForMatch = m.available_user_ids || [];
+                              const otherAvailableUserIds = availableUserIdsForMatch.filter(id => String(id) !== String(meId));
+                              console.log('[HotMatch] Joueurs disponibles sur le créneau:', availableUserIdsForMatch);
+                              console.log('[HotMatch] Autres joueurs à ajouter (hors moi):', otherAvailableUserIds);
                               
                               // Récupérer ou créer le time_slot
                               let timeSlotId = m.time_slot_id;
@@ -7564,16 +7568,22 @@ const HourSlotRow = ({ item }) => {
                                         status: 'pending',
                                       }));
                                       
-                                      const { error: rsvpsError } = await supabase
+                                      console.log('[HotMatch] Création de RSVPs pour les autres joueurs:', rsvpsToInsert);
+                                      
+                                      const { data: rsvpsData, error: rsvpsError } = await supabase
                                         .from('match_rsvps')
-                                        .upsert(rsvpsToInsert, { onConflict: 'match_id,user_id' });
+                                        .upsert(rsvpsToInsert, { onConflict: 'match_id,user_id' })
+                                        .select();
                                       
                                       if (rsvpsError) {
                                         console.error('[HotMatch] Erreur création RSVPs pour autres joueurs:', rsvpsError);
                                         // Ne pas faire échouer toute l'opération si les RSVPs échouent
                                       } else {
+                                        console.log('[HotMatch] RSVPs créés avec succès:', rsvpsData);
                                         console.log('[HotMatch] RSVPs créés pour', otherAvailableUserIds.length, 'joueurs');
                                       }
+                                    } else {
+                                      console.log('[HotMatch] Aucun autre joueur à ajouter au match');
                                     }
                                   }
                                 }
