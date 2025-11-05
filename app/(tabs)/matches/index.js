@@ -7560,12 +7560,12 @@ const HourSlotRow = ({ item }) => {
                                         );
                                     }
                                     
-                                    // RSVP 'pending' pour les autres joueurs disponibles
+                                    // RSVP 'maybe' pour les autres joueurs disponibles (en attente de confirmation)
                                     if (otherAvailableUserIds.length > 0) {
                                       const rsvpsToInsert = otherAvailableUserIds.map(userId => ({
                                         match_id: newMatch.id,
                                         user_id: userId,
-                                        status: 'pending',
+                                        status: 'maybe',
                                       }));
                                       
                                       console.log('[HotMatch] Création de RSVPs pour les autres joueurs:', rsvpsToInsert);
