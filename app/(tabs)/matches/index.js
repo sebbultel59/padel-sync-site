@@ -7290,7 +7290,7 @@ const HourSlotRow = ({ item }) => {
                   Aucun match en feu pour le moment.
                 </Text>
                 <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 14, marginTop: 8 }}>
-                  Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs disponibles dont vous).
+                  Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs disponibles).
                 </Text>
               </View>
             ) : (
