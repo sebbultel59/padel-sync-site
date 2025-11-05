@@ -217,24 +217,13 @@ function Avatar({ url, fallback, size = 48, level = null, onPress, profile, onLo
             style={{
               position: 'absolute',
               top: -4,
-              left: -4,
-              backgroundColor: '#ffd700',
-              borderColor: '#ffffff',
-              borderWidth: 2,
-              borderRadius: 12,
-              width: 20,
-              height: 20,
+              right: -4,
               alignItems: 'center',
               justifyContent: 'center',
-              shadowColor: '#000',
-              shadowOpacity: 0.3,
-              shadowRadius: 2,
-              shadowOffset: { width: 0, height: 1 },
-              elevation: 3,
             }}
             accessibilityLabel="Admin"
           >
-            <Text style={{ fontSize: 12, lineHeight: 16 }}>👑</Text>
+            <Text style={{ fontSize: 16, lineHeight: 20 }}>👑</Text>
           </View>
         )}
         {!!level && (
