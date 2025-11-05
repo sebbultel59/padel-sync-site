@@ -725,9 +725,14 @@ const hotMatches = React.useMemo(
   () => {
     if (!meId || !groupId) return [];
     
-    // Utiliser la même source de données que les matchs possibles (ready)
-    // ready contient tous les créneaux (y compris ceux avec 3 joueurs)
-    const allSlots = [...(ready || [])];
+    // Utiliser readyAll qui contient tous les créneaux (y compris ceux avec 3 joueurs)
+    // après enlèvement des joueurs déjà engagés mais avant le filtrage à 4 joueurs
+    const allSlots = [...(readyAll || [])];
+    
+    // Si readyAll est vide, utiliser ready (fallback)
+    if (allSlots.length === 0) {
+      return [];
+    }
     
     // Appliquer les mêmes filtres que longReadyWeek/hourReadyWeek
     const now = new Date();
@@ -1834,6 +1839,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         const hourReadyFiltered = adjusted.filter(s => durationMinutes(s.starts_at, s.ends_at) <= 60);
 
         setReady(adjusted);
+        setReadyAll(adjusted); // Stocker aussi adjusted (après enlèvement des joueurs engagés) pour les matchs en feu
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
         setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
