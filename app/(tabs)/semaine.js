@@ -176,7 +176,7 @@ export default function Semaine() {
       }
       
       try {
-        // Vérifier si l'utilisateur est admin du groupe
+        // Vérifier si l'utilisateur est admin du groupe (via group_members.role)
         const { data: meRow, error: eMe } = await supabase
           .from("group_members")
           .select("role")
@@ -188,17 +188,6 @@ export default function Semaine() {
         
         const isGroupAdmin = meRow?.role === "admin" || meRow?.role === "owner";
         
-        // Vérifier si l'utilisateur est owner du groupe
-        const { data: groupData, error: eGroup } = await supabase
-          .from("groups")
-          .select("owner_id")
-          .eq("id", groupId)
-          .maybeSingle();
-        
-        if (eGroup) throw eGroup;
-        
-        const isOwner = groupData?.owner_id === meId;
-        
         // Vérifier si l'utilisateur est super admin
         const { data: saRow, error: saErr } = await supabase
           .from('super_admins')
@@ -209,7 +198,7 @@ export default function Semaine() {
         if (saErr) console.warn('[Semaine] super_admins check failed:', saErr.message);
         
         setIsSuperAdmin(!!saRow?.user_id);
-        setIsAdmin(isGroupAdmin || isOwner || !!saRow?.user_id);
+        setIsAdmin(isGroupAdmin || !!saRow?.user_id);
       } catch (e) {
         console.warn('[Semaine] Erreur chargement admin:', e?.message ?? String(e));
         setIsAdmin(false);
