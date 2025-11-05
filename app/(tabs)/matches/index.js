@@ -5481,7 +5481,7 @@ const HourSlotRow = ({ item }) => {
           }}
         >
           <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
-            {displayLongSections.reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0} Créneaux 1h30
+            1H30 ({displayLongSections.reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})
           </Text>
       </Pressable>
       <Pressable
@@ -5498,7 +5498,7 @@ const HourSlotRow = ({ item }) => {
           }}
         >
           <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
-            {displayHourReady?.length || 0} Créneaux 1h
+            1H ({displayHourReady?.length || 0})
           </Text>
       </Pressable>
     </View>
