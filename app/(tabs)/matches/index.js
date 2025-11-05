@@ -166,6 +166,7 @@ export default function MatchesScreen() {
   const [confirmedMode, setConfirmedMode] = useState('long');
   const [weekOffset, setWeekOffset] = useState(0);
   const [ready, setReady] = useState([]);
+  const [readyAll, setReadyAll] = useState([]); // Tous les créneaux (y compris 3 joueurs) avant filtrage
   const [hot, setHot] = useState([]);
   const [longReady, setLongReady] = useState([]);
   const [hourReady, setHourReady] = useState([]);
