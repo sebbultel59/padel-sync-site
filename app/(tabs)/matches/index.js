@@ -5479,7 +5479,7 @@ const HourSlotRow = ({ item }) => {
             borderColor: mode === 'long' ? '#ffffff' : 'transparent',
           }}
         >
-          <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
+          <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
             1H30 ({displayLongSections.reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})
           </Text>
       </Pressable>
@@ -5496,7 +5496,7 @@ const HourSlotRow = ({ item }) => {
             borderColor: mode === 'hour' ? '#ffffff' : 'transparent',
           }}
         >
-          <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 12 }}>
+          <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
             1H ({displayHourReady?.length || 0})
           </Text>
       </Pressable>
