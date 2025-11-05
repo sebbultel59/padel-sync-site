@@ -5087,7 +5087,7 @@ const HourSlotRow = ({ item }) => {
               >
                 <Text style={{ fontSize: 18 }}>🔥</Text>
                 <Text style={{ 
-                  color: '#111827', 
+                  color: '#fd9c68', 
                   fontWeight: '700', 
                   fontSize: 12,
                   flexShrink: 0,
