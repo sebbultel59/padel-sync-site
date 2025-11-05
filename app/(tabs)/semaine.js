@@ -1430,10 +1430,20 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           const match = mapMatches.get(startIso);
           const myStatus = myStatusByStart.get(startIso);
 
-          // Couleurs fixes pour toutes les cellules (plus de mise en forme conditionnelle)
-          let cellBg = '#f7f9fd';
+          // Couleurs selon la disponibilité du joueur
+          let cellBg = '#f7f9fd'; // par défaut
           let cellBorder = '#1f2937';
           let textColor = '#0b2240';
+          
+          if (myStatus === 'available') {
+            // Cellule verte si le joueur est disponible
+            cellBg = '#2dc149';
+            cellBorder = '#2dc149';
+          } else if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
+            // Cellule orange clair si le joueur n'est pas disponible
+            cellBg = '#ffedd5'; // orange clair
+            cellBorder = '#fed7aa';
+          }
 
           // Surbrillance de la plage en cours (prévisualisation)
           if (rangeStart && rangeStart.dayIndex === di) {
