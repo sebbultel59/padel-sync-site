@@ -155,7 +155,7 @@ function base64ToArrayBuffer(base64) {
 }
 
 
-function Avatar({ url, fallback, size = 48, level = null, onPress, profile, onLongPressProfile, ...rest }) {
+function Avatar({ url, fallback, size = 48, level = null, onPress, profile, onLongPressProfile, isAdmin = false, ...rest }) {
   const S = Math.round(size * 1.2);
   const initials = computeInitials(fallback || "?");
   
@@ -210,6 +210,31 @@ function Avatar({ url, fallback, size = 48, level = null, onPress, profile, onLo
             <Text style={{ color: BRAND, fontWeight: "800", fontSize: Math.max(14, Math.round(S * 0.40)) }}>
               {initials}
             </Text>
+          </View>
+        )}
+        {isAdmin && (
+          <View
+            style={{
+              position: 'absolute',
+              top: -4,
+              left: -4,
+              backgroundColor: '#ffd700',
+              borderColor: '#ffffff',
+              borderWidth: 2,
+              borderRadius: 12,
+              width: 20,
+              height: 20,
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: '#000',
+              shadowOpacity: 0.3,
+              shadowRadius: 2,
+              shadowOffset: { width: 0, height: 1 },
+              elevation: 3,
+            }}
+            accessibilityLabel="Admin"
+          >
+            <Text style={{ fontSize: 12, lineHeight: 16 }}>👑</Text>
           </View>
         )}
         {!!level && (
@@ -1408,7 +1433,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={{ gap: 8, paddingVertical: 8, minHeight: 56 }}
                 >
-                  {members.slice(0, 20).map((m) => (
+                  {[...members]
+                    .sort((a, b) => {
+                      // Admins en premier
+                      if (a.is_admin && !b.is_admin) return -1;
+                      if (!a.is_admin && b.is_admin) return 1;
+                      return 0;
+                    })
+                    .slice(0, 20)
+                    .map((m) => (
                     <Avatar
                       key={m.id}
                       url={m.avatar_url}
@@ -1417,6 +1450,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       size={36}
                       profile={m}
                       onLongPressProfile={openProfileForProfile}
+                      isAdmin={m.is_admin}
                     />
                   ))}
                   {members.length > 20 ? (
@@ -1836,9 +1870,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
           <View style={[s.qrCard, { width: 340, alignItems: "stretch" }]}>
             <Text style={{ fontWeight: "800", marginBottom: 12 }}>Membres ({members.length})</Text>
             <ScrollView style={{ maxHeight: 360 }}>
-              {members.map((m) => (
+              {[...members]
+                .sort((a, b) => {
+                  // Admins en premier
+                  if (a.is_admin && !b.is_admin) return -1;
+                  if (!a.is_admin && b.is_admin) return 1;
+                  return 0;
+                })
+                .map((m) => (
                 <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
-                  <Avatar url={m.avatar_url} fallback={m.name} size={36} level={m.niveau} profile={m} onLongPressProfile={openProfileForProfile} />
+                  <Avatar url={m.avatar_url} fallback={m.name} size={36} level={m.niveau} profile={m} onLongPressProfile={openProfileForProfile} isAdmin={m.is_admin} />
                   <Text style={{ flex: 1, fontWeight: "600" }}>{m.name}</Text>
                   {m.is_admin && <Text style={{ color: BRAND, fontWeight: "800", marginRight: 8 }}>Admin</Text>}
                   <Pressable
