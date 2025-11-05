@@ -1577,11 +1577,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   )}
                 </>
               ) : (
-                /* Affichage pour les joueurs : icône raquette sur fond vert si disponible */
+                /* Affichage pour les joueurs : icône raquette sur fond transparent si disponible */
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                   {myStatus === 'available' ? (
                     <View style={{
-                      backgroundColor: '#2dc149',
+                      backgroundColor: 'transparent',
                       borderRadius: 6,
                       padding: 4,
                       alignItems: 'center',
