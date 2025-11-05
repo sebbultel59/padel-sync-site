@@ -7479,9 +7479,10 @@ const HourSlotRow = ({ item }) => {
                                     .single();
                                   
                                   if (timeSlotError) {
-                                    // Si erreur de duplication, essayer de récupérer le time_slot existant
-                                    if (timeSlotError.code === '23505') {
-                                      const { data: existingTS } = await supabase
+                                    // Si erreur de duplication (clé unique dupliquée), récupérer le time_slot existant
+                                    if (timeSlotError.code === '23505' || timeSlotError.message?.includes('duplicate key') || timeSlotError.message?.includes('unique constraint')) {
+                                      console.log('[HotMatch] Time_slot déjà existant, récupération...');
+                                      const { data: existingTS, error: fetchError } = await supabase
                                         .from('time_slots')
                                         .select('id')
                                         .eq('group_id', groupId)
@@ -7489,10 +7490,17 @@ const HourSlotRow = ({ item }) => {
                                         .eq('ends_at', slot.ends_at)
                                         .maybeSingle();
                                       
+                                      if (fetchError) {
+                                        console.error('[HotMatch] Erreur récupération time_slot existant:', fetchError);
+                                        throw fetchError;
+                                      }
+                                      
                                       if (existingTS?.id) {
                                         timeSlotId = existingTS.id;
+                                        console.log('[HotMatch] Time_slot existant récupéré:', timeSlotId);
                                       } else {
-                                        console.error('[HotMatch] Erreur création time_slot:', timeSlotError);
+                                        // Si on ne trouve pas le time_slot, c'est une vraie erreur
+                                        console.error('[HotMatch] Erreur création time_slot (duplication mais pas trouvé):', timeSlotError);
                                         throw timeSlotError;
                                       }
                                     } else {
