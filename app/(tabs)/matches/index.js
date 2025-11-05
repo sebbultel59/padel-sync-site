@@ -7451,27 +7451,58 @@ const HourSlotRow = ({ item }) => {
                                 throw availabilityError;
                               }
                               
-                              // Créer un time_slot si nécessaire
+                              // Récupérer ou créer le time_slot
                               let timeSlotId = m.time_slot_id;
                               
                               if (!timeSlotId || timeSlotId.startsWith('virtual-')) {
-                                // Créer un time_slot pour ce créneau
-                                const { data: newTimeSlot, error: timeSlotError } = await supabase
+                                // Vérifier si un time_slot existe déjà pour ce créneau
+                                const { data: existingTimeSlot } = await supabase
                                   .from('time_slots')
-                                  .insert({
-                                    group_id: groupId,
-                                    starts_at: slot.starts_at,
-                                    ends_at: slot.ends_at,
-                                  })
                                   .select('id')
-                                  .single();
+                                  .eq('group_id', groupId)
+                                  .eq('starts_at', slot.starts_at)
+                                  .eq('ends_at', slot.ends_at)
+                                  .maybeSingle();
                                 
-                                if (timeSlotError) {
-                                  console.error('[HotMatch] Erreur création time_slot:', timeSlotError);
-                                  throw timeSlotError;
+                                if (existingTimeSlot?.id) {
+                                  timeSlotId = existingTimeSlot.id;
+                                } else {
+                                  // Créer un time_slot pour ce créneau
+                                  const { data: newTimeSlot, error: timeSlotError } = await supabase
+                                    .from('time_slots')
+                                    .insert({
+                                      group_id: groupId,
+                                      starts_at: slot.starts_at,
+                                      ends_at: slot.ends_at,
+                                    })
+                                    .select('id')
+                                    .single();
+                                  
+                                  if (timeSlotError) {
+                                    // Si erreur de duplication, essayer de récupérer le time_slot existant
+                                    if (timeSlotError.code === '23505') {
+                                      const { data: existingTS } = await supabase
+                                        .from('time_slots')
+                                        .select('id')
+                                        .eq('group_id', groupId)
+                                        .eq('starts_at', slot.starts_at)
+                                        .eq('ends_at', slot.ends_at)
+                                        .maybeSingle();
+                                      
+                                      if (existingTS?.id) {
+                                        timeSlotId = existingTS.id;
+                                      } else {
+                                        console.error('[HotMatch] Erreur création time_slot:', timeSlotError);
+                                        throw timeSlotError;
+                                      }
+                                    } else {
+                                      console.error('[HotMatch] Erreur création time_slot:', timeSlotError);
+                                      throw timeSlotError;
+                                    }
+                                  } else {
+                                    timeSlotId = newTimeSlot?.id;
+                                  }
                                 }
-                                
-                                timeSlotId = newTimeSlot?.id;
                               }
                               
                               // Créer le match si le time_slot existe
@@ -7485,32 +7516,29 @@ const HourSlotRow = ({ item }) => {
                                   .maybeSingle();
                                 
                                 if (!existingMatch) {
-                                  // Créer le match
-                                  const { error: matchError } = await supabase.rpc("create_match_from_slot", {
-                                    p_group: groupId,
-                                    p_time_slot: timeSlotId,
-                                  });
+                                  // Créer le match directement (sans utiliser create_match_from_slot qui a un problème)
+                                  const { data: newMatch, error: matchError } = await supabase
+                                    .from('matches')
+                                    .insert({
+                                      group_id: groupId,
+                                      time_slot_id: timeSlotId,
+                                      status: 'pending',
+                                      created_by: meId,
+                                    })
+                                    .select('id')
+                                    .single();
                                   
                                   if (matchError) {
                                     console.error('[HotMatch] Erreur création match:', matchError);
                                     throw matchError;
                                   }
                                   
-                                  // Récupérer l'ID du match créé et créer un RSVP automatique
-                                  const { data: createdMatch } = await supabase
-                                    .from('matches')
-                                    .select('id')
-                                    .eq('group_id', groupId)
-                                    .eq('time_slot_id', timeSlotId)
-                                    .order('created_at', { ascending: false })
-                                    .limit(1)
-                                    .maybeSingle();
-                                  
-                                  if (createdMatch?.id && meId) {
+                                  // Créer un RSVP automatique pour l'utilisateur
+                                  if (newMatch?.id && meId) {
                                     await supabase
                                       .from('match_rsvps')
                                       .upsert(
-                                        { match_id: createdMatch.id, user_id: meId, status: 'accepted' },
+                                        { match_id: newMatch.id, user_id: meId, status: 'accepted' },
                                         { onConflict: 'match_id,user_id' }
                                       );
                                   }
