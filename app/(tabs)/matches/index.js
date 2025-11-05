@@ -263,6 +263,9 @@ export default function MatchesScreen() {
   const [filterGeoCitySuggestions, setFilterGeoCitySuggestions] = useState([]);
   const [filterGeoRadiusKm, setFilterGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
   
+  // Modale des matchs en feu
+  const [hotMatchesModalVisible, setHotMatchesModalVisible] = useState(false);
+  
   // Le filtre géographique est actif si un point de référence est défini
   const filterByGeo = filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null;
   
@@ -701,51 +704,6 @@ const pendingLongWeek = React.useMemo(
   [pendingWeek, rsvpsByMatch, meId]
 );
 
-// Séparer les matchs pending en deux groupes : complets (4 joueurs) vs en feu (3 joueurs)
-const pendingLongHot = React.useMemo(
-  () => {
-    return pendingLongWeek.filter(m => {
-      const rsvps = rsvpsByMatch[m.id] || [];
-      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-      return accepted.length === 3;
-    });
-  },
-  [pendingLongWeek, rsvpsByMatch]
-);
-
-const pendingLongComplete = React.useMemo(
-  () => {
-    return pendingLongWeek.filter(m => {
-      const rsvps = rsvpsByMatch[m.id] || [];
-      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-      return accepted.length === 4;
-    });
-  },
-  [pendingLongWeek, rsvpsByMatch]
-);
-
-const pendingHourHot = React.useMemo(
-  () => {
-    return pendingHourWeek.filter(m => {
-      const rsvps = rsvpsByMatch[m.id] || [];
-      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-      return accepted.length === 3;
-    });
-  },
-  [pendingHourWeek, rsvpsByMatch]
-);
-
-const pendingHourComplete = React.useMemo(
-  () => {
-    return pendingHourWeek.filter(m => {
-      const rsvps = rsvpsByMatch[m.id] || [];
-      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-      return accepted.length === 4;
-    });
-  },
-  [pendingHourWeek, rsvpsByMatch]
-);
-
 const confirmedHourWeek = React.useMemo(
   () => confirmedWeek.filter(m =>
     durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60
@@ -758,6 +716,29 @@ const confirmedLongWeek = React.useMemo(
     durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) > 60
   ),
   [confirmedWeek]
+);
+
+// Calculer les matchs en feu : 3 joueurs acceptés dont l'utilisateur authentifié
+const hotMatches = React.useMemo(
+  () => {
+    if (!meId) return [];
+    
+    // Combiner tous les matchs (pending + confirmed)
+    const allMatches = [...pendingWeek, ...confirmedWeek];
+    
+    return allMatches.filter(m => {
+      const rsvps = rsvpsByMatch[m.id] || [];
+      const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+      
+      // Vérifier que l'utilisateur a accepté
+      const userAccepted = accepted.find(r => String(r.user_id) === String(meId));
+      if (!userAccepted) return false;
+      
+      // Vérifier qu'il y a exactement 3 joueurs acceptés (dont l'utilisateur)
+      return accepted.length === 3;
+    });
+  },
+  [pendingWeek, confirmedWeek, rsvpsByMatch, meId]
 );
 
   const confirmedHour = React.useMemo(
@@ -796,169 +777,6 @@ const confirmedLongWeek = React.useMemo(
     },
     [confirmedWeek]
   );
-
-  // Séparer les matchs confirmés en deux groupes : complets (4 joueurs) vs en feu (3 joueurs)
-  const confirmedComplete = React.useMemo(
-    () => {
-      const complete = confirmedLong.filter(m => {
-        const rsvps = rsvpsByMatch[m.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        const count = accepted.length;
-        return count === 4;
-      });
-      console.log('[Matches] ✅ ConfirmedComplete (4 joueurs):', complete.length, 'sur', confirmedLong.length, 'matchs confirmés 1h30');
-      return complete;
-    },
-    [confirmedLong, rsvpsByMatch]
-  );
-
-  const confirmedHot = React.useMemo(
-    () => {
-      // Chercher dans les matchs confirmés avec 3 joueurs
-      const hotFromConfirmed = confirmedLong.filter(m => {
-        const rsvps = rsvpsByMatch[m.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        return accepted.length === 3;
-      });
-      
-      // Chercher aussi dans les matchs pending avec 3 joueurs acceptés
-      const hotFromPending = pendingLongWeek.filter(m => {
-        const rsvps = rsvpsByMatch[m.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        const count = accepted.length;
-        if (count === 3) {
-          console.log('[Matches] 🔥 Match pending trouvé avec 3 joueurs:', m.id, 'RSVPs:', rsvps.map(r => ({ user: r.user_id, status: r.status })));
-        }
-        return count === 3;
-      });
-      
-      const hot = [...hotFromConfirmed, ...hotFromPending];
-      console.log('[Matches] 🔥 ConfirmedHot (3 joueurs):', hot.length, 'matchs au total');
-      console.log('[Matches]   - Depuis confirmed:', hotFromConfirmed.length, 'matchs');
-      console.log('[Matches]   - Depuis pending:', hotFromPending.length, 'matchs');
-      console.log('[Matches]   - confirmedLong total:', confirmedLong.length);
-      console.log('[Matches]   - pendingLongWeek total:', pendingLongWeek.length);
-      if (hot.length > 0) {
-        console.log('[Matches] 🔥 IDs des matchs en feu:', hot.map(m => m.id));
-        hot.forEach(m => {
-          const rsvps = rsvpsByMatch[m.id] || [];
-          const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-          console.log('[Matches]   Match', m.id, ':', accepted.length, 'joueurs acceptés');
-        });
-      }
-      return hot;
-    },
-    [confirmedLong, pendingLongWeek, rsvpsByMatch]
-  );
-
-  const confirmedHourComplete = React.useMemo(
-    () => {
-      const complete = confirmedHour.filter(m => {
-        const rsvps = rsvpsByMatch[m.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        return accepted.length === 4;
-      });
-      console.log('[Matches] ConfirmedHourComplete (4 joueurs):', complete.length);
-      return complete;
-    },
-    [confirmedHour, rsvpsByMatch]
-  );
-
-  const confirmedHourHot = React.useMemo(
-    () => {
-      // Chercher dans les matchs confirmés avec 3 joueurs
-      const hotFromConfirmed = confirmedHour.filter(m => {
-        const rsvps = rsvpsByMatch[m.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        return accepted.length === 3;
-      });
-      
-      // Chercher aussi dans les matchs pending avec 3 joueurs acceptés
-      const hotFromPending = pendingHourWeek.filter(m => {
-        const rsvps = rsvpsByMatch[m.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        const count = accepted.length;
-        if (count === 3) {
-          console.log('[Matches] 🔥 Match 1h pending trouvé avec 3 joueurs:', m.id);
-        }
-        return count === 3;
-      });
-      
-      const hot = [...hotFromConfirmed, ...hotFromPending];
-      console.log('[Matches] 🔥 ConfirmedHourHot (3 joueurs):', hot.length, 'matchs 1h au total');
-      console.log('[Matches]   - Depuis confirmed:', hotFromConfirmed.length, 'matchs');
-      console.log('[Matches]   - Depuis pending:', hotFromPending.length, 'matchs');
-      if (hot.length > 0) {
-        console.log('[Matches] 🔥 IDs des matchs 1h en feu:', hot.map(m => m.id));
-      }
-      return hot;
-    },
-    [confirmedHour, pendingHourWeek, rsvpsByMatch]
-  );
-
-  // Envoyer automatiquement des notifications aux 3 joueurs des matchs en feu
-  React.useEffect(() => {
-    const sendHotMatchNotifications = async () => {
-      const allHotMatches = [...confirmedHot, ...confirmedHourHot];
-      if (allHotMatches.length === 0) return;
-
-      for (const match of allHotMatches) {
-        const rsvps = rsvpsByMatch[match.id] || [];
-        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-        
-        if (accepted.length !== 3) continue;
-
-        // Récupérer le time_slot pour obtenir la date
-        const timeSlotId = match.time_slot_id;
-        if (!timeSlotId) continue;
-
-        const { data: timeSlot } = await supabase
-          .from('time_slots')
-          .select('starts_at, ends_at')
-          .eq('id', timeSlotId)
-          .maybeSingle();
-
-        if (!timeSlot?.starts_at) continue;
-
-        const dateStr = new Date(timeSlot.starts_at).toLocaleDateString('fr-FR', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-
-        // Envoyer une notification à chaque joueur confirmé
-        for (const rsvp of accepted) {
-          const profile = profilesById[String(rsvp.user_id)];
-          if (!profile?.expo_push_token || !profile.expo_push_token.startsWith('ExponentPushToken')) continue;
-
-          try {
-            await fetch('https://exp.host/--/api/v2/push/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: profile.expo_push_token,
-                sound: 'default',
-                title: '🔥 Match presque complet',
-                body: `Il ne manque qu'un joueur pour ton match du ${dateStr} !`,
-                data: { type: 'match_hot', match_id: match.id, group_id: groupId },
-              }),
-            });
-          } catch (e) {
-            console.warn('[HotMatch] Erreur notification pour', profile.id, ':', e);
-          }
-        }
-      }
-    };
-
-    // Délai pour éviter les notifications multiples lors du chargement initial
-    const timeoutId = setTimeout(() => {
-      sendHotMatchNotifications();
-    }, 2000);
-
-    return () => clearTimeout(timeoutId);
-  }, [confirmedHot, confirmedHourHot, rsvpsByMatch, profilesById, groupId]);
 
 // Sections jour → créneaux 1h30 (filtrées semaine)
 const longSectionsWeek = React.useMemo(() => {
@@ -4195,7 +4013,7 @@ const HourSlotRow = ({ item }) => {
     );
   };
 
-  const MatchCardConfirmed = ({ m, isHot = false }) => {
+  const MatchCardConfirmed = ({ m }) => {
     // time_slots peut être un array ou un objet
     const initialSlot = Array.isArray(m?.time_slots) ? (m.time_slots[0] || null) : (m?.time_slots || null);
     const [loadedSlot, setLoadedSlot] = React.useState(initialSlot);
@@ -4208,11 +4026,6 @@ const HourSlotRow = ({ item }) => {
     const [clubRadiusKm, setClubRadiusKm] = React.useState(50); // Rayon par défaut: 50km
     const [loadingClubs, setLoadingClubs] = React.useState(false);
     const [userLocation, setUserLocation] = React.useState(null);
-    
-    // États pour le modal d'invitation de joueurs du groupe
-    const [inviteMembersModalOpen, setInviteMembersModalOpen] = React.useState(false);
-    const [groupMembers, setGroupMembers] = React.useState([]);
-    const [loadingMembers, setLoadingMembers] = React.useState(false);
     
     // Charger le time_slot si manquant
     React.useEffect(() => {
@@ -4523,64 +4336,6 @@ const HourSlotRow = ({ item }) => {
           </Pressable>
         </View>
 
-        {/* Bouton Inviter un joueur du groupe (uniquement pour les matchs en feu) */}
-        {isHot && (
-          <Pressable
-            onPress={async () => {
-              setLoadingMembers(true);
-              setInviteMembersModalOpen(true);
-              try {
-                // Charger les membres du groupe actif
-                const currentRsvps = rsvpsByMatch[m.id] || [];
-                const currentAccepted = currentRsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-                
-                const { data: members, error } = await supabase
-                  .from('group_members')
-                  .select('user_id, role')
-                  .eq('group_id', groupId);
-                if (error) throw error;
-
-                const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
-                if (userIds.length) {
-                  const { data: profs, error: profError } = await supabase
-                    .from('profiles')
-                    .select('id, display_name, avatar_url, niveau, phone, expo_push_token')
-                    .in('id', userIds);
-                  if (profError) throw profError;
-                  
-                  // Exclure les joueurs déjà confirmés sur ce match
-                  const confirmedUserIds = new Set(currentAccepted.map(r => String(r.user_id)));
-                  const availableMembers = (profs || []).filter(p => !confirmedUserIds.has(String(p.id)));
-                  
-                  setGroupMembers(availableMembers);
-                } else {
-                  setGroupMembers([]);
-                }
-              } catch (e) {
-                Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
-                setGroupMembers([]);
-              } finally {
-                setLoadingMembers(false);
-              }
-            }}
-            style={{
-              backgroundColor: '#ff751f',
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 8,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 8,
-            }}
-          >
-            <Text style={{ fontSize: 16, marginRight: 6 }}>👋</Text>
-            <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
-              Inviter un joueur du groupe
-            </Text>
-          </Pressable>
-        )}
-
         {/* Modal de sélection de clubs */}
         <Modal visible={clubModalOpen} transparent animationType="fade" onRequestClose={() => setClubModalOpen(false)}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -4717,143 +4472,11 @@ const HourSlotRow = ({ item }) => {
             </View>
           </View>
         </Modal>
-
-        {/* Modal d'invitation de membres du groupe */}
-        <Modal visible={inviteMembersModalOpen} transparent animationType="fade" onRequestClose={() => setInviteMembersModalOpen(false)}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Inviter un joueur</Text>
-                <Pressable onPress={() => setInviteMembersModalOpen(false)} style={{ padding: 8 }}>
-                  <Ionicons name="close" size={24} color="#111827" />
-                </Pressable>
-              </View>
-              
-              {loadingMembers ? (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color="#156bc9" />
-                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
-                </View>
-              ) : groupMembers.length === 0 ? (
-                <View style={{ padding: 20 }}>
-                  <Text style={{ color: '#6b7280', textAlign: 'center' }}>
-                    Aucun membre disponible à inviter (tous sont déjà confirmés sur ce match).
-                  </Text>
-                </View>
-              ) : (
-                <ScrollView style={{ maxHeight: 400 }}>
-                  {groupMembers.map((member) => (
-                    <Pressable
-                      key={member.id}
-                      onPress={async () => {
-                        try {
-                          // Inviter le joueur en créant un RSVP "maybe"
-                          const { error: rsvpError } = await supabase
-                            .from('match_rsvps')
-                            .upsert({
-                              match_id: m.id,
-                              user_id: member.id,
-                              status: 'maybe',
-                            }, { onConflict: 'match_id,user_id' });
-                          
-                          if (rsvpError) throw rsvpError;
-                          
-                          // Envoyer une notification au joueur invité
-                          if (member.expo_push_token && member.expo_push_token.startsWith('ExponentPushToken')) {
-                            try {
-                              const { data: timeSlot } = await supabase
-                                .from('time_slots')
-                                .select('starts_at, ends_at')
-                                .eq('id', m.time_slot_id)
-                                .maybeSingle();
-                              
-                              const dateStr = timeSlot?.starts_at 
-                                ? new Date(timeSlot.starts_at).toLocaleDateString('fr-FR', { 
-                                    weekday: 'long', 
-                                    day: 'numeric', 
-                                    month: 'long',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
-                                : 'ce match';
-                              
-                              const response = await fetch('https://exp.host/--/api/v2/push/send', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  to: member.expo_push_token,
-                                  sound: 'default',
-                                  title: '🎾 Invitation à un match',
-                                  body: `Il ne manque qu'un joueur pour ton match du ${dateStr} !`,
-                                  data: { type: 'match_invite', match_id: m.id, group_id: groupId },
-                                }),
-                              });
-                              
-                              if (!response.ok) {
-                                console.warn('[Invite] Échec envoi notification:', await response.text());
-                              }
-                            } catch (notifError) {
-                              console.warn('[Invite] Erreur notification:', notifError);
-                            }
-                          }
-                          
-                          Alert.alert('Invitation envoyée', `${member.display_name || member.email} a été invité au match.`);
-                          setInviteMembersModalOpen(false);
-                          // Recharger les données du match
-                          fetchData();
-                        } catch (e) {
-                          Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
-                        }
-                      }}
-                      style={({ pressed }) => ({
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                        borderRadius: 10,
-                        backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
-                        borderWidth: 1,
-                        borderColor: '#e5e7eb',
-                        marginBottom: 8,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                      })}
-                    >
-                      <View style={{ marginRight: 12 }}>
-                        {member.avatar_url ? (
-                          <Image
-                            source={{ uri: member.avatar_url }}
-                            style={{ width: 48, height: 48, borderRadius: 24 }}
-                          />
-                        ) : (
-                          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ color: '#156bc9', fontWeight: '800', fontSize: 18 }}>
-                              {(member.display_name || member.email || 'J').substring(0, 2).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
-                          {member.display_name || member.email || 'Joueur'}
-                        </Text>
-                        {member.niveau && (
-                          <Text style={{ fontSize: 12, color: '#6b7280' }}>
-                            Niveau {member.niveau}
-                          </Text>
-                        )}
-                      </View>
-                      <Ionicons name="person-add" size={24} color="#15803d" />
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-            </View>
-          </View>
-        </Modal>
       </View>
     );
   };
 
-  const MatchCardPending = ({ m, rsvps: rsvpsProp, isHot = false }) => {
+  const MatchCardPending = ({ m, rsvps: rsvpsProp }) => {
     const slot = m.time_slots || {};
     const rsvps = Array.isArray(rsvpsProp) ? rsvpsProp : (rsvpsByMatch[m.id] || []);
     // Split RSVP buckets
@@ -4861,11 +4484,6 @@ const HourSlotRow = ({ item }) => {
     const maybes   = rsvps.filter(r => (r.status || '').toString().toLowerCase() === 'maybe');
     const declined = rsvps.filter(r => (r.status || '').toString().toLowerCase() === 'no');
     const acceptedCount = accepted.length;
-    
-    // États pour le modal d'invitation de joueurs du groupe
-    const [inviteMembersModalOpen, setInviteMembersModalOpen] = React.useState(false);
-    const [groupMembers, setGroupMembers] = React.useState([]);
-    const [loadingMembers, setLoadingMembers] = React.useState(false);
     const pendingBg =
       acceptedCount >= 4 ? '#dcfce7' :        // 4 confirmés → vert clair
       acceptedCount === 3 ? '#fef9c3' :       // 3 → jaune clair
@@ -5153,192 +4771,6 @@ const HourSlotRow = ({ item }) => {
           </View>
         ) : null}
         </>
-
-        {/* Bouton Inviter un joueur du groupe (uniquement pour les matchs en feu) */}
-        {isHot && acceptedCount === 3 && (
-          <Pressable
-            onPress={async () => {
-              setLoadingMembers(true);
-              setInviteMembersModalOpen(true);
-              try {
-                const { data: members, error } = await supabase
-                  .from('group_members')
-                  .select('user_id, role')
-                  .eq('group_id', groupId);
-                if (error) throw error;
-
-                const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
-                if (userIds.length) {
-                  const { data: profs, error: profError } = await supabase
-                    .from('profiles')
-                    .select('id, display_name, avatar_url, niveau, phone, expo_push_token')
-                    .in('id', userIds);
-                  if (profError) throw profError;
-                  
-                  // Exclure les joueurs déjà confirmés sur ce match
-                  const confirmedUserIds = new Set(accepted.map(r => String(r.user_id)));
-                  const availableMembers = (profs || []).filter(p => !confirmedUserIds.has(String(p.id)));
-                  
-                  setGroupMembers(availableMembers);
-                } else {
-                  setGroupMembers([]);
-                }
-              } catch (e) {
-                Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
-                setGroupMembers([]);
-              } finally {
-                setLoadingMembers(false);
-              }
-            }}
-            style={{
-              backgroundColor: '#ff751f',
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 8,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 8,
-            }}
-          >
-            <Text style={{ fontSize: 16, marginRight: 6 }}>👋</Text>
-            <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
-              Inviter un joueur du groupe
-            </Text>
-          </Pressable>
-        )}
-
-        {/* Modal d'invitation de membres du groupe */}
-        <Modal visible={inviteMembersModalOpen} transparent animationType="fade" onRequestClose={() => setInviteMembersModalOpen(false)}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Inviter un joueur</Text>
-                <Pressable onPress={() => setInviteMembersModalOpen(false)} style={{ padding: 8 }}>
-                  <Ionicons name="close" size={24} color="#111827" />
-                </Pressable>
-              </View>
-              
-              {loadingMembers ? (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color="#156bc9" />
-                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
-                </View>
-              ) : groupMembers.length === 0 ? (
-                <View style={{ padding: 20 }}>
-                  <Text style={{ color: '#6b7280', textAlign: 'center' }}>
-                    Aucun membre disponible à inviter (tous sont déjà confirmés sur ce match).
-                  </Text>
-                </View>
-              ) : (
-                <ScrollView style={{ maxHeight: 400 }}>
-                  {groupMembers.map((member) => (
-                    <Pressable
-                      key={member.id}
-                      onPress={async () => {
-                        try {
-                          // Inviter le joueur en créant un RSVP "maybe"
-                          const { error: rsvpError } = await supabase
-                            .from('match_rsvps')
-                            .upsert({
-                              match_id: m.id,
-                              user_id: member.id,
-                              status: 'maybe',
-                            }, { onConflict: 'match_id,user_id' });
-                          
-                          if (rsvpError) throw rsvpError;
-                          
-                          // Envoyer une notification au joueur invité
-                          if (member.expo_push_token && member.expo_push_token.startsWith('ExponentPushToken')) {
-                            try {
-                              const { data: timeSlot } = await supabase
-                                .from('time_slots')
-                                .select('starts_at, ends_at')
-                                .eq('id', m.time_slot_id)
-                                .maybeSingle();
-                              
-                              const dateStr = timeSlot?.starts_at 
-                                ? new Date(timeSlot.starts_at).toLocaleDateString('fr-FR', { 
-                                    weekday: 'long', 
-                                    day: 'numeric', 
-                                    month: 'long',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
-                                : 'ce match';
-                              
-                              const response = await fetch('https://exp.host/--/api/v2/push/send', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  to: member.expo_push_token,
-                                  sound: 'default',
-                                  title: '🎾 Invitation à un match',
-                                  body: `Il ne manque qu'un joueur pour ton match du ${dateStr} !`,
-                                  data: { type: 'match_invite', match_id: m.id, group_id: groupId },
-                                }),
-                              });
-                              
-                              if (!response.ok) {
-                                console.warn('[Invite] Échec envoi notification:', await response.text());
-                              }
-                            } catch (notifError) {
-                              console.warn('[Invite] Erreur notification:', notifError);
-                            }
-                          }
-                          
-                          Alert.alert('Invitation envoyée', `${member.display_name || member.email} a été invité au match.`);
-                          setInviteMembersModalOpen(false);
-                          // Recharger les données du match
-                          fetchData();
-                        } catch (e) {
-                          Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
-                        }
-                      }}
-                      style={({ pressed }) => ({
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                        borderRadius: 10,
-                        backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
-                        borderWidth: 1,
-                        borderColor: '#e5e7eb',
-                        marginBottom: 8,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                      })}
-                    >
-                      <View style={{ marginRight: 12 }}>
-                        {member.avatar_url ? (
-                          <Image
-                            source={{ uri: member.avatar_url }}
-                            style={{ width: 48, height: 48, borderRadius: 24 }}
-                          />
-                        ) : (
-                          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ color: '#156bc9', fontWeight: '800', fontSize: 18 }}>
-                              {(member.display_name || member.email || 'J').substring(0, 2).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
-                          {member.display_name || member.email || 'Joueur'}
-                        </Text>
-                        {member.niveau && (
-                          <Text style={{ fontSize: 12, color: '#6b7280' }}>
-                            Niveau {member.niveau}
-                          </Text>
-                        )}
-                      </View>
-                      <Ionicons name="person-add" size={24} color="#15803d" />
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-            </View>
-          </View>
-        </Modal>
       </View>
     );
   };
@@ -5501,6 +4933,31 @@ const HourSlotRow = ({ item }) => {
               }}>
                 {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
               </Text>
+            </Pressable>
+            
+            {/* Icône flammes pour les matchs en feu */}
+            <Pressable
+              onPress={() => setHotMatchesModalVisible(true)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                backgroundColor: hotMatches.length > 0 ? '#ef4444' : 'transparent',
+                gap: 8,
+              }}
+            >
+              <Text style={{ fontSize: 20 }}>🔥</Text>
+              {hotMatches.length > 0 && (
+                <Text style={{ 
+                  color: '#ffffff', 
+                  fontWeight: '700', 
+                  fontSize: 14 
+                }}>
+                  {hotMatches.length} match{hotMatches.length > 1 ? 's' : ''} en feu
+                </Text>
+              )}
             </Pressable>
           </View>
           
@@ -5967,122 +5424,38 @@ const HourSlotRow = ({ item }) => {
           </View>
 
           {rsvpMode === 'hour' ? (
-            <>
-              {pendingHourComplete.length === 0 && pendingHourHot.length === 0 && (pendingHourWeek?.length || 0) === 0 ? (
-                <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
-              ) : (
-                <ScrollView 
+            (pendingHourWeek?.length || 0) === 0 ? (
+              <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
+            ) : (
+                <FlatList
+                  data={pendingHourWeek}
+          keyExtractor={(m) => `${m.id}-pHour-${(rsvpsByMatch[m.id] || []).length}`}
+                  renderItem={({ item }) => (
+            <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
+                  )}
+          extraData={rsvpsVersion}
                   contentContainerStyle={{ paddingBottom: bottomPad }}
                   scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                >
-                  {/* Bloc 1 : Matchs complets 1h (4 joueurs) */}
-                  {pendingHourComplete.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#10b981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          ✅ Matchs prêts à jouer
-                        </Text>
-                      </View>
-                      {pendingHourComplete.map((m) => (
-                        <MatchCardPending key={m.id + '-complete-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Bloc 2 : Matchs en feu 1h (3 joueurs) */}
-                  {pendingHourHot.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          🔥 3 joueurs dispo — il ne manque plus qu'un joueur !
-                        </Text>
-                      </View>
-                      {pendingHourHot.map((m) => (
-                        <MatchCardPending key={m.id + '-hot-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} isHot={true} />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Autres matchs pending (0, 1 ou 2 joueurs) */}
-                  {pendingHourWeek.filter(m => {
-                    const rsvps = rsvpsByMatch[m.id] || [];
-                    const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-                    const count = accepted.length;
-                    return count !== 3 && count !== 4;
-                  }).length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      {pendingHourWeek.filter(m => {
-                        const rsvps = rsvpsByMatch[m.id] || [];
-                        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-                        const count = accepted.length;
-                        return count !== 3 && count !== 4;
-                      }).map((m) => (
-                        <MatchCardPending key={m.id + '-other-pending-hour'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
-                      ))}
-                    </View>
-                  )}
-                </ScrollView>
-              )}
-            </>
-          ) : (
-            <>
-              {pendingLongComplete.length === 0 && pendingLongHot.length === 0 && (pendingLongWeek?.length || 0) === 0 ? (
+                  ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                />
+              )
+            ) : (
+              (pendingLongWeek?.length || 0) === 0 ? (
                 <Text style={{ color: '#6b7280' }}>Aucun match 1h30 en attente.</Text>
               ) : (
-                <ScrollView 
+                <FlatList
+                  data={pendingLongWeek}
+          keyExtractor={(m) => `${m.id}-pLong-${(rsvpsByMatch[m.id] || []).length}`}
+                  renderItem={({ item }) => (
+            <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
+                  )}
+          extraData={rsvpsVersion}
                   contentContainerStyle={{ paddingBottom: bottomPad }}
                   scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                >
-                  {/* Bloc 1 : Matchs complets 1h30 (4 joueurs) */}
-                  {pendingLongComplete.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#10b981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          ✅ Matchs prêts à jouer
-                        </Text>
-                      </View>
-                      {pendingLongComplete.map((m) => (
-                        <MatchCardPending key={m.id + '-complete-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Bloc 2 : Matchs en feu 1h30 (3 joueurs) */}
-                  {pendingLongHot.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          🔥 3 joueurs dispo — il ne manque plus qu'un joueur !
-                        </Text>
-                      </View>
-                      {pendingLongHot.map((m) => (
-                        <MatchCardPending key={m.id + '-hot-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} isHot={true} />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Autres matchs pending (0, 1 ou 2 joueurs) */}
-                  {pendingLongWeek.filter(m => {
-                    const rsvps = rsvpsByMatch[m.id] || [];
-                    const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-                    const count = accepted.length;
-                    return count !== 3 && count !== 4;
-                  }).length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      {pendingLongWeek.filter(m => {
-                        const rsvps = rsvpsByMatch[m.id] || [];
-                        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
-                        const count = accepted.length;
-                        return count !== 3 && count !== 4;
-                      }).map((m) => (
-                        <MatchCardPending key={m.id + '-other-pending-long'} m={m} rsvps={rsvpsByMatch[m.id] || []} />
-                      ))}
-                    </View>
-                  )}
-                </ScrollView>
-              )}
-            </>
-          )}
+          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+        />
+              )
+            )}
         </>
       )}
 
@@ -6129,95 +5502,53 @@ const HourSlotRow = ({ item }) => {
           </View>
 
           {confirmedMode === 'long' ? (
-            <>
-              {confirmedComplete.length === 0 && confirmedHot.length === 0 ? (
-                <Text style={{ color: '#6b7280' }}>Aucun match 1h30 confirmé.</Text>
-              ) : (
-                <ScrollView 
-                  contentContainerStyle={{ paddingBottom: bottomPad }}
-                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                >
-                  {/* Bloc 1 : Matchs complets (4 joueurs) */}
-                  {confirmedComplete.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#10b981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          ✅ Matchs prêts à jouer
-                        </Text>
-                      </View>
-                      {confirmedComplete.filter(m => {
-                        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return true;
-                        return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-                      }).map((m) => (
-                        <MatchCardConfirmed key={m.id + '-complete-long'} m={m} isHot={false} />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Bloc 2 : Matchs en feu (3 joueurs) */}
-                  {confirmedHot.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          🔥 3 joueurs dispo — il ne manque plus qu'un joueur !
-                        </Text>
-                      </View>
-                      {confirmedHot.filter(m => {
-                        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return true;
-                        return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-                      }).map((m) => (
-                        <MatchCardConfirmed key={m.id + '-hot-long'} m={m} isHot={true} />
-                      ))}
-                    </View>
-                  )}
-                </ScrollView>
-              )}
-            </>
+            confirmedLong.length === 0 ? (
+              <Text style={{ color: '#6b7280' }}>Aucun match 1h30 confirmé.</Text>
+            ) : (
+              <FlatList
+          data={confirmedLong.filter(m => {
+            // Si pas de time_slots, inclure par défaut
+            if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
+              console.log('[Validés Long] Match sans time_slots (inclus):', m.id);
+              return true;
+            }
+            const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+            if (!inRange) {
+              console.log('[Validés Long] Match exclu par isInWeekRange:', m.id, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at);
+            }
+            return inRange;
+          })}
+                keyExtractor={(m) => m.id + '-confirmed-long'}
+                renderItem={({ item: m }) => (
+                  <MatchCardConfirmed m={m} />
+                )}
+                contentContainerStyle={{ paddingBottom: bottomPad }}
+                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+        />
+            )
           ) : (
-            <>
-              {confirmedHourComplete.length === 0 && confirmedHourHot.length === 0 ? (
-                <Text style={{ color: '#6b7280' }}>Aucun match 1h confirmé.</Text>
-              ) : (
-                <ScrollView 
-                  contentContainerStyle={{ paddingBottom: bottomPad }}
-                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                >
-                  {/* Bloc 1 : Matchs complets 1h (4 joueurs) */}
-                  {confirmedHourComplete.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#10b981', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          ✅ Matchs prêts à jouer
-                        </Text>
-                      </View>
-                      {confirmedHourComplete.filter(m => {
-                        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return true;
-                        return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-                      }).map((m) => (
-                        <MatchCardConfirmed key={m.id + '-complete-hour'} m={m} isHot={false} />
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Bloc 2 : Matchs en feu 1h (3 joueurs) */}
-                  {confirmedHourHot.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8 }}>
-                        <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 16 }}>
-                          🔥 3 joueurs dispo — il ne manque plus qu'un joueur !
-                        </Text>
-                      </View>
-                      {confirmedHourHot.filter(m => {
-                        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return true;
-                        return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-                      }).map((m) => (
-                        <MatchCardConfirmed key={m.id + '-hot-hour'} m={m} isHot={true} />
-                      ))}
-                    </View>
-                  )}
-                </ScrollView>
-              )}
-            </>
+            confirmedHour.length === 0 ? (
+              <Text style={{ color: '#6b7280' }}>Aucun match 1h confirmé.</Text>
+            ) : (
+              <FlatList
+          data={confirmedHour.filter(m => {
+            // Si pas de time_slots, inclure par défaut
+            if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
+              console.log('[Validés Hour] Match sans time_slots (inclus):', m.id);
+              return true;
+            }
+            return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+          })}
+                keyExtractor={(m) => m.id + '-confirmed-hour'}
+                renderItem={({ item: m }) => (
+                  <MatchCardConfirmed m={m} />
+                )}
+                contentContainerStyle={{ paddingBottom: bottomPad }}
+                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
+                ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+              />
+            )
           )}
                 </>
       )}
@@ -7769,6 +7100,112 @@ const HourSlotRow = ({ item }) => {
           style={{ position: 'absolute', bottom: 0, left: 0, right: 0, top: 0, backgroundColor: 'transparent' }}
         />
       )}
+
+      {/* Modale des matchs en feu */}
+      <Modal visible={hotMatchesModalVisible} transparent animationType="fade" onRequestClose={() => setHotMatchesModalVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 24 }}>🔥</Text>
+                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Matchs en feu</Text>
+              </View>
+              <Pressable onPress={() => setHotMatchesModalVisible(false)} style={{ padding: 8 }}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+            
+            {hotMatches.length === 0 ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 16 }}>
+                  Aucun match en feu pour le moment.
+                </Text>
+                <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 14, marginTop: 8 }}>
+                  Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs confirmés dont vous).
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 500 }}>
+                {hotMatches.map((m) => {
+                  const rsvps = rsvpsByMatch[m.id] || [];
+                  const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+                  const slot = m.time_slots || {};
+                  
+                  return (
+                    <View
+                      key={m.id}
+                      style={{
+                        backgroundColor: '#fef2f2',
+                        borderRadius: 12,
+                        padding: 16,
+                        marginBottom: 12,
+                        borderWidth: 2,
+                        borderColor: '#ef4444',
+                      }}
+                    >
+                      <Text style={{ fontWeight: '800', fontSize: 16, color: '#111827', marginBottom: 8 }}>
+                        {slot.starts_at && slot.ends_at 
+                          ? formatRange(slot.starts_at, slot.ends_at)
+                          : 'Date à définir'
+                        }
+                      </Text>
+                      
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={{ fontWeight: '700', fontSize: 14, color: '#6b7280', marginBottom: 8 }}>
+                          {accepted.length}/4 joueurs confirmés
+                        </Text>
+                        
+                        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                          {accepted.map((r) => {
+                            const profile = profilesById[String(r.user_id)] || {};
+                            const isMe = String(r.user_id) === String(meId);
+                            return (
+                              <View
+                                key={r.user_id}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  backgroundColor: isMe ? '#fef3c7' : '#ffffff',
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 8,
+                                  borderWidth: isMe ? 2 : 1,
+                                  borderColor: isMe ? '#f59e0b' : '#e5e7eb',
+                                }}
+                              >
+                                {profile.avatar_url ? (
+                                  <Image
+                                    source={{ uri: profile.avatar_url }}
+                                    style={{ width: 24, height: 24, borderRadius: 12 }}
+                                  />
+                                ) : (
+                                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 10 }}>
+                                      {(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
+                                    </Text>
+                                  </View>
+                                )}
+                                <Text style={{ fontWeight: '700', fontSize: 12, color: '#111827' }}>
+                                  {isMe ? 'Vous' : (profile.display_name || profile.email || 'Joueur')}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      
+                      <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700', marginTop: 8 }}>
+                        🔥 Il ne manque plus qu'un joueur !
+                      </Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
