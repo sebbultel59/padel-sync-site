@@ -1560,7 +1560,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       position: 'absolute',
                       top: '50%',
                       left: '50%',
-                      transform: [{ translateX: -9 }, { translateY: -9 }],
+                      transform: [{ translateX: -12 }, { translateY: -12 }],
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
