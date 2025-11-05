@@ -1436,9 +1436,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           let textColor = '#0b2240';
           
           if (myStatus === 'available') {
-            // Cellule verte si le joueur est disponible
-            cellBg = '#2dc149';
-            cellBorder = '#2dc149';
+            // Cellule vert foncé si le joueur est disponible
+            cellBg = '#00311e';
+            cellBorder = '#00311e';
           } else if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
             // Cellule orange clair si le joueur n'est pas disponible
             cellBg = '#ffedd5'; // orange clair
