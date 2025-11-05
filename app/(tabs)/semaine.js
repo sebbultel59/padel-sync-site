@@ -1430,27 +1430,10 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           const match = mapMatches.get(startIso);
           const myStatus = myStatusByStart.get(startIso);
 
+          // Couleurs fixes pour toutes les cellules (plus de mise en forme conditionnelle)
           let cellBg = '#f7f9fd';
           let cellBorder = '#1f2937';
           let textColor = '#0b2240';
-
-          // Mapping uniforme selon le nombre de dispos
-          if (availableCount <= 0) {
-            cellBg = '#fee2e2';
-            cellBorder = '#fecaca';
-          } else if (availableCount === 1) {
-            cellBg = '#ffedd5';
-            cellBorder = '#fed7aa';
-          } else if (availableCount === 2) {
-            cellBg = '#fef9c3';
-            cellBorder = '#fde68a';
-          } else if (availableCount === 3) {
-            cellBg = '#d1fae5';
-            cellBorder = '#a7f3d0';
-          } else {
-            cellBg = '#2fc249';
-            cellBorder = '#2fc249';
-          }
 
           // Surbrillance de la plage en cours (prévisualisation)
           if (rangeStart && rangeStart.dayIndex === di) {
@@ -1469,24 +1452,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
             }
           }
 
+          // Badge colors (plus utilisés maintenant, mais gardés pour compatibilité)
           let badgeBg = '#e5e7eb';
           let badgeColor = '#0f172a';
-          if (availableCount <= 0) {
-            badgeBg = '#e5e7eb';
-            badgeColor = '#0f172a';
-          } else if (availableCount === 1) {
-            badgeBg = '#ffedd5';
-            badgeColor = '#0f172a';
-          } else if (availableCount === 2) {
-            badgeBg = '#fef9c3';
-            badgeColor = '#0f172a';
-          } else if (availableCount === 3) {
-            badgeBg = '#d1fae5';
-            badgeColor = '#0f172a';
-          } else {
-            badgeBg = '#15803d';
-            badgeColor = '#ffffff';
-          }
 
           return (
             <Pressable
