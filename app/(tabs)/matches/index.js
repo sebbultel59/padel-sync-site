@@ -1800,7 +1800,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
         // Stocker adjusted AVANT le filtrage à 4 joueurs pour les matchs en feu
         setReadyAll(adjusted);
-        
+
         // Keep only slots with >=4 remaining players
         adjusted = adjusted.filter(slot => Array.isArray(slot.ready_user_ids) && slot.ready_user_ids.length >= 4);
 
@@ -5421,11 +5421,8 @@ const HourSlotRow = ({ item }) => {
     >
       <Text style={{ fontSize: 22 }}>{'⏳'}</Text>
       <View style={{ marginTop: 4, alignItems: 'center' }}>
-        <Text style={{ fontWeight: '800', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
-          1H30 ({pendingLongWeek?.length || 0})
-        </Text>
-        <Text style={{ fontWeight: '800', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
-          1H ({pendingHourWeek?.length || 0})
+        <Text style={{ fontWeight: '900', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center' }}>
+          {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
         </Text>
       </View>
     </Pressable>
@@ -5452,11 +5449,11 @@ const HourSlotRow = ({ item }) => {
     >
       <Text style={{ fontSize: 22 }}>{'🎾'}</Text>
       <View style={{ marginTop: 4, alignItems: 'center' }}>
-        <Text style={{ fontWeight: '800', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
-          1H30 ({confirmedLongWeek?.length || 0})
+        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
+          {`${confirmedTabCount} ${matchWord(confirmedTabCount)}`}
         </Text>
-        <Text style={{ fontWeight: '800', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', fontSize: 16 }}>
-          1H ({confirmedHourWeek?.length || 0})
+        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
+          {valideWord(confirmedTabCount)}
         </Text>
       </View>
     </Pressable>
@@ -5571,8 +5568,8 @@ const HourSlotRow = ({ item }) => {
                   borderColor: rsvpMode === 'long' ? '#ffffff' : 'transparent',
                 }}
               >
-                <Text style={{ color: rsvpMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800' }}>
-                  {pendingLongWeek?.length || 0} Matchs 1h30
+                <Text style={{ color: rsvpMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
+                  1H30 ({pendingLongWeek?.length || 0})
                 </Text>
               </Pressable>
               <Pressable
@@ -5588,8 +5585,8 @@ const HourSlotRow = ({ item }) => {
                   borderColor: rsvpMode === 'hour' ? '#ffffff' : 'transparent',
                 }}
               >
-                <Text style={{ color: rsvpMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800' }}>
-                  {pendingHourWeek?.length || 0} Matchs 1h
+                <Text style={{ color: rsvpMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
+                  1H ({pendingHourWeek?.length || 0})
                 </Text>
               </Pressable>
             </View>
@@ -5649,8 +5646,8 @@ const HourSlotRow = ({ item }) => {
                   borderColor: confirmedMode === 'long' ? '#ffffff' : 'transparent',
                 }}
               >
-                <Text style={{ color: confirmedMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800' }}>
-                  {confirmedLong?.length || 0} Matchs 1h30
+                <Text style={{ color: confirmedMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
+                  1H30 ({confirmedLongWeek?.length || 0})
                 </Text>
               </Pressable>
               <Pressable
@@ -5666,8 +5663,8 @@ const HourSlotRow = ({ item }) => {
                   borderColor: confirmedMode === 'hour' ? '#ffffff' : 'transparent',
                 }}
               >
-                <Text style={{ color: confirmedMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800' }}>
-                  {confirmedHour?.length || 0} Matchs 1h
+                <Text style={{ color: confirmedMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
+                  1H ({confirmedHourWeek?.length || 0})
                 </Text>
               </Pressable>
             </View>
