@@ -720,13 +720,13 @@ const confirmedLongWeek = React.useMemo(
 
 // Calculer les matchs en feu : 3 joueurs disponibles dont l'utilisateur authentifié
 // Utilise la même logique que longReadyWeek/hourReadyWeek mais avec condition stricte à 3 joueurs
+// Et en tenant compte des joueurs déjà engagés (comme adjusted)
 const hotMatches = React.useMemo(
   () => {
     if (!meId || !groupId) return [];
     
     // Utiliser la même source de données que les matchs possibles (ready)
     // ready contient tous les créneaux (y compris ceux avec 3 joueurs)
-    // longReady/hourReady ne contiennent que les créneaux avec >= 4 joueurs
     const allSlots = [...(ready || [])];
     
     // Appliquer les mêmes filtres que longReadyWeek/hourReadyWeek
@@ -744,8 +744,52 @@ const hotMatches = React.useMemo(
       return aStart - bStart;
     });
     
+    // Enlever les joueurs déjà engagés (même logique que adjusted)
+    const overlaps = (aStart, aEnd, bStart, bEnd) => {
+      const aS = new Date(aStart).getTime();
+      const aE = new Date(aEnd).getTime();
+      const bS = new Date(bStart).getTime();
+      const bE = new Date(bEnd).getTime();
+      return aS < bE && aE > bS;
+    };
+    
+    const reservedUsersForMatch = (mid) => {
+      const rsvps = rsvpsByMatch[mid] || [];
+      return rsvps
+        .filter(r => {
+          const st = String(r.status || '').toLowerCase();
+          return st === 'accepted' || st === 'maybe';
+        })
+        .map(r => String(r.user_id));
+    };
+    
+    const bookedUsersForInterval = (startsAt, endsAt) => {
+      const booked = new Set();
+      const allMatches = [...matchesPending || [], ...matchesConfirmed || []];
+      allMatches.forEach(m => {
+        const st = String(m.status || '').toLowerCase();
+        const ms = m?.time_slots?.starts_at || null;
+        const me = m?.time_slots?.ends_at || null;
+        if ((st === 'pending' || st === 'confirmed') && ms && me && overlaps(startsAt, endsAt, ms, me)) {
+          reservedUsersForMatch(m.id).forEach(uid => booked.add(uid));
+        }
+      });
+      return booked;
+    };
+    
+    // Créer adjusted en enlevant les joueurs déjà engagés
+    let adjusted = sorted.map(slot => {
+      const booked = bookedUsersForInterval(slot.starts_at, slot.ends_at);
+      const hasConcerned = (slot.ready_user_ids || []).some(uid => booked.has(String(uid)));
+      if (!hasConcerned) {
+        return slot; // no change for non-concerned slots
+      }
+      const nextIds = (slot.ready_user_ids || []).map(String).filter(uid => !booked.has(uid));
+      return { ...slot, ready_user_ids: nextIds };
+    });
+    
     // Appliquer le filtre par niveau si activé (même logique que longReadyWeek)
-    let finalFiltered = sorted;
+    let finalFiltered = adjusted;
     if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
       const allowedLevels = new Set();
       filterLevelRanges.forEach(range => {
@@ -759,8 +803,7 @@ const hotMatches = React.useMemo(
       });
       
       if (allowedLevels.size > 0) {
-        finalFiltered = sorted.filter(slot => {
-          // Utiliser ready_user_ids qui contient tous les joueurs disponibles (y compris l'utilisateur)
+        finalFiltered = adjusted.filter(slot => {
           const userIds = slot.ready_user_ids || [];
           const filteredUserIds = userIds.filter(uid => {
             const profile = profilesById[String(uid)];
@@ -769,8 +812,6 @@ const hotMatches = React.useMemo(
             if (!Number.isFinite(playerLevel)) return false;
             return allowedLevels.has(playerLevel);
           });
-          // Pour les matchs en feu : exactement 3 joueurs (dont l'utilisateur)
-          // On vérifie que l'utilisateur est dans la liste filtrée
           const userInFiltered = filteredUserIds.some(id => String(id) === String(meId));
           return filteredUserIds.length === 3 && userInFiltered;
         }).map(slot => {
@@ -814,7 +855,6 @@ const hotMatches = React.useMemo(
           return distanceKm <= filterGeoRadiusKm;
         });
         
-        // Pour les matchs en feu : exactement 3 joueurs (dont l'utilisateur)
         const userInFiltered = filteredUserIds.some(id => String(id) === String(meId));
         return filteredUserIds.length === 3 && userInFiltered;
       }).map(slot => {
@@ -846,13 +886,11 @@ const hotMatches = React.useMemo(
     }
     
     // Filtrer les créneaux avec exactement 3 joueurs disponibles (dont l'utilisateur)
-    // Si aucun filtre n'est activé, utiliser directement sorted
+    // Si aucun filtre n'est activé, utiliser directement adjusted
     if (!filterByLevel && !filterByGeo) {
-      finalFiltered = sorted.filter(slot => {
-        // ready_user_ids contient tous les joueurs disponibles (y compris l'utilisateur)
+      finalFiltered = adjusted.filter(slot => {
         const readyUserIds = slot.ready_user_ids || [];
         const userIsAvailable = readyUserIds.some(id => String(id) === String(meId));
-        // Vérifier qu'il y a exactement 3 joueurs disponibles (dont l'utilisateur)
         return readyUserIds.length === 3 && userIsAvailable;
       });
     }
@@ -878,7 +916,7 @@ const hotMatches = React.useMemo(
       me_id: meId,
     }));
   },
-  [ready, meId, groupId, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm]
+  [ready, meId, groupId, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
 );
 
   const confirmedHour = React.useMemo(
