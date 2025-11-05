@@ -787,8 +787,8 @@ const hotMatches = React.useMemo(
             if (!Number.isFinite(playerLevel)) return false;
             return allowedLevels.has(playerLevel);
           });
-          const userInFiltered = filteredUserIds.some(id => String(id) === String(meId));
-          return filteredUserIds.length === 3 && userInFiltered;
+          // Inclure tous les matchs avec 3 joueurs (pas seulement ceux où l'utilisateur est disponible)
+          return filteredUserIds.length === 3;
         }).map(slot => {
           const userIds = slot.ready_user_ids || [];
           const filteredUserIds = userIds.filter(uid => {
@@ -830,8 +830,8 @@ const hotMatches = React.useMemo(
           return distanceKm <= filterGeoRadiusKm;
         });
         
-        const userInFiltered = filteredUserIds.some(id => String(id) === String(meId));
-        return filteredUserIds.length === 3 && userInFiltered;
+        // Inclure tous les matchs avec 3 joueurs (pas seulement ceux où l'utilisateur est disponible)
+        return filteredUserIds.length === 3;
       }).map(slot => {
         const userIds = slot.ready_user_ids || [];
         const filteredUserIds = userIds.filter(uid => {
@@ -860,13 +860,12 @@ const hotMatches = React.useMemo(
       });
     }
     
-    // Filtrer les créneaux avec exactement 3 joueurs disponibles (dont l'utilisateur)
+    // Filtrer les créneaux avec exactement 3 joueurs disponibles (tous, pas seulement ceux où l'utilisateur est disponible)
     // Si aucun filtre n'est activé, utiliser directement adjusted
     if (!filterByLevel && !filterByGeo) {
       finalFiltered = adjusted.filter(slot => {
         const readyUserIds = slot.ready_user_ids || [];
-        const userIsAvailable = readyUserIds.some(id => String(id) === String(meId));
-        return readyUserIds.length === 3 && userIsAvailable;
+        return readyUserIds.length === 3;
       });
     }
     
@@ -7298,9 +7297,12 @@ const HourSlotRow = ({ item }) => {
               <ScrollView style={{ maxHeight: 500 }}>
                 {hotMatches.map((m) => {
                   const availableUserIds = m.available_user_ids || [];
-                  // Ajouter l'utilisateur authentifié à la liste
-                  const allAvailableIds = [...new Set([...availableUserIds, meId])];
+                  // Ne pas ajouter automatiquement l'utilisateur à la liste
+                  const allAvailableIds = [...new Set(availableUserIds)];
                   const slot = m.time_slots || {};
+                  
+                  // Vérifier si l'utilisateur est disponible sur ce créneau
+                  const userIsAvailable = availableUserIds.some(id => String(id) === String(meId));
                   
                   return (
                     <View
@@ -7365,60 +7367,118 @@ const HourSlotRow = ({ item }) => {
                         🔥 Il ne manque plus qu'un joueur !
                       </Text>
                       
-                      {/* Bouton Inviter un joueur du groupe */}
-                      <Pressable
-                        onPress={async () => {
-                          setSelectedHotMatch(m);
-                          setLoadingHotMatchMembers(true);
-                          setInviteHotMatchModalVisible(true);
-                          try {
-                            // Charger les membres du groupe
-                            const { data: members, error } = await supabase
-                              .from('group_members')
-                              .select('user_id, role')
-                              .eq('group_id', groupId);
-                            if (error) throw error;
+                      {/* Bouton conditionnel selon la disponibilité */}
+                      {userIsAvailable ? (
+                        /* Bouton Inviter un joueur du groupe si l'utilisateur est disponible */
+                        <Pressable
+                          onPress={async () => {
+                            setSelectedHotMatch(m);
+                            setLoadingHotMatchMembers(true);
+                            setInviteHotMatchModalVisible(true);
+                            try {
+                              // Charger les membres du groupe
+                              const { data: members, error } = await supabase
+                                .from('group_members')
+                                .select('user_id, role')
+                                .eq('group_id', groupId);
+                              if (error) throw error;
 
-                            const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
-                            if (userIds.length) {
-                              const { data: profs, error: profError } = await supabase
-                                .from('profiles')
-                                .select('id, display_name, avatar_url, email, niveau, phone, expo_push_token')
-                                .in('id', userIds);
-                              if (profError) throw profError;
-                              
-                              // Exclure les joueurs déjà disponibles sur ce créneau
-                              const availableUserIds = new Set(allAvailableIds.map(String));
-                              const availableMembers = (profs || []).filter(p => !availableUserIds.has(String(p.id)));
-                              
-                              setHotMatchMembers(availableMembers);
-                            } else {
+                              const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
+                              if (userIds.length) {
+                                const { data: profs, error: profError } = await supabase
+                                  .from('profiles')
+                                  .select('id, display_name, avatar_url, email, niveau, phone, expo_push_token')
+                                  .in('id', userIds);
+                                if (profError) throw profError;
+                                
+                                // Exclure les joueurs déjà disponibles sur ce créneau
+                                const availableUserIdsSet = new Set(allAvailableIds.map(String));
+                                const availableMembers = (profs || []).filter(p => !availableUserIdsSet.has(String(p.id)));
+                                
+                                setHotMatchMembers(availableMembers);
+                              } else {
+                                setHotMatchMembers([]);
+                              }
+                            } catch (e) {
+                              Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
                               setHotMatchMembers([]);
+                            } finally {
+                              setLoadingHotMatchMembers(false);
                             }
-                          } catch (e) {
-                            Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
-                            setHotMatchMembers([]);
-                          } finally {
-                            setLoadingHotMatchMembers(false);
-                          }
-                        }}
-                        style={{
-                          backgroundColor: '#ff751f',
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          borderRadius: 8,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginTop: 12,
-                          gap: 6,
-                        }}
-                      >
-                        <Text style={{ fontSize: 16 }}>👋</Text>
-                        <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
-                          Inviter un joueur du groupe
-                        </Text>
-                      </Pressable>
+                          }}
+                          style={{
+                            backgroundColor: '#ff751f',
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginTop: 12,
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ fontSize: 16 }}>👋</Text>
+                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                            Inviter un joueur du groupe
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        /* Bouton Me rendre dispo si l'utilisateur n'est pas disponible */
+                        <Pressable
+                          onPress={async () => {
+                            if (!slot.starts_at || !slot.ends_at) {
+                              Alert.alert('Erreur', 'Créneau invalide');
+                              return;
+                            }
+                            try {
+                              // Créer une disponibilité pour l'utilisateur sur ce créneau
+                              const { error: availabilityError } = await supabase
+                                .from('availability')
+                                .upsert({
+                                  group_id: groupId,
+                                  user_id: meId,
+                                  start: slot.starts_at,
+                                  end: slot.ends_at,
+                                  status: 'available',
+                                }, { 
+                                  onConflict: 'group_id,user_id,start,end',
+                                  ignoreDuplicates: false 
+                                });
+                              
+                              if (availabilityError) {
+                                console.error('[HotMatch] Erreur création disponibilité:', availabilityError);
+                                throw availabilityError;
+                              }
+                              
+                              Alert.alert('Disponibilité créée', 'Vous êtes maintenant disponible sur ce créneau.');
+                              // Recharger les données
+                              fetchData();
+                              // Fermer la modale
+                              setHotMatchesModalVisible(false);
+                            } catch (e) {
+                              console.error('[HotMatch] Erreur:', e);
+                              Alert.alert('Erreur', `Impossible de créer la disponibilité: ${e?.message || String(e)}`);
+                            }
+                          }}
+                          style={{
+                            backgroundColor: '#2dc149',
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginTop: 12,
+                            gap: 6,
+                          }}
+                        >
+                          <Text style={{ fontSize: 16 }}>✅</Text>
+                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                            Me rendre dispo
+                          </Text>
+                        </Pressable>
+                      )}
                     </View>
                   );
                 })}
