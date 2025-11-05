@@ -5027,7 +5027,7 @@ const HourSlotRow = ({ item }) => {
             flexDirection: 'row', 
             flexWrap: 'nowrap',
             alignItems: 'center', 
-            justifyContent: 'flex-start', 
+            justifyContent: 'space-between', 
             gap: 4,
             marginBottom: (filterConfigVisible || filterGeoVisible) ? 8 : 0,
             marginTop: 4,
@@ -5069,6 +5069,34 @@ const HourSlotRow = ({ item }) => {
               </Text>
             </Pressable>
             
+            {/* Icône flammes pour les matchs en feu - centrée entre les filtres */}
+            {hotMatches.length > 0 && (
+              <Pressable
+                onPress={() => setHotMatchesModalVisible(true)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  paddingHorizontal: 8,
+                  paddingLeft: 4,
+                  borderRadius: 8,
+                  backgroundColor: 'transparent',
+                  gap: 6,
+                  flexShrink: 0,
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>🔥</Text>
+                <Text style={{ 
+                  color: '#111827', 
+                  fontWeight: '700', 
+                  fontSize: 12,
+                  flexShrink: 0,
+                }}>
+                  {hotMatches.length}
+                </Text>
+              </Pressable>
+            )}
+            
             <Pressable
               onPress={() => {
                 if (!filterGeoVisible) {
@@ -5101,34 +5129,6 @@ const HourSlotRow = ({ item }) => {
                 {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
               </Text>
             </Pressable>
-            
-            {/* Icône flammes pour les matchs en feu */}
-            {hotMatches.length > 0 && (
-              <Pressable
-                onPress={() => setHotMatchesModalVisible(true)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 8,
-                  paddingHorizontal: 8,
-                  paddingLeft: 4,
-                  borderRadius: 8,
-                  backgroundColor: '#ef4444',
-                  gap: 6,
-                  flexShrink: 0,
-                }}
-              >
-                <Text style={{ fontSize: 18 }}>🔥</Text>
-                <Text style={{ 
-                  color: '#ffffff', 
-                  fontWeight: '700', 
-                  fontSize: 12,
-                  flexShrink: 0,
-                }}>
-                  {hotMatches.length}
-                </Text>
-              </Pressable>
-            )}
           </View>
           
           {/* Zone de configuration du filtre (masquée par défaut) */}
