@@ -87,7 +87,6 @@ export default function Semaine() {
   const refreshTimerRef = React.useRef(null);
   const lastDataRef = React.useRef({ ts: null, av: null, m: null });
   const fetchDataRef = React.useRef(null);
-  const togglingSlotsRef = React.useRef(new Set()); // Protection contre les clics multiples
   const scheduleRefresh = useCallback((ms = 200) => {
     try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {}
     refreshTimerRef.current = setTimeout(() => { try { fetchDataRef.current?.(); } catch {} }, ms);
@@ -605,29 +604,18 @@ export default function Semaine() {
 
   // Toggle dispo (optimistic UI)
   const toggleMyAvailability = useCallback(async (startIso) => {
-    // Protection contre les clics multiples rapides
-    if (togglingSlotsRef.current.has(startIso)) {
-      return; // Déjà en cours de traitement pour ce slot
-    }
-    
     try {
-      togglingSlotsRef.current.add(startIso); // Marquer comme en cours
-      
       const gid = groupId ?? (await AsyncStorage.getItem("active_group_id"));
       const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!gid) {
-        togglingSlotsRef.current.delete(startIso);
         return safeAlert(
           "Choisis un groupe",
-          "Active un groupe dans l'onglet Groupes avant d'enregistrer des dispos."
+          "Active un groupe dans l’onglet Groupes avant d’enregistrer des dispos."
         );
       }
-      if (!user) {
-        togglingSlotsRef.current.delete(startIso);
-        return safeAlert("Connexion requise");
-      }
+      if (!user) return safeAlert("Connexion requise");
 
       const mine = (slots || []).find(
         (s) =>
@@ -643,6 +631,8 @@ export default function Semaine() {
           start: startIso,
           end: endIso,
           status: "available",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         };
         setSlots((prev) => [...prev, optimistic]);
         try { Haptics.selectionAsync(); } catch {}
@@ -699,7 +689,7 @@ export default function Semaine() {
         // quel que soit l'état (absent/neutre), force à available
         setSlots((prev) => prev.map((s) => (
           s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso
-            ? { ...s, status: 'available' }
+            ? { ...s, status: 'available', updated_at: new Date().toISOString() }
             : s
         )));
         try { Haptics.selectionAsync(); } catch {}
@@ -727,14 +717,15 @@ export default function Semaine() {
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       }
 
-      scheduleRefresh(200);
+      // Rafraîchir les données après un court délai pour synchroniser avec le serveur
+      // Mais pas trop court pour éviter les conflits avec les mises à jour optimistes
+      scheduleRefresh(500);
     } catch (e) {
+      // En cas d'erreur, recharger immédiatement pour restaurer l'état correct
+      await fetchData();
       safeAlert("Erreur", e?.message ?? String(e));
-    } finally {
-      // Retirer le slot de la liste des slots en cours de traitement
-      togglingSlotsRef.current.delete(startIso);
     }
-  }, [groupId, slots, applyToAllGroups, scheduleRefresh]);
+  }, [groupId, slots, applyToAllGroups, scheduleRefresh, fetchData]);
 
   // Fixe explicitement ma dispo sur un créneau (available|absent|neutral)
   async function setMyAvailability(startIso, status) {
