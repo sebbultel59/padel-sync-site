@@ -1,138 +1,76 @@
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Padel Sync – Invitation</title>
-    <style>
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        margin: 0;
-        background: linear-gradient(135deg, #001831 0%, #1a4b97 100%);
-        color: white;
-        text-align: center;
-        padding: 20px;
-      }
-      .container {
-        max-width: 400px;
-      }
-      h1 {
-        font-size: 24px;
-        margin-bottom: 20px;
-      }
-      p {
-        font-size: 16px;
-        line-height: 1.5;
-        margin-bottom: 20px;
-      }
-      .spinner {
-        border: 3px solid rgba(255, 255, 255, 0.3);
-        border-top: 3px solid white;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin: 20px auto;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-      .error {
-        background: rgba(255, 0, 0, 0.2);
-        border: 1px solid rgba(255, 0, 0, 0.5);
-        border-radius: 8px;
-        padding: 16px;
-        margin-top: 20px;
-      }
-    </style>
-    <script>
-      // Récupère le group_id dans l'URL: /invite?group_id=ABC123 ou /invite/ABC123
-      const params = new URLSearchParams(window.location.search);
-      let groupId = params.get('group_id') || '';
+// app/join.js
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Button, Text, TextInput, View } from "react-native";
+import { supabase } from "../lib/supabase";
+
+export default function Join() {
+  const { code, group_id } = useLocalSearchParams(); // lit /join?code=ABC123 ou /join?group_id=...
+  const [inviteCode, setInviteCode] = useState(code ?? "");
+  const router = useRouter();
+
+  const handleJoinByGroupId = useCallback(async (groupId) => {
+    try {
+      // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
+        p_group_id: groupId
+      });
       
-      // Si pas de group_id dans les query params, essayer de le récupérer du path
-      if (!groupId) {
-        const path = location.pathname;
-        const pathParts = path.split("/").filter(p => p);
-        if (pathParts.length > 0 && pathParts[pathParts.length - 1] !== 'invite') {
-          groupId = pathParts[pathParts.length - 1];
-        }
+      if (!rpcError) {
+        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+        router.replace("/(tabs)/matches");
+        return;
       }
       
-      function showError(message) {
-        document.body.innerHTML = `
-          <div class="container">
-            <h1>Erreur</h1>
-            <div class="error">
-              <p>${message}</p>
-            </div>
-          </div>
-        `;
+      // Fallback: Essayer avec join_public_group pour les groupes publics
+      const { data: publicData, error: publicError } = await supabase.rpc('join_public_group', {
+        p_group_id: groupId
+      });
+      
+      if (!publicError) {
+        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+        router.replace("/(tabs)/matches");
+        return;
       }
       
-      if (!groupId) {
-        // Pas de group_id, afficher un message d'erreur
-        showError('Lien d\'invitation invalide. Le lien doit contenir un group_id.');
-      } else {
-        // Afficher le message de chargement
-        document.body.innerHTML = `
-          <div class="container">
-            <h1>Ouverture de l'invitation…</h1>
-            <div class="spinner"></div>
-            <p>Redirection vers l'app Padel Sync…</p>
-            <p style="font-size: 14px; opacity: 0.8;">Si l'app ne s'ouvre pas automatiquement, vérifiez qu'elle est installée.</p>
-          </div>
-        `;
-        
-        // Essaie d'ouvrir l'app via le schéma custom
-        const scheme = `padelsync://join?group_id=${groupId}`;
-        
-        // Détecter si on est sur mobile ou desktop
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        
-        if (isMobile) {
-          // Sur mobile, essayer d'ouvrir l'app directement
-          window.location.href = scheme;
-          
-          // Si l'app n'est pas installée, on restera sur la page
-          // On peut afficher un message après un délai
-          setTimeout(() => {
-            document.querySelector('.container').innerHTML = `
-              <h1>App non installée</h1>
-              <p>L'app Padel Sync n'est pas installée sur votre appareil.</p>
-              <p style="margin-top: 20px;">
-                <a href="https://apps.apple.com/app/padel-sync/id6754223924" style="color: white; text-decoration: underline;">Télécharger sur l'App Store</a><br>
-                <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" style="color: white; text-decoration: underline;">Télécharger sur Google Play</a>
-              </p>
-            `;
-          }, 2000);
-        } else {
-          // Sur desktop, afficher un message et un lien QR code
-          document.querySelector('.container').innerHTML = `
-            <h1>Invitation reçue</h1>
-            <p>Pour rejoindre le groupe, ouvrez ce lien sur votre appareil mobile avec l'app Padel Sync installée.</p>
-            <p style="font-size: 14px; margin-top: 20px;">
-              Lien direct : <code style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px;">${scheme}</code>
-            </p>
-            <p style="font-size: 14px; margin-top: 20px;">
-              Ou scannez ce QR code avec l'app :
-            </p>
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(scheme)}" alt="QR Code" style="margin: 20px auto; display: block; border-radius: 8px;" />
-          `;
-        }
-      }
-    </script>
-  </head>
-  <body>
-    <div class="container">
-      <h1>Ouverture de l'invitation…</h1>
-      <div class="spinner"></div>
-      <p>Redirection vers l'app Padel Sync…</p>
-    </div>
-  </body>
-</html>
+      // Si tout échoue, afficher un message d'erreur clair
+      console.error('[Join] Erreurs:', { rpcError: rpcError?.message, publicError: publicError?.message });
+      Alert.alert("Impossible de rejoindre", rpcError?.message || publicError?.message || "Ce groupe nécessite une invitation valide.");
+    } catch (e) {
+      console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
+      Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (code) {
+      setInviteCode(code);
+    } else if (group_id) {
+      // Si on a un group_id, on essaie de rejoindre directement le groupe
+      console.log('[Join] Group ID reçu:', group_id);
+      handleJoinByGroupId(group_id);
+    }
+  }, [code, group_id, handleJoinByGroupId]);
+
+  async function acceptInvite() {
+    if (!inviteCode) return Alert.alert("Code requis", "Entre un code d'invitation.");
+    const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode });
+    if (error) return Alert.alert("Erreur", error.message);
+    Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+    router.replace("/(tabs)/matches");
+  }
+
+  return (
+    <View style={{ padding: 16, gap: 12 }}>
+      <Text style={{ fontSize: 20, fontWeight: "600" }}>Rejoindre un groupe</Text>
+      <TextInput
+        placeholder="Code d’invitation"
+        value={inviteCode}
+        onChangeText={setInviteCode}
+        autoCapitalize="characters"
+        style={{ borderWidth: 1, borderRadius: 8, padding: 12 }}
+      />
+      <Button title="Rejoindre" onPress={acceptInvite} />
+    </View>
+  );
+}
