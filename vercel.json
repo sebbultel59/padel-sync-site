@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "buildCommand": "echo 'Static files ready'",
+  "outputDirectory": "public",
   "rewrites": [
     {
       "source": "/invite",
