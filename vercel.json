@@ -1,47 +1,41 @@
 {
-    "version": 2,
-    "builds": [
-      {
-        "src": "public/**",
-        "use": "@vercel/static"
-      }
-    ],
-        "rewrites": [
-          {
-            "source": "/invite",
-            "destination": "/invite.html"
-          },
-          {
-            "source": "/invite(.*)",
-            "destination": "/invite.html"
-          },
-          {
-            "source": "/delete-account",
-            "destination": "/delete-account.html"
-          },
-          {
-            "source": "/supprimer-compte",
-            "destination": "/delete-account.html"
-          }
-        ],
-    "headers": [
-      {
-        "source": "/apple-app-site-association",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      },
-      {
-        "source": "/.well-known/apple-app-site-association",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      }
-    ]
-  }
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/invite",
+      "destination": "/invite.html"
+    },
+    {
+      "source": "/invite(.*)",
+      "destination": "/invite.html"
+    },
+    {
+      "source": "/delete-account",
+      "destination": "/delete-account.html"
+    },
+    {
+      "source": "/supprimer-compte",
+      "destination": "/delete-account.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/apple-app-site-association",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        }
+      ]
+    },
+    {
+      "source": "/.well-known/apple-app-site-association",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        }
+      ]
+    }
+  ]
+}
