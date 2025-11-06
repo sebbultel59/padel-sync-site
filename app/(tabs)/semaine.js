@@ -87,6 +87,7 @@ export default function Semaine() {
   const refreshTimerRef = React.useRef(null);
   const lastDataRef = React.useRef({ ts: null, av: null, m: null });
   const fetchDataRef = React.useRef(null);
+  const togglingSlotsRef = React.useRef(new Set()); // Protection contre les clics multiples
   const scheduleRefresh = useCallback((ms = 200) => {
     try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {}
     refreshTimerRef.current = setTimeout(() => { try { fetchDataRef.current?.(); } catch {} }, ms);
@@ -604,18 +605,29 @@ export default function Semaine() {
 
   // Toggle dispo (optimistic UI)
   const toggleMyAvailability = useCallback(async (startIso) => {
+    // Protection contre les clics multiples rapides
+    if (togglingSlotsRef.current.has(startIso)) {
+      return; // Déjà en cours de traitement pour ce slot
+    }
+    
     try {
+      togglingSlotsRef.current.add(startIso); // Marquer comme en cours
+      
       const gid = groupId ?? (await AsyncStorage.getItem("active_group_id"));
       const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!gid) {
+        togglingSlotsRef.current.delete(startIso);
         return safeAlert(
           "Choisis un groupe",
-          "Active un groupe dans l’onglet Groupes avant d’enregistrer des dispos."
+          "Active un groupe dans l'onglet Groupes avant d'enregistrer des dispos."
         );
       }
-      if (!user) return safeAlert("Connexion requise");
+      if (!user) {
+        togglingSlotsRef.current.delete(startIso);
+        return safeAlert("Connexion requise");
+      }
 
       const mine = (slots || []).find(
         (s) =>
@@ -718,8 +730,11 @@ export default function Semaine() {
       scheduleRefresh(200);
     } catch (e) {
       safeAlert("Erreur", e?.message ?? String(e));
+    } finally {
+      // Retirer le slot de la liste des slots en cours de traitement
+      togglingSlotsRef.current.delete(startIso);
     }
-  }, [groupId, slots, applyToAllGroups]);
+  }, [groupId, slots, applyToAllGroups, scheduleRefresh]);
 
   // Fixe explicitement ma dispo sur un créneau (available|absent|neutral)
   async function setMyAvailability(startIso, status) {
