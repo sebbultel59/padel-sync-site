@@ -51,7 +51,7 @@ const RAYONS = [
 ];
 
 export default function ProfilScreen() {
-  const copilot = useCopilot();
+  const { start, canStart } = useCopilot();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1127,19 +1127,30 @@ export default function ProfilScreen() {
         <Pressable
           onPress={press("profile-restart-tutorial", async () => {
             try {
+              console.log("[Profil] Bouton revoir tuto cliqué");
+              console.log("[Profil] canStart:", canStart);
+              console.log("[Profil] start disponible:", typeof start === 'function');
+              
               await AsyncStorage.removeItem("@padel_sync_tutorial_seen");
-              if (copilot && copilot.start) {
-                // Délai pour s'assurer que l'UI est prête
-                setTimeout(() => {
-                  copilot.start();
-                }, 500);
+              
+              if (typeof start === 'function') {
+                if (canStart) {
+                  // Délai pour s'assurer que l'UI est prête
+                  setTimeout(() => {
+                    console.log("[Profil] Lancement du tutoriel...");
+                    start();
+                  }, 500);
+                } else {
+                  console.warn("[Profil] Le tutoriel ne peut pas être démarré maintenant (canStart = false)");
+                  Alert.alert("Information", "Le tutoriel ne peut pas être démarré maintenant. Veuillez réessayer dans quelques instants.");
+                }
               } else {
-                console.warn("[Profil] copilot.start() n'est pas disponible", copilot);
-                Alert.alert("Information", "Le tutoriel sera relancé au prochain démarrage de l'app");
+                console.error("[Profil] start() n'est pas une fonction", { start, canStart });
+                Alert.alert("Erreur", "Le tutoriel n'est pas disponible pour le moment");
               }
             } catch (error) {
               console.error("[Profil] Erreur relance tutorial:", error);
-              Alert.alert("Erreur", "Impossible de relancer le tutoriel: " + error.message);
+              Alert.alert("Erreur", "Impossible de relancer le tutoriel: " + (error.message || String(error)));
             }
           })}
           style={[
