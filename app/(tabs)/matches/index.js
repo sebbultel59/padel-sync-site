@@ -7846,7 +7846,7 @@ const HourSlotRow = ({ item }) => {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          paddingVertical: 8,
+          paddingVertical: 0,
           paddingHorizontal: 16,
           backgroundColor: '#001831',
           zIndex: 998,
