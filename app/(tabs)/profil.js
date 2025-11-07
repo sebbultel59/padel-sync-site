@@ -24,7 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from "../../context/auth";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
-import { useCopilot, restartTutorial } from "../../components/CopilotTutorial";
+import { getGlobalCopilotStart } from "../../components/CopilotTutorial";
 
 const BRAND = "#1a4b97";
 const AVATAR = 150;
