@@ -3,8 +3,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GestureHandlerRootView, PinchGestureHandler, State } from 'react-native-gesture-handler';
-import Animated, { useAnimatedGestureHandler, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { GestureHandlerRootView, Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import {
   ActivityIndicator,
   Alert,
@@ -84,29 +84,51 @@ export default function ProfilScreen() {
   const [clubsList, setClubsList] = useState([]);
   const [loadingClubs, setLoadingClubs] = useState(false);
   
-  // Zoom pour l'image des niveaux
+  // Zoom et pan pour l'image des niveaux
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
   
-  const pinchHandler = useAnimatedGestureHandler({
-    onStart: (_, ctx) => {
-      ctx.startScale = savedScale.value;
-    },
-    onActive: (event, ctx) => {
-      scale.value = Math.max(1, Math.min(ctx.startScale * event.scale, 4));
-    },
-    onEnd: () => {
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      scale.value = Math.max(1, Math.min(savedScale.value * event.scale, 4));
+    })
+    .onEnd(() => {
       savedScale.value = scale.value;
       if (scale.value < 1) {
         scale.value = withTiming(1);
         savedScale.value = 1;
+        translateX.value = withTiming(0);
+        translateY.value = withTiming(0);
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
       }
-    },
-  });
+    });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      if (scale.value > 1) {
+        translateX.value = savedTranslateX.value + event.translationX;
+        translateY.value = savedTranslateY.value + event.translationY;
+      }
+    })
+    .onEnd(() => {
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    });
+
+  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture);
   
   const animatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ scale: scale.value }],
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+        { scale: scale.value },
+      ],
     };
   });
 
@@ -1118,34 +1140,29 @@ export default function ProfilScreen() {
                   <Pressable 
                     onPress={() => {
                       setNiveauInfoModalVisible(false);
-                      // Réinitialiser le zoom quand on ferme
+                      // Réinitialiser le zoom et la position quand on ferme
                       scale.value = 1;
                       savedScale.value = 1;
+                      translateX.value = 0;
+                      translateY.value = 0;
+                      savedTranslateX.value = 0;
+                      savedTranslateY.value = 0;
                     }} 
                     style={{ padding: 8 }}
                   >
                     <Ionicons name="close" size={24} color="#111827" />
                   </Pressable>
                 </View>
-                <ScrollView 
-                  style={{ maxHeight: '80%' }} 
-                  showsVerticalScrollIndicator={true}
-                  showsHorizontalScrollIndicator={true}
-                  contentContainerStyle={{ alignItems: 'flex-start', justifyContent: 'flex-start' }}
-                  bouncesZoom={true}
-                  maximumZoomScale={4}
-                  minimumZoomScale={1}
-                  scrollEventThrottle={16}
-                >
-                  <PinchGestureHandler onGestureEvent={pinchHandler}>
-                    <Animated.View style={[{ overflow: 'hidden', borderRadius: 8 }, animatedStyle]}>
+                <View style={{ maxHeight: '80%', overflow: 'hidden', borderRadius: 8 }}>
+                  <GestureDetector gesture={composedGesture}>
+                    <Animated.View style={[{ overflow: 'visible' }, animatedStyle]}>
                       <Image
                         source={require('../../assets/images/niveaux_padel_2025.jpg')}
                         style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain' }}
                       />
                     </Animated.View>
-                  </PinchGestureHandler>
-                </ScrollView>
+                  </GestureDetector>
+                </View>
               </View>
             </View>
           </GestureHandlerRootView>
