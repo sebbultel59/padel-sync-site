@@ -37,18 +37,28 @@ export { CopilotProvider };
 export { useCopilot };
 
 // HOC pour wrapper un composant et passer start/copilotEvents en props
-// Utilise useMemo pour éviter les re-renders infinis
+// Utilise des refs pour éviter les re-renders infinis
 export function withCopilot(Component) {
-  return function WrappedComponent(props) {
+  return React.memo(function WrappedComponent(props) {
     const { start, copilotEvents } = useCopilot();
-    // Utiliser useMemo pour stabiliser les props et éviter les boucles infinies
-    const copilotProps = React.useMemo(() => ({
-      start,
-      copilotEvents
-    }), [start, copilotEvents]);
+    const startRef = React.useRef(start);
+    const eventsRef = React.useRef(copilotEvents);
     
-    return <Component {...props} {...copilotProps} />;
-  };
+    // Mettre à jour les refs sans déclencher de re-render
+    React.useEffect(() => {
+      startRef.current = start;
+      eventsRef.current = copilotEvents;
+    });
+    
+    // Créer des fonctions stables qui utilisent les refs
+    const stableStart = React.useCallback(() => {
+      if (startRef.current && typeof startRef.current === 'function') {
+        startRef.current();
+      }
+    }, []);
+    
+    return <Component {...props} start={stableStart} copilotEvents={eventsRef.current} />;
+  });
 }
 
 
