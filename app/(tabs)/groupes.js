@@ -286,16 +286,25 @@ export default function GroupesScreen() {
         const seen = await AsyncStorage.getItem("@padel_sync_tutorial_seen");
         if (!seen) {
           // Attendre plus longtemps pour que tous les CopilotStep soient montés
-          setTimeout(() => {
-            const startFn = getGlobalCopilotStart();
-            if (startFn && typeof startFn === 'function') {
-              console.log("[Groupes] Relance automatique du tutoriel...");
-              // Attendre encore un peu avant de démarrer
-              setTimeout(() => {
-                startFn();
-              }, 500);
-            }
-          }, 2000);
+          // Utiliser requestAnimationFrame pour s'assurer que le DOM est prêt
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              requestAnimationFrame(() => {
+                const startFn = getGlobalCopilotStart();
+                if (startFn && typeof startFn === 'function') {
+                  console.log("[Groupes] Relance automatique du tutoriel...");
+                  try {
+                    startFn();
+                    console.log("[Groupes] start() appelé avec succès");
+                  } catch (err) {
+                    console.error("[Groupes] Erreur lors de start():", err);
+                  }
+                } else {
+                  console.warn("[Groupes] start() n'est pas disponible");
+                }
+              });
+            }, 1000);
+          });
         }
       })();
       return () => {

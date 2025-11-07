@@ -1146,11 +1146,15 @@ export default function ProfilScreen() {
                 
                 if (startFn && typeof startFn === 'function') {
                   try {
-                    // Attendre un peu plus pour que tous les CopilotStep soient montés
-                    setTimeout(() => {
-                      startFn();
-                      console.log("[Profil] Tutoriel démarré avec succès !");
-                    }, 1000);
+                    // Utiliser requestAnimationFrame pour s'assurer que le DOM est prêt
+                    requestAnimationFrame(() => {
+                      setTimeout(() => {
+                        requestAnimationFrame(() => {
+                          startFn();
+                          console.log("[Profil] Tutoriel démarré avec succès !");
+                        });
+                      }, 1000);
+                    });
                   } catch (err) {
                     console.error(`[Profil] Erreur tentative ${attempts}:`, err);
                     if (attempts < maxAttempts) {

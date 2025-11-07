@@ -32,31 +32,23 @@ function CopilotAutoStart({ children }) {
         const seen = await AsyncStorage.getItem(TUTORIAL_SEEN_KEY);
         if (!seen && !hasStartedRef.current) {
           hasStartedRef.current = true;
-          // Délai plus long pour s'assurer que tous les CopilotStep sont montés
-          setTimeout(() => {
-            console.log("[Copilot] Démarrage automatique du tutoriel...");
-            console.log("[Copilot] Événements disponibles:", Object.keys(copilotEvents || {}));
-            
-            // Écouter les événements pour voir ce qui se passe
-            if (copilotEvents) {
-              copilotEvents.on("stepChange", (step) => {
-                console.log("[Copilot] Étape changée:", step);
-              });
-              copilotEvents.on("start", () => {
-                console.log("[Copilot] Tutoriel démarré (événement start)");
-              });
-              copilotEvents.on("stop", () => {
-                console.log("[Copilot] Tutoriel arrêté");
-              });
-            }
-            
-            try {
-              start();
-              console.log("[Copilot] start() appelé avec succès");
-            } catch (err) {
-              console.error("[Copilot] Erreur lors de start():", err);
-            }
-          }, 2000);
+          
+          // Écouter les événements pour voir ce qui se passe
+          if (copilotEvents) {
+            copilotEvents.on("stepChange", (step) => {
+              console.log("[Copilot] Étape changée:", step);
+            });
+            copilotEvents.on("start", () => {
+              console.log("[Copilot] Tutoriel démarré (événement start)");
+            });
+            copilotEvents.on("stop", () => {
+              console.log("[Copilot] Tutoriel arrêté");
+            });
+          }
+          
+          // Ne pas démarrer automatiquement ici - laisser groupes.js le faire
+          // car il faut que l'utilisateur soit sur l'onglet Groupes pour que step1 soit monté
+          console.log("[Copilot] Auto-start désactivé - sera démarré depuis groupes.js");
         }
       } catch (error) {
         console.error("[Copilot] Erreur vérification tutorial:", error);
