@@ -1002,7 +1002,7 @@ export default function ProfilScreen() {
                   style={{ maxHeight: '80%' }} 
                   showsVerticalScrollIndicator={true}
                   showsHorizontalScrollIndicator={true}
-                  contentContainerStyle={{ alignItems: 'center', justifyContent: 'center' }}
+                  contentContainerStyle={{ alignItems: 'flex-start', justifyContent: 'flex-start' }}
                   bouncesZoom={true}
                   maximumZoomScale={4}
                   minimumZoomScale={1}
