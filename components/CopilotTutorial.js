@@ -123,8 +123,15 @@ function CustomTooltip({ currentStep, handlePrev, handleNext, handleStop, isFirs
     stepName: currentStep?.name, 
     textType: typeof currentStep?.text,
     stepTitle,
-    stepText 
+    stepText,
+    wrapperRef: currentStep?.wrapperRef?.current,
+    visible: currentStep?.visible
   });
+  
+  // Si le wrapperRef est null, afficher quand même le tooltip mais avec un message d'avertissement
+  if (!currentStep?.wrapperRef?.current) {
+    console.warn("[Copilot] wrapperRef est null pour l'étape:", currentStep?.name);
+  }
   
   return (
     <View
@@ -248,6 +255,7 @@ export function CopilotTutorialProvider({ children }) {
       tooltipComponent={CustomTooltip}
       overlay="view"
       animated
+      backdropColor="rgba(0, 0, 0, 0.7)"
     >
       <CopilotAutoStart>{children}</CopilotAutoStart>
     </CopilotProvider>
