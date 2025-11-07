@@ -853,7 +853,7 @@ export default function ProfilScreen() {
               <Text style={s.tileIcon}>✉️</Text>
               <Text style={s.tileTitle}>Email</Text>
             </View>
-            <Text style={s.tileValue}>{me?.email ?? '—'}</Text>
+            <Text style={[s.tileValue, { color: '#9ca3af' }]}>{me?.email ?? '—'}</Text>
           </View>
 
           {/* Ligne 6 : Téléphone à 100% */}
