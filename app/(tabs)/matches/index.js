@@ -7784,35 +7784,11 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* Sélecteur de groupe - Positionné en bas, juste au-dessus de la tabbar */}
-      <Pressable
-        onPress={() => setGroupSelectorOpen(true)}
-        style={{
-          position: 'absolute',
-          bottom: (tabBarHeight || 0) + 60,
-          left: 0,
-          right: 0,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: 8,
-          paddingHorizontal: 16,
-          backgroundColor: '#001831',
-          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-        }}
-      >
-        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-          {activeGroup?.name || 'Sélectionner un groupe'}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-      </Pressable>
-
-      {/* Week navigator - Positionné en bas, juste au-dessus de la tabbar */}
+      {/* Week navigator - Positionné en bas, au-dessus du sélecteur de groupe */}
       <View
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 8,
+          bottom: (tabBarHeight || 0) + 60,
           left: 0,
           right: 0,
           flexDirection: 'row',
@@ -7848,6 +7824,30 @@ const HourSlotRow = ({ item }) => {
           <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
         </Pressable>
       </View>
+
+      {/* Sélecteur de groupe - Positionné en bas, juste au-dessus de la tabbar */}
+      <Pressable
+        onPress={() => setGroupSelectorOpen(true)}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 8,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+        }}
+      >
+        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+          {activeGroup?.name || 'Sélectionner un groupe'}
+        </Text>
+        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+      </Pressable>
     </View>
   );
 }
