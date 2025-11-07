@@ -2,12 +2,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
-import { router, Tabs } from 'expo-router';
+import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { CopilotStep } from 'react-native-copilot';
 import 'react-native-gesture-handler';
-import { CopilotTutorialProvider } from '../../components/CopilotTutorial';
+import { CopilotTutorialProvider, getGlobalCopilotStart } from '../../components/CopilotTutorial';
 import { copilotSteps } from '../../lib/copilotSteps';
 import { supabase } from '../../lib/supabase';
 
