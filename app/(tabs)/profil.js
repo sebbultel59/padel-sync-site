@@ -844,6 +844,32 @@ export default function ProfilScreen() {
           </View>
         </View>
 
+        {/* Ligne 7 : Rayon à 100% */}
+        <View style={[s.tile, s.tileFull, { marginTop: 0 }]}>
+          <View style={s.tileHeader}>
+            <Text style={s.tileIcon}>📍</Text>
+            <Text style={s.tileTitle}>Rayon</Text>
+          </View>
+          <View style={s.rayonRow}>
+            {RAYONS.map((r) => {
+              const active = rayonKm === r.v;
+              return (
+                <Pressable
+                  key={r.v}
+                  onPress={press(`rayon-${r.v}`, () => setRayonKm(r.v))}
+                  style={[
+                    s.pill,
+                    active && { backgroundColor: "#eaf2ff", borderColor: BRAND },
+                    Platform.OS === "web" && { cursor: "pointer" }
+                  ]}
+                >
+                  <Text style={[s.pillTxt, active && { color: BRAND, fontWeight: "800" }]}>{r.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {/* Enregistrer */}
         <Pressable
           onPress={press("profile-save", onSavePress)}
