@@ -25,6 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
+import terrainIcon from '../../../assets/icons/terrain.png';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
@@ -5704,7 +5705,7 @@ const HourSlotRow = ({ item }) => {
         onPress={() => openFlashMatchDateModal()}
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 160,
+          bottom: (tabBarHeight || 0) + 133,
           right: 20,
           width: 64,
           height: 64,
@@ -7861,6 +7862,28 @@ const HourSlotRow = ({ item }) => {
         </Text>
         <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
       </Pressable>
+
+      {/* Image de terrain de padel en arrière-plan pour la zone du bas */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: (tabBarHeight || 0) + 200,
+          zIndex: 0,
+          opacity: 0.15,
+        }}
+      >
+        <Image
+          source={terrainIcon}
+          style={{
+            width: '100%',
+            height: '100%',
+            resizeMode: 'cover',
+          }}
+        />
+      </View>
     </View>
   );
 }
