@@ -629,12 +629,21 @@ export default function ProfilScreen() {
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>🔥</Text>
               <Text style={s.tileTitle}>Niveau</Text>
-                <Pressable
-                  onPress={() => setNiveauInfoModalVisible(true)}
-                  style={{ marginLeft: 6, padding: 4 }}
-                >
-                  <Ionicons name="information" size={18} color="#6b7280" />
-                </Pressable>
+              <Pressable
+                onPress={() => setNiveauInfoModalVisible(true)}
+                style={{ 
+                  marginLeft: 6, 
+                  padding: 4,
+                  backgroundColor: '#e0f2fe',
+                  borderRadius: 12,
+                  width: 24,
+                  height: 24,
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <Ionicons name="information-circle" size={16} color="#0284c7" />
+              </Pressable>
             </View>
             <View style={s.levelRow}>
               {LEVELS.map((lv) => {
