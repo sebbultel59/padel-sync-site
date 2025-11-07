@@ -9,7 +9,7 @@ export default {
     ios: {
       bundleIdentifier: "app.syncpadel.mobile",
       supportsTablet: false,
-          buildNumber: "18",
+      buildNumber: "18",
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
@@ -24,7 +24,7 @@ export default {
     },
     android: {
       package: "com.padelsync.app",
-          versionCode: 18,
+      versionCode: 18,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png", // chemin corrigé
         backgroundColor: "#001831"
