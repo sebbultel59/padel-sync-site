@@ -847,34 +847,33 @@ export default function ProfilScreen() {
             </Pressable>
           </View>
 
-          {/* Ligne 5 : Email et Téléphone */}
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={[s.tile, s.tileHalf]}>
-              <View style={s.tileHeader}>
-                <Text style={s.tileIcon}>✉️</Text>
-                <Text style={s.tileTitle}>Email</Text>
-              </View>
-              <Text style={s.tileValue}>{me?.email ?? '—'}</Text>
+          {/* Ligne 5 : Email à 100% */}
+          <View style={[s.tile, s.tileFull]}>
+            <View style={s.tileHeader}>
+              <Text style={s.tileIcon}>✉️</Text>
+              <Text style={s.tileTitle}>Email</Text>
             </View>
+            <Text style={s.tileValue}>{me?.email ?? '—'}</Text>
+          </View>
 
-            <View style={[s.tile, s.tileHalf]}>
-              <View style={s.tileHeader}>
-                <Text style={s.tileIcon}>📞</Text>
-                <Text style={s.tileTitle}>Téléphone</Text>
-              </View>
-              <TextInput
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="06 12 34 56 78"
-                keyboardType="phone-pad"
-                style={s.tileInput}
-                maxLength={20}
-              />
+          {/* Ligne 6 : Téléphone à 100% */}
+          <View style={[s.tile, s.tileFull]}>
+            <View style={s.tileHeader}>
+              <Text style={s.tileIcon}>📞</Text>
+              <Text style={s.tileTitle}>Téléphone</Text>
             </View>
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="06 12 34 56 78"
+              keyboardType="phone-pad"
+              style={s.tileInput}
+              maxLength={20}
+            />
           </View>
         </View>
 
-        {/* Ligne 6 : Adresses */}
+        {/* Ligne 7 : Adresses */}
         <View style={[s.card, { gap: 12, marginTop: 0 }]}>
           <Text style={s.label}>📍 Adresses</Text>
           
