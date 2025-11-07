@@ -36,6 +36,20 @@ function CopilotAutoStart({ children }) {
           setTimeout(() => {
             console.log("[Copilot] Démarrage automatique du tutoriel...");
             console.log("[Copilot] Événements disponibles:", Object.keys(copilotEvents || {}));
+            
+            // Écouter les événements pour voir ce qui se passe
+            if (copilotEvents) {
+              copilotEvents.on("stepChange", (step) => {
+                console.log("[Copilot] Étape changée:", step);
+              });
+              copilotEvents.on("start", () => {
+                console.log("[Copilot] Tutoriel démarré (événement start)");
+              });
+              copilotEvents.on("stop", () => {
+                console.log("[Copilot] Tutoriel arrêté");
+              });
+            }
+            
             try {
               start();
               console.log("[Copilot] start() appelé avec succès");
@@ -103,6 +117,23 @@ function StepNumber({ currentStepNumber, totalSteps }) {
 
 // Composant personnalisé pour le tooltip
 function CustomTooltip({ currentStep, handlePrev, handleNext, handleStop, isFirstStep, isLastStep }) {
+  // Gérer le format du text (peut être string ou object)
+  const stepText = typeof currentStep?.text === 'string' 
+    ? currentStep.text 
+    : currentStep?.text?.body || currentStep?.text || "";
+  const stepTitle = typeof currentStep?.text === 'object' && currentStep?.text?.title
+    ? currentStep.text.title
+    : typeof currentStep?.text === 'string'
+    ? currentStep.text
+    : "Bienvenue !";
+  
+  console.log("[Copilot] CustomTooltip rendu:", { 
+    stepName: currentStep?.name, 
+    textType: typeof currentStep?.text,
+    stepTitle,
+    stepText 
+  });
+  
   return (
     <View
       style={{
@@ -125,7 +156,7 @@ function CustomTooltip({ currentStep, handlePrev, handleNext, handleStop, isFirs
           marginBottom: 8,
         }}
       >
-        {currentStep?.text?.title || "Bienvenue !"}
+        {stepTitle}
       </Text>
       <Text
         style={{
@@ -135,7 +166,7 @@ function CustomTooltip({ currentStep, handlePrev, handleNext, handleStop, isFirs
           marginBottom: 16,
         }}
       >
-        {currentStep?.text?.body || ""}
+        {stepText}
       </Text>
       <View
         style={{
@@ -223,7 +254,7 @@ export function CopilotTutorialProvider({ children }) {
     <CopilotProvider
       stepNumberComponent={StepNumber}
       tooltipComponent={CustomTooltip}
-      overlay="svg"
+      overlay="view"
       animated
     >
       <CopilotAutoStart>{children}</CopilotAutoStart>
