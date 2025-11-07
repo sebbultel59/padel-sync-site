@@ -1412,6 +1412,8 @@ const s = StyleSheet.create({
     borderColor: "transparent",
     borderRadius: 12,
     padding: 8,
+    minWidth: 0,
+    width: '100%',
   },
   tileFull: {
     width: '100%',
