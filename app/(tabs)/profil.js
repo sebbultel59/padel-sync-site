@@ -79,6 +79,7 @@ export default function ProfilScreen() {
   const [classement, setClassement] = useState("");
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
   const [mainPickerVisible, setMainPickerVisible] = useState(false);
+  const [cotePickerVisible, setCotePickerVisible] = useState(false);
   
   // Zoom pour l'image des niveaux
   const scale = useSharedValue(1);
@@ -724,11 +725,24 @@ export default function ProfilScreen() {
                 <Text style={s.tileIcon}>🎯</Text>
                 <Text style={s.tileTitle}>Côté</Text>
               </View>
-              <View style={s.segment}>
-                <SegBtn label="Droite" active={cote === "droite"} onPress={() => setCote("droite")} />
-                <SegBtn label="Gauche" active={cote === "gauche"} onPress={() => setCote("gauche")} />
-                <SegBtn label="Les 2" active={cote === "les_deux"} onPress={() => setCote("les_deux")} />
-              </View>
+              <Pressable
+                onPress={() => setCotePickerVisible(true)}
+                style={[
+                  s.tileInput,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 4,
+                  },
+                  Platform.OS === 'web' && { cursor: 'pointer' }
+                ]}
+              >
+                <Text style={{ fontSize: 14, color: cote ? '#111827' : '#9ca3af' }}>
+                  {cote === "droite" ? "Droite" : cote === "gauche" ? "Gauche" : cote === "les_deux" ? "Les 2" : "Sélectionner"}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="#6b7280" />
+              </Pressable>
             </View>
           </View>
 
