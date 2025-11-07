@@ -149,16 +149,29 @@ function MatchesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
-  const { start, copilotEvents } = useCopilot();
+  const copilotHook = useCopilot();
   const hasStartedRef = useRef(false);
   const markSeenRef = useRef(markSeen);
+  const startRef = useRef(null);
+  const copilotEventsRef = useRef(null);
+
+  // Stocker les valeurs dans des refs pour éviter les re-renders
+  if (copilotHook) {
+    startRef.current = copilotHook.start;
+    copilotEventsRef.current = copilotHook.copilotEvents;
+  }
 
   // Mettre à jour la ref de markSeen
   markSeenRef.current = markSeen;
 
   // Lancer automatiquement le tour à la première ouverture
   useEffect(() => {
-    if (!shouldStart || hasStartedRef.current || !start || typeof start !== 'function') {
+    if (!shouldStart || hasStartedRef.current) {
+      return;
+    }
+    
+    const startFn = startRef.current;
+    if (!startFn || typeof startFn !== 'function') {
       return;
     }
     
@@ -167,7 +180,9 @@ function MatchesScreen() {
       // Délai pour s'assurer que tous les composants sont montés
       const timeoutId = setTimeout(() => {
         try {
-          start();
+          if (startRef.current) {
+            startRef.current();
+          }
         } catch (error) {
           console.error('[Matches] Erreur démarrage tutoriel:', error);
         }
@@ -175,21 +190,22 @@ function MatchesScreen() {
       
       return () => clearTimeout(timeoutId);
     }
-  }, [shouldStart, start, consumeStartFlag]);
+  }, [shouldStart, consumeStartFlag]);
 
   // Marquer l'onboarding comme vu quand le tour se termine
   useEffect(() => {
-    if (!copilotEvents) return;
+    const events = copilotEventsRef.current;
+    if (!events) return;
     
     const handleStop = () => {
       markSeenRef.current();
     };
     
-    copilotEvents.on('stop', handleStop);
+    events.on('stop', handleStop);
     return () => {
-      copilotEvents.off('stop', handleStop);
+      events.off('stop', handleStop);
     };
-  }, [copilotEvents]);
+  }, []);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
