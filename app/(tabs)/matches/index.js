@@ -7825,12 +7825,12 @@ const HourSlotRow = ({ item }) => {
         </Pressable>
       </View>
 
-      {/* Sélecteur de groupe - Positionné en bas, juste au-dessus de la tabbar */}
+      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
       <Pressable
         onPress={() => setGroupSelectorOpen(true)}
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 8,
+          bottom: (tabBarHeight || 0),
           left: 0,
           right: 0,
           flexDirection: 'row',
