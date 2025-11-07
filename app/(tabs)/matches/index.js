@@ -5699,12 +5699,12 @@ const HourSlotRow = ({ item }) => {
       </Pressable>
       )}
 
-      {/* Icône flottante pour créer un match éclair (à droite) */}
+      {/* Icône flottante pour créer un match éclair - Positionnée au-dessus de la ligne de filtres */}
       <Pressable
         onPress={() => openFlashMatchDateModal()}
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 20,
+          bottom: (tabBarHeight || 0) + 116,
           right: 20,
           width: 64,
           height: 64,
@@ -5717,7 +5717,7 @@ const HourSlotRow = ({ item }) => {
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.3,
           shadowRadius: 4,
-          zIndex: 1000,
+          zIndex: 1001,
         }}
       >
         <Ionicons name="flash" size={32} color="#000000" />
