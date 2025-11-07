@@ -1290,12 +1290,14 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
               }}
             >
-              <Ionicons
-                name={applyToAllGroups ? 'checkmark-circle' : 'close-circle'}
-                size={16}
-                color="#ffffff"
-                style={{ marginRight: 6 }}
-              />
+              {applyToAllGroups && (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={16}
+                  color="#ffffff"
+                  style={{ marginRight: 6 }}
+                />
+              )}
               <Text style={{ fontWeight: '700', color: '#ffffff', fontSize: 12 }}>
                 {applyToAllGroups ? 'Appliquer à tous mes groupes' : 'Appliquer au groupe actuel uniquement'}
               </Text>
