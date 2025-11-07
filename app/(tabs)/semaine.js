@@ -9,6 +9,7 @@ import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
@@ -94,6 +95,7 @@ export default function Semaine() {
   React.useEffect(() => () => { try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {} }, []);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   // ---- ÉTATS ----
   const [weekStart, setWeekStart] = useState(dayjs().startOf("isoWeek"));
   const [timeSlots, setTimeSlots] = useState([]); // time_slots (starts_at/ends_at/group_id)
@@ -1732,6 +1734,79 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           </View>
         </View>
       </Modal>
+
+      {/* Week navigator - Positionné en bas, collé au sélecteur de groupe */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 28,
+          left: 16,
+          right: 16,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          zIndex: 999,
+          elevation: 9,
+          marginBottom: 0,
+        }}
+      >
+        <Pressable
+          onPress={() => setWeekStart((w) => w.subtract(1, 'week'))}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine précédente"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-back" size={32} color="#156BC9" />
+        </Pressable>
+
+        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
+          {formatWeekRangeLabel(weekStart.toDate(), weekStart.add(6, 'day').toDate())}
+        </Text>
+
+        <Pressable
+          onPress={() => setWeekStart((w) => w.add(1, 'week'))}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine suivante"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-forward" size={32} color="#156BC9" />
+        </Pressable>
+      </View>
+
+      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
+      {activeGroup?.name && (
+        <Pressable
+          onPress={() => { setGroupSelectorOpen(true); loadMyGroups(); }}
+          style={{
+            position: 'absolute',
+            bottom: (tabBarHeight || 0),
+            left: 16,
+            right: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 8,
+            paddingHorizontal: 16,
+            backgroundColor: '#001831',
+            zIndex: 998,
+            elevation: 8,
+            marginTop: 0,
+            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+          }}
+        >
+          <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+          <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+            {activeGroup.name || 'Sélectionner un groupe'}
+          </Text>
+          <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+        </Pressable>
+      )}
     </View>
   );
 }
