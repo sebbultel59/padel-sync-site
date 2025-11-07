@@ -684,7 +684,7 @@ export default function ProfilScreen() {
         </View>
 
         {/* Tiles d'informations du profil */}
-        <View style={{ gap: 12, marginTop: 8 }}>
+        <View style={{ gap: 6, marginTop: 8 }}>
           {/* Ligne 1 : Pseudo à 100% */}
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
@@ -769,7 +769,7 @@ export default function ProfilScreen() {
           </View>
 
           {/* Ligne 4 : Main et Côté */}
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
             <View style={[s.tile, s.tileHalf]}>
               <View style={s.tileHeader}>
                 <Text style={s.tileIcon}>🖐️</Text>
