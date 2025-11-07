@@ -4968,7 +4968,7 @@ const HourSlotRow = ({ item }) => {
           {/* Icônes filtres pour afficher/masquer les configurations - Positionnées en bas, au-dessus du sélecteur de semaine */}
           <View style={{ 
             position: 'absolute',
-            bottom: (tabBarHeight || 0) + 68,
+            bottom: (tabBarHeight || 0) + 76,
             left: 16,
             right: 16,
             flexDirection: 'row', 
