@@ -204,7 +204,6 @@ export function CopilotTutorialProvider({ children }) {
       tooltipComponent={CustomTooltip}
       overlay="svg"
       animated
-      steps={copilotSteps}
     >
       <CopilotAutoStart>{children}</CopilotAutoStart>
     </CopilotProvider>
