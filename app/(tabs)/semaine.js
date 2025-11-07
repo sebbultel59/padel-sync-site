@@ -1566,15 +1566,15 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       position: 'absolute',
                       top: '50%',
                       left: '50%',
-                      transform: [{ translateX: -12 }, { translateY: -12 }],
+                      transform: [{ translateX: -9 }, { translateY: -9 }],
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
                       <Image
                         source={ballIcon}
                         style={{
-                          width: 24,
-                          height: 24,
+                          width: 18,
+                          height: 18,
                           shadowColor: '#ffffff',
                           shadowOffset: { width: 0, height: 0 },
                           shadowOpacity: 1,
@@ -1587,34 +1587,59 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   )}
                 </>
               ) : (
-                /* Affichage pour les joueurs : icône balle de padel sur fond transparent si disponible */
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  {myStatus === 'available' ? (
+                /* Affichage pour les joueurs : nombre en haut à gauche + balle de padel au centre si disponible */
+                <>
+                  {/* Nombre de joueurs disponibles dans le coin supérieur gauche */}
+                  {availableCount > 0 && (
                     <View style={{
-                      backgroundColor: 'transparent',
-                      borderRadius: 6,
-                      padding: 4,
+                      position: 'absolute',
+                      top: 2,
+                      left: 2,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: 30,
-                      height: 30,
                     }}>
-                      <Image
-                        source={ballIcon}
+                      <Text
                         style={{
-                          width: 22,
-                          height: 22,
-                          shadowColor: '#ffffff',
-                          shadowOffset: { width: 0, height: 0 },
-                          shadowOpacity: 1,
-                          shadowRadius: 2,
-                          elevation: 2,
+                          fontSize: 9,
+                          lineHeight: 11,
+                          fontWeight: '900',
+                          color: myStatus === 'available' ? '#ffffff' : '#0b2240',
+                          textAlign: 'center',
                         }}
-                        resizeMode="contain"
-                      />
+                      >
+                        {availableCount}
+                      </Text>
                     </View>
-                  ) : null}
-                </View>
+                  )}
+                  {/* Balle de padel au centre si le joueur est disponible */}
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    {myStatus === 'available' ? (
+                      <View style={{
+                        backgroundColor: 'transparent',
+                        borderRadius: 6,
+                        padding: 4,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 24,
+                        height: 24,
+                      }}>
+                        <Image
+                          source={ballIcon}
+                          style={{
+                            width: 16,
+                            height: 16,
+                            shadowColor: '#ffffff',
+                            shadowOffset: { width: 0, height: 0 },
+                            shadowOpacity: 1,
+                            shadowRadius: 2,
+                            elevation: 2,
+                          }}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                </>
               )}
             </Pressable>
           );
