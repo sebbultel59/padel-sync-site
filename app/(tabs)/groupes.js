@@ -29,6 +29,7 @@ import {
 } from "react-native";
 import { CopilotStep } from "react-native-copilot";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getGlobalCopilotStart } from "../../components/CopilotTutorial";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
