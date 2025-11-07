@@ -4974,7 +4974,7 @@ const HourSlotRow = ({ item }) => {
             flexDirection: 'row', 
             flexWrap: 'nowrap',
             alignItems: 'center', 
-            justifyContent: 'space-between', 
+            justifyContent: 'center', 
             gap: 4,
             paddingVertical: 8,
             paddingHorizontal: 16,
