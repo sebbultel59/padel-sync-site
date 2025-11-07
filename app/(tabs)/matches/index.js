@@ -5552,7 +5552,7 @@ const HourSlotRow = ({ item }) => {
       {tab === 'rsvp' && (
         <>
           {/* Sélecteur 1h / 1h30 pour RSVP */}
-          <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ marginBottom: 12, marginTop: -18, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable
                 onPress={() => setRsvpMode('long')}
@@ -5630,7 +5630,7 @@ const HourSlotRow = ({ item }) => {
       {tab === 'valides' && (
         <>
           {/* Sélecteur 1h / 1h30 pour Validés */}
-          <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ marginBottom: 12, marginTop: -18, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable
                 onPress={() => setConfirmedMode('long')}
