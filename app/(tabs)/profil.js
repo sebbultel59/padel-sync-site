@@ -1436,6 +1436,7 @@ const s = StyleSheet.create({
     fontSize: 16,
     color: "#dcff13",
     fontWeight: "700",
+    textTransform: 'uppercase',
   },
   tileInput: {
     marginTop: 2,
