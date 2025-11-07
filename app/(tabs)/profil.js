@@ -939,6 +939,31 @@ export default function ProfilScreen() {
               ⚠️ Modifications non enregistrées
             </Text>
           ) : null}
+
+        {/* Modal Info Niveaux */}
+        <Modal
+          visible={niveauInfoModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setNiveauInfoModalVisible(false)}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <View style={{ backgroundColor: '#ffffff', borderRadius: 12, padding: 16, width: '100%', maxWidth: 600, maxHeight: '90%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Niveaux de Padel 2025</Text>
+                <Pressable onPress={() => setNiveauInfoModalVisible(false)} style={{ padding: 8 }}>
+                  <Ionicons name="close" size={24} color="#111827" />
+                </Pressable>
+              </View>
+              <ScrollView style={{ maxHeight: '80%' }} showsVerticalScrollIndicator={true}>
+                <Image
+                  source={{ uri: 'https://www.padelmagazine.fr/wp-content/uploads/2024/12/niveaux-de-padel-2025.jpg' }}
+                  style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain', borderRadius: 8 }}
+                />
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
