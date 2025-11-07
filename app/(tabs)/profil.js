@@ -874,12 +874,12 @@ export default function ProfilScreen() {
         </View>
 
         {/* Ligne 7 : Adresses */}
-        <View style={[s.card, { gap: 12, marginTop: 0 }]}>
-          <Text style={s.label}>📍 Adresses</Text>
+        <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'transparent' }]}>
+          <Text style={[s.label, { color: '#dcff13' }]}>📍 Adresses</Text>
           
           {/* Domicile */}
           <View style={{ marginTop: 8 }}>
-            <Text style={[s.label, { fontSize: 16, marginBottom: 6 }]}>🏠 Domicile</Text>
+            <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>🏠 Domicile</Text>
             <TextInput
               value={addressHomeInput}
               onChangeText={(text) => {
@@ -944,7 +944,7 @@ export default function ProfilScreen() {
 
           {/* Travail */}
           <View style={{ marginTop: 12 }}>
-            <Text style={[s.label, { fontSize: 16, marginBottom: 6 }]}>💼 Travail</Text>
+            <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>💼 Travail</Text>
             <TextInput
               value={addressWorkInput}
               onChangeText={(text) => {
