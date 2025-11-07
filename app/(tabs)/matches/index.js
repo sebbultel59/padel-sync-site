@@ -7795,7 +7795,7 @@ const HourSlotRow = ({ item }) => {
       <View
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 50,
+          bottom: (tabBarHeight || 0) + 40,
           left: 16,
           right: 16,
           flexDirection: 'row',
@@ -7807,6 +7807,7 @@ const HourSlotRow = ({ item }) => {
           backgroundColor: '#001831',
           zIndex: 999,
           elevation: 9,
+          marginBottom: 0,
         }}
       >
         <Pressable
