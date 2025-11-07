@@ -4979,6 +4979,8 @@ const HourSlotRow = ({ item }) => {
             paddingVertical: 8,
             paddingHorizontal: 16,
             backgroundColor: '#001831',
+            zIndex: 1000,
+            elevation: 10,
           }}>
             <Pressable
               onPress={() => {
