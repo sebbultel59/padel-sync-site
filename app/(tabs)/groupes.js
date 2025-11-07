@@ -28,7 +28,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
@@ -261,7 +260,6 @@ export default function GroupesScreen() {
   const isSuperAdmin = useIsSuperAdmin();
   const isGlobalAdmin = useIsGlobalAdmin();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
 
   // --- Auth guard ---
   const [authChecked, setAuthChecked] = useState(false);
@@ -313,8 +311,6 @@ export default function GroupesScreen() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
-  const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
-  const [myGroupsForSelector, setMyGroupsForSelector] = useState([]);
 
   const openContactForProfile = useCallback((p) => {
     console.log('[openContactForProfile] Called with profile:', p?.name, p?.phone, p?.email);
@@ -1907,82 +1903,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
             <Pressable onPress={press("close-members", () => setMembersModalVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
-      {activeGroup?.name && (
-        <Pressable
-          onPress={() => {
-            setMyGroupsForSelector(groups.mine || []);
-            setGroupSelectorOpen(true);
-          }}
-          style={{
-            position: 'absolute',
-            bottom: (tabBarHeight || 0),
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingVertical: 8,
-            paddingHorizontal: 16,
-            backgroundColor: '#001831',
-            zIndex: 998,
-            elevation: 8,
-            marginTop: 0,
-            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-          }}
-        >
-          <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-          <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-            {activeGroup.name || 'Sélectionner un groupe'}
-          </Text>
-          <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-        </Pressable>
-      )}
-
-      {/* Modal sélection du groupe */}
-      <Modal visible={groupSelectorOpen} transparent animationType="fade" onRequestClose={() => setGroupSelectorOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Choisir un groupe</Text>
-              <Pressable onPress={() => setGroupSelectorOpen(false)} style={{ padding: 8 }}>
-                <Ionicons name="close" size={22} color="#111827" />
-              </Pressable>
-            </View>
-            <ScrollView style={{ maxHeight: 400 }}>
-              {myGroupsForSelector.length === 0 ? (
-                <Text style={{ color: '#6b7280', textAlign: 'center', padding: 20 }}>Aucun groupe disponible</Text>
-              ) : (
-                myGroupsForSelector.map((group) => (
-                  <Pressable
-                    key={group.id}
-                    onPress={() => {
-                      setActiveGroup(group);
-                      setGroupSelectorOpen(false);
-                    }}
-                    style={{
-                      padding: 16,
-                      borderRadius: 8,
-                      backgroundColor: activeGroup?.id === group.id ? '#eaf2ff' : '#f9fafb',
-                      marginBottom: 8,
-                      borderWidth: 1,
-                      borderColor: activeGroup?.id === group.id ? BRAND : '#e5e7eb',
-                    }}
-                  >
-                    <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
-                      {group.name}
-                    </Text>
-                    {activeGroup?.id === group.id && (
-                      <Text style={{ color: BRAND, fontSize: 12, marginTop: 4 }}>Groupe actif</Text>
-                    )}
-                  </Pressable>
-                ))
-              )}
-            </ScrollView>
           </View>
         </View>
       </Modal>
