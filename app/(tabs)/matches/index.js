@@ -4960,41 +4960,6 @@ const HourSlotRow = ({ item }) => {
           <Text style={{ color: '#111827', fontWeight: '800', textAlign: 'center' }}>{networkNotice}</Text>
         </View>
       )}
-      {/* Week navigator */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-          marginBottom: 0,  // réduit l'espace sous la ligne
-          marginTop: -10,    // réduit l'espace au-dessus (entre le header et cette ligne)
-        }}
-      >
-        <Pressable
-          onPress={() => setWeekOffset((x) => x - 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Semaine précédente"
-          hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="caret-back" size={32} color={COLORS.primary} />
-        </Pressable>
-
-        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
-          {formatWeekRangeLabel(currentWs, currentWe)}
-        </Text>
-
-        <Pressable
-          onPress={() => setWeekOffset((x) => x + 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Semaine suivante"
-          hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
-        </Pressable>
-      </View>
 
       {/* Sélecteur de groupe (sous la navigation) */}
       <Pressable
