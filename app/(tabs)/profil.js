@@ -1008,7 +1008,7 @@ export default function ProfilScreen() {
           </View>
         </View>
 
-        {/* Ligne 7 : Rayon à 100% */}
+        {/* Ligne 8 : Rayon à 100% */}
         <View style={[s.tile, s.tileFull, { marginTop: 0 }]}>
           <View style={s.tileHeader}>
             <Text style={s.tileIcon}>📍</Text>
