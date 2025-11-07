@@ -594,60 +594,59 @@ export default function ProfilScreen() {
             />
           </View>
 
-          {/* Ligne 2 : Niveau et Classement */}
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={[s.tile, { width: '48%' }]}>
-              <View style={s.tileHeader}>
-                <Text style={s.tileIcon}>🔥</Text>
-                <Text style={s.tileTitle}>Niveau</Text>
-              </View>
-              <View style={s.levelRow}>
-                {LEVELS.map((lv) => {
-                  const active = niveau === lv.v;
-                  return (
-                    <Pressable
-                      key={lv.v}
-                      onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
-                      style={[
-                        s.pill,
-                        {
-                          backgroundColor: lv.color,
-                          borderColor: active ? BRAND : 'transparent',
-                          borderWidth: active ? 2 : 1,
-                          transform: active ? [{ scale: 1.06 }] : [],
-                        },
-                        Platform.OS === 'web' && { cursor: 'pointer' },
-                      ]}
-                    >
-                      <Text style={[s.pillTxt, { color: '#111827', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {niveau && levelInfo?.label && (
-                <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                  {levelInfo.label}
-                </Text>
-              )}
+          {/* Ligne 2 : Niveau à 100% */}
+          <View style={[s.tile, s.tileFull]}>
+            <View style={s.tileHeader}>
+              <Text style={s.tileIcon}>🔥</Text>
+              <Text style={s.tileTitle}>Niveau</Text>
             </View>
-
-            <View style={[s.tile, { width: '48%' }]}>
-              <View style={s.tileHeader}>
-                <Text style={s.tileIcon}>🏆</Text>
-                <Text style={s.tileTitle}>Classement</Text>
-              </View>
-              <TextInput
-                value={classement}
-                onChangeText={setClassement}
-                placeholder="Ex. 500"
-                keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-                style={s.tileInput}
-                maxLength={6}
-              />
+            <View style={s.levelRow}>
+              {LEVELS.map((lv) => {
+                const active = niveau === lv.v;
+                return (
+                  <Pressable
+                    key={lv.v}
+                    onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
+                    style={[
+                      s.pill,
+                      {
+                        backgroundColor: lv.color,
+                        borderColor: active ? BRAND : 'transparent',
+                        borderWidth: active ? 2 : 1,
+                        transform: active ? [{ scale: 1.06 }] : [],
+                      },
+                      Platform.OS === 'web' && { cursor: 'pointer' },
+                    ]}
+                  >
+                    <Text style={[s.pillTxt, { color: '#111827', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
+            {niveau && levelInfo?.label && (
+              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
+                {levelInfo.label}
+              </Text>
+            )}
           </View>
 
-          {/* Ligne 3 : Main et Côté */}
+          {/* Ligne 3 : Classement à 100% */}
+          <View style={[s.tile, s.tileFull]}>
+            <View style={s.tileHeader}>
+              <Text style={s.tileIcon}>🏆</Text>
+              <Text style={s.tileTitle}>Classement</Text>
+            </View>
+            <TextInput
+              value={classement}
+              onChangeText={setClassement}
+              placeholder="Ex. 500"
+              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+              style={s.tileInput}
+              maxLength={6}
+            />
+          </View>
+
+          {/* Ligne 4 : Main et Côté */}
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={[s.tile, s.tileHalf]}>
               <View style={s.tileHeader}>
