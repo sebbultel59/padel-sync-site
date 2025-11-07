@@ -1012,7 +1012,7 @@ export default function ProfilScreen() {
         <View style={[s.tile, s.tileFull, { marginTop: 0 }]}>
           <View style={s.tileHeader}>
             <Text style={s.tileIcon}>📍</Text>
-            <Text style={s.tileTitle}>Rayon</Text>
+            <Text style={s.tileTitle}>Rayon de jeu possible</Text>
           </View>
           <View style={s.rayonRow}>
             {RAYONS.map((r) => {
