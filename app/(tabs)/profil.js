@@ -1045,6 +1045,63 @@ export default function ProfilScreen() {
             </View>
           </GestureHandlerRootView>
         </Modal>
+
+        {/* Modal Liste de choix pour Main */}
+        <Modal
+          visible={mainPickerVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setMainPickerVisible(false)}
+        >
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+            onPress={() => setMainPickerVisible(false)}
+          >
+            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20 }}>
+              <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Sélectionner la main</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setMain("droite");
+                  setMainPickerVisible(false);
+                }}
+                style={({ pressed }) => ({
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  backgroundColor: pressed ? '#f3f4f6' : main === "droite" ? '#e0f2fe' : '#ffffff',
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#e5e7eb',
+                })}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: main === "droite" ? '700' : '400' }}>
+                    Droite
+                  </Text>
+                  {main === "droite" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setMain("gauche");
+                  setMainPickerVisible(false);
+                }}
+                style={({ pressed }) => ({
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  backgroundColor: pressed ? '#f3f4f6' : main === "gauche" ? '#e0f2fe' : '#ffffff',
+                })}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: main === "gauche" ? '700' : '400' }}>
+                    Gauche
+                  </Text>
+                  {main === "gauche" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                </View>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
