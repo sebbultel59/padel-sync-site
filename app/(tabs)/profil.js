@@ -1408,8 +1408,8 @@ const s = StyleSheet.create({
   // Tiles
   tile: {
     backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderWidth: 0,
+    borderColor: "transparent",
     borderRadius: 12,
     padding: 12,
   },
