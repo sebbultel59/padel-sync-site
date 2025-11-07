@@ -4961,27 +4961,6 @@ const HourSlotRow = ({ item }) => {
         </View>
       )}
 
-      {/* Sélecteur de groupe (sous la navigation) */}
-      <Pressable
-        onPress={() => setGroupSelectorOpen(true)}
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginTop: 2,
-          marginBottom: 6,
-          paddingVertical: 4,
-          paddingHorizontal: 8,
-          borderRadius: 8,
-          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-        }}
-      >
-        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-          {activeGroup?.name || 'Sélectionner un groupe'}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-      </Pressable>
       
       {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
       {tab === 'proposes' && (
@@ -7804,6 +7783,30 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Sélecteur de groupe - Positionné en bas, juste au-dessus de la tabbar */}
+      <Pressable
+        onPress={() => setGroupSelectorOpen(true)}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 60,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+        }}
+      >
+        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+          {activeGroup?.name || 'Sélectionner un groupe'}
+        </Text>
+        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+      </Pressable>
 
       {/* Week navigator - Positionné en bas, juste au-dessus de la tabbar */}
       <View
