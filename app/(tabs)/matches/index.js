@@ -5336,7 +5336,7 @@ const HourSlotRow = ({ item }) => {
       )}
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0 }}>
+<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0 }}>
   <View style={{ flexDirection: 'row', gap: 8 }}>
 {/* Matchs possibles */}
   <Pressable
@@ -5463,7 +5463,7 @@ const HourSlotRow = ({ item }) => {
       </View>
     )}
     {/* Sélecteur 1h / 1h30 */}
-    <View style={{ marginBottom: 12, marginTop: 0, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+    <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
       <Pressable
         onPress={() => setMode('long')}
