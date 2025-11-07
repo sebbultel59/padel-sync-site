@@ -160,6 +160,7 @@ export default function MatchesScreen() {
   // États principaux
   const [meId, setMeId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingWeek, setLoadingWeek] = useState(false); // Chargement spécifique pour le changement de semaine
   const [tab, setTab] = useState('proposes');
   const [mode, setMode] = useState('long');
   const [rsvpMode, setRsvpMode] = useState('long');
@@ -182,6 +183,7 @@ export default function MatchesScreen() {
   // Bandeau réseau
   const [networkNotice, setNetworkNotice] = useState(null);
   const retryRef = React.useRef(0);
+  const previousGroupIdRef = React.useRef(groupId); // Pour détecter les changements de groupe vs semaine
   
   // Group selector states
   const [myGroups, setMyGroups] = useState([]);
@@ -1316,13 +1318,17 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     );
   }, [rsvpsByMatch]);
 
-  // Fonction pour charger les données
-  const fetchData = useCallback(async () => {
+  // Fonction pour charger les données (avec option pour ne pas masquer l'UI)
+  const fetchData = useCallback(async (skipLoadingState = false) => {
     if (!groupId) return;
-    setLoading(true);
+    if (!skipLoadingState) {
+      setLoading(true);
+    } else {
+      setLoadingWeek(true);
+    }
     try {
       setNetworkNotice(null);
-      console.log('[Matches] fetchData called for group:', groupId);
+      console.log('[Matches] fetchData called for group:', groupId, 'skipLoadingState:', skipLoadingState);
       // Compute week bounds for limiting virtual slot generation to the visible week
       const { ws: wsBound, we: weBound } = weekBoundsFromOffset(weekOffset);
       const weekStartMs = new Date(wsBound).setHours(0,0,0,0);
@@ -1935,7 +1941,11 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         }
       }
     } finally {
-      setLoading(false);
+      if (!skipLoadingState) {
+        setLoading(false);
+      } else {
+        setLoadingWeek(false);
+      }
     }
   }, [groupId, weekOffset]);
 
@@ -1943,11 +1953,16 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   useEffect(() => {
     console.log('[Matches] useEffect called, groupId:', groupId, 'weekOffset:', weekOffset);
     if (groupId) {
-      fetchData();
+      // Si c'est juste un changement de semaine (groupId n'a pas changé), ne pas masquer toute la page
+      const isGroupChange = previousGroupIdRef.current !== groupId;
+      const isWeekChange = !isGroupChange && previousGroupIdRef.current === groupId;
+      previousGroupIdRef.current = groupId;
+      fetchData(isWeekChange); // Passer true si c'est juste un changement de semaine
     } else {
       setLoading(false);
+      previousGroupIdRef.current = null;
     }
-  }, [groupId, weekOffset]); // ✅ relance aussi quand la semaine visible change
+  }, [groupId, weekOffset, fetchData]); // ✅ relance aussi quand la semaine visible change
 
   // Mettre à jour explicitement les données affichées quand les données calculées changent
   // Utiliser useLayoutEffect pour une mise à jour synchrone avant le rendu
@@ -5424,6 +5439,24 @@ const HourSlotRow = ({ item }) => {
   {tab === 'proposes' && (
   <>
     {console.log('[Matches] Rendering proposes tab, longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length)}
+    {/* Indicateur de chargement pour le changement de semaine */}
+    {loadingWeek && (
+      <View style={{ 
+        position: 'absolute', 
+        top: 0, 
+        left: 0, 
+        right: 0, 
+        bottom: 0, 
+        backgroundColor: 'rgba(0, 24, 49, 0.7)', 
+        zIndex: 9999, 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        borderRadius: 12,
+      }}>
+        <ActivityIndicator size="large" color="#e0ff00" />
+        <Text style={{ color: '#e0ff00', marginTop: 12, fontWeight: '700' }}>Chargement de la semaine...</Text>
+      </View>
+    )}
     {/* Sélecteur 1h / 1h30 */}
     <View style={{ marginBottom: 12, marginTop: 0, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
