@@ -28,7 +28,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
@@ -261,6 +261,7 @@ export default function GroupesScreen() {
   const isSuperAdmin = useIsSuperAdmin();
   const isGlobalAdmin = useIsGlobalAdmin();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
 
   // --- Auth guard ---
   const [authChecked, setAuthChecked] = useState(false);
@@ -312,6 +313,8 @@ export default function GroupesScreen() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
+  const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
+  const [myGroupsForSelector, setMyGroupsForSelector] = useState([]);
 
   const openContactForProfile = useCallback((p) => {
     console.log('[openContactForProfile] Called with profile:', p?.name, p?.phone, p?.email);
