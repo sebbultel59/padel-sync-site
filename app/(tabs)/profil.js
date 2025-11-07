@@ -1427,13 +1427,13 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   tileIcon: {
-    fontSize: 18,
+    fontSize: 22,
     textShadowColor: 'rgba(255, 255, 255, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
   tileTitle: {
-    fontSize: 14,
+    fontSize: 16,
     color: "#dcff13",
     fontWeight: "700",
   },
