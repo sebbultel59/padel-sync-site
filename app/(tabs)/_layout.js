@@ -6,6 +6,7 @@ import { router, Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import 'react-native-gesture-handler';
+import { CopilotTutorialProvider } from '../../components/CopilotTutorial';
 import { supabase } from '../../lib/supabase';
 
 
@@ -171,7 +172,7 @@ export default function TabsLayout() {
   }
 
   return (
-    <>
+    <CopilotTutorialProvider>
       <Tabs
         initialRouteName="matches"
         screenOptions={({ route }) => ({
@@ -362,6 +363,6 @@ export default function TabsLayout() {
           </View>
         </View>
       </Modal>
-    </>
+    </CopilotTutorialProvider>
   );
 }

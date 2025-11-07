@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from "../../context/auth";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
+import { useCopilot, restartTutorial } from "../../components/CopilotTutorial";
 
 const BRAND = "#1a4b97";
 const AVATAR = 150;
@@ -49,6 +50,7 @@ const RAYONS = [
 ];
 
 export default function ProfilScreen() {
+  const { start } = useCopilot();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1119,6 +1121,27 @@ export default function ProfilScreen() {
               ⚠️ Modifications non enregistrées
             </Text>
           ) : null}
+
+        {/* Bouton Revoir le tuto */}
+        <Pressable
+          onPress={press("profile-restart-tutorial", async () => {
+            await restartTutorial(start);
+          })}
+          style={[
+            s.btn,
+            {
+              backgroundColor: "#156bc9",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              marginTop: 12,
+            },
+            Platform.OS === "web" && { cursor: "pointer" }
+          ]}
+        >
+          <Ionicons name="help-circle-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={s.btnTxt}>Revoir le tuto</Text>
+        </Pressable>
 
         {/* Modal Info Niveaux */}
         <Modal
