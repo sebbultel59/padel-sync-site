@@ -7804,6 +7804,47 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Week navigator - Positionné en bas, juste au-dessus de la tabbar */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 8,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+        }}
+      >
+        <Pressable
+          onPress={() => setWeekOffset((x) => x - 1)}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine précédente"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-back" size={32} color={COLORS.primary} />
+        </Pressable>
+
+        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
+          {formatWeekRangeLabel(currentWs, currentWe)}
+        </Text>
+
+        <Pressable
+          onPress={() => setWeekOffset((x) => x + 1)}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine suivante"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
+        </Pressable>
+      </View>
     </View>
   );
 }
