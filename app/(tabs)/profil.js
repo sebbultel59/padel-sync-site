@@ -78,6 +78,32 @@ export default function ProfilScreen() {
   // classement (UI uniquement pour l'instant — non persisté tant que la colonne n'existe pas en base)
   const [classement, setClassement] = useState("");
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
+  
+  // Zoom pour l'image des niveaux
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  
+  const pinchHandler = useAnimatedGestureHandler({
+    onStart: (_, ctx) => {
+      ctx.startScale = savedScale.value;
+    },
+    onActive: (event, ctx) => {
+      scale.value = Math.max(1, Math.min(ctx.startScale * event.scale, 4));
+    },
+    onEnd: () => {
+      savedScale.value = scale.value;
+      if (scale.value < 1) {
+        scale.value = withTiming(1);
+        savedScale.value = 1;
+      }
+    },
+  });
+  
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: scale.value }],
+    };
+  });
 
   const { signOut: signOutCtx } = useAuth();
 
