@@ -1435,12 +1435,12 @@ const s = StyleSheet.create({
     fontWeight: "700",
   },
   tileInput: {
-    marginTop: 4,
+    marginTop: 2,
     borderWidth: 1,
     borderColor: "#d1d5db",
     borderRadius: 8,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 6,
     fontSize: 14,
     color: "#111827",
     backgroundColor: "#f9fafb",
@@ -1448,7 +1448,7 @@ const s = StyleSheet.create({
   tileValue: {
     fontSize: 14,
     color: "#001831",
-    marginTop: 4,
+    marginTop: 2,
   },
 
   input: {
