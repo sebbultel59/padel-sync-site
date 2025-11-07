@@ -7795,7 +7795,7 @@ const HourSlotRow = ({ item }) => {
       <View
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 50,
+          bottom: (tabBarHeight || 0) + 40,
           left: 16,
           right: 16,
           flexDirection: 'row',
