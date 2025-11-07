@@ -183,7 +183,8 @@ export default function MatchesScreen() {
   // Bandeau réseau
   const [networkNotice, setNetworkNotice] = useState(null);
   const retryRef = React.useRef(0);
-  const previousGroupIdRef = React.useRef(groupId); // Pour détecter les changements de groupe vs semaine
+  const previousGroupIdRef = React.useRef(null); // Pour détecter les changements de groupe vs semaine
+  const previousWeekOffsetRef = React.useRef(0); // Pour détecter les changements de semaine
   
   // Group selector states
   const [myGroups, setMyGroups] = useState([]);
@@ -1953,14 +1954,20 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   useEffect(() => {
     console.log('[Matches] useEffect called, groupId:', groupId, 'weekOffset:', weekOffset);
     if (groupId) {
-      // Si c'est juste un changement de semaine (groupId n'a pas changé), ne pas masquer toute la page
+      // Détecter si c'est un changement de groupe ou juste de semaine
       const isGroupChange = previousGroupIdRef.current !== groupId;
-      const isWeekChange = !isGroupChange && previousGroupIdRef.current === groupId;
+      const isWeekChange = !isGroupChange && previousGroupIdRef.current === groupId && previousWeekOffsetRef.current !== weekOffset;
+      
+      // Mettre à jour les références
       previousGroupIdRef.current = groupId;
+      previousWeekOffsetRef.current = weekOffset;
+      
+      // Si c'est juste un changement de semaine, utiliser loadingWeek au lieu de loading
       fetchData(isWeekChange); // Passer true si c'est juste un changement de semaine
     } else {
       setLoading(false);
       previousGroupIdRef.current = null;
+      previousWeekOffsetRef.current = 0;
     }
   }, [groupId, weekOffset, fetchData]); // ✅ relance aussi quand la semaine visible change
 
