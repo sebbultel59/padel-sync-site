@@ -1285,6 +1285,81 @@ export default function ProfilScreen() {
             </View>
           </Pressable>
         </Modal>
+
+        {/* Modal Liste de choix pour Club */}
+        <Modal
+          visible={clubPickerVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setClubPickerVisible(false)}
+        >
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+            onPress={() => setClubPickerVisible(false)}
+          >
+            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20, maxHeight: '80%' }}>
+              <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
+                  Sélectionner un club
+                </Text>
+                {addressHome?.lat && addressHome?.lng && (
+                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    Triés par distance du domicile
+                  </Text>
+                )}
+              </View>
+              {loadingClubs ? (
+                <View style={{ padding: 40, alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color="#0284c7" />
+                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: 500 }}>
+                  {clubsList.map((c, idx) => (
+                    <Pressable
+                      key={c.id || idx}
+                      onPress={() => {
+                        setClub(c.name);
+                        setClubPickerVisible(false);
+                      }}
+                      style={({ pressed }) => ({
+                        paddingVertical: 16,
+                        paddingHorizontal: 20,
+                        backgroundColor: pressed ? '#f3f4f6' : club === c.name ? '#e0f2fe' : '#ffffff',
+                        borderBottomWidth: idx < clubsList.length - 1 ? 1 : 0,
+                        borderBottomColor: '#e5e7eb',
+                      })}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 16, color: '#111827', fontWeight: club === c.name ? '700' : '400' }}>
+                            {c.name}
+                          </Text>
+                          {c.address && (
+                            <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                              {c.address}
+                            </Text>
+                          )}
+                          {c.distance !== undefined && c.distance !== Infinity && (
+                            <Text style={{ fontSize: 12, color: '#0284c7', marginTop: 2 }}>
+                              {c.distance} km
+                            </Text>
+                          )}
+                        </View>
+                        {club === c.name && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                      </View>
+                    </Pressable>
+                  ))}
+                  {clubsList.length === 0 && !loadingClubs && (
+                    <View style={{ padding: 40, alignItems: 'center' }}>
+                      <Text style={{ color: '#6b7280' }}>Aucun club disponible</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          </Pressable>
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
