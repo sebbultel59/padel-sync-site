@@ -1023,7 +1023,7 @@ export default function ProfilScreen() {
                   onPress={press(`rayon-${r.v}`, () => setRayonKm(r.v))}
                   style={[
                     s.pill,
-                    active && { backgroundColor: "#eaf2ff", borderColor: BRAND },
+                    active && { backgroundColor: "#dcff13", borderColor: BRAND },
                     Platform.OS === "web" && { cursor: "pointer" }
                   ]}
                 >
