@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { CopilotStep } from 'react-native-copilot';
 import 'react-native-gesture-handler';
-import { CopilotTutorialProvider, getGlobalCopilotStart } from '../../components/CopilotTutorial';
+import { CopilotTutorialProvider } from '../../components/CopilotTutorial';
 import { copilotSteps } from '../../lib/copilotSteps';
 import { supabase } from '../../lib/supabase';
 
@@ -203,15 +203,23 @@ export default function TabsLayout() {
           },
           headerLeft: () => (
             <Pressable
-              onPress={() => router.push('/profil')}
+              onPress={() => {
+                const startFn = getGlobalCopilotStart();
+                if (startFn && typeof startFn === 'function') {
+                  console.log("[Header] Démarrage du tutoriel depuis l'icône aide...");
+                  startFn();
+                } else {
+                  console.warn("[Header] start() n'est pas disponible");
+                }
+              }}
               style={({ pressed }) => [
                 { paddingHorizontal: 6, paddingVertical: 6, marginLeft: 0 },
                 pressed ? { opacity: 0.8 } : null
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Ouvrir le profil"
+              accessibilityLabel="Aide - Démarrer le tutoriel"
             >
-              <Ionicons name="person-circle-outline" size={40} color="#ffffff" />
+              <Ionicons name="help-circle-outline" size={40} color="#ffffff" />
             </Pressable>
           ),
           headerRight: () => (
