@@ -1540,13 +1540,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
         {/* Boutons Rejoindre et Créer un groupe */}
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-          <Pressable 
-            onPress={press("join-group", () => setJoinModalVisible(true))} 
-            style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
-          >
-            <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
-            <Text style={[s.btnTxt, { fontSize: 13 }]}>Rejoindre un groupe</Text>
-          </Pressable>
+          <CopilotStep name="step2_rejoindre" text="Rejoindre un groupe">
+            <Pressable 
+              onPress={press("join-group", () => setJoinModalVisible(true))} 
+              style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+            >
+              <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
+              <Text style={[s.btnTxt, { fontSize: 13 }]}>Rejoindre un groupe</Text>
+            </Pressable>
+          </CopilotStep>
           <Pressable 
             onPress={press("create-group", onCreateGroup)} 
             style={[s.btn, { backgroundColor: "#001831", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#e0ff00" }, Platform.OS === "web" && { cursor: "pointer" }]}

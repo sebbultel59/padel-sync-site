@@ -22,6 +22,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { CopilotStep } from "react-native-copilot";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
@@ -5041,30 +5042,32 @@ const HourSlotRow = ({ item }) => {
             
             {/* Icône flammes pour les matchs en feu - centrée entre les filtres */}
             {hotMatches.length > 0 && (
-              <Pressable
-                onPress={() => setHotMatchesModalVisible(true)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 8,
-                  paddingHorizontal: 8,
-                  paddingLeft: 4,
-                  borderRadius: 8,
-                  backgroundColor: 'transparent',
-                  gap: 6,
-                  flexShrink: 0,
-                }}
-              >
-                <Text style={{ fontSize: 18 }}>🔥</Text>
-                <Text style={{ 
-                  color: '#fd9c68', 
-                  fontWeight: '700', 
-                  fontSize: 12,
-                  flexShrink: 0,
-                }}>
-                  {hotMatches.length}
-                </Text>
-              </Pressable>
+              <CopilotStep name="step5_match_feu" text="Matchs en feu">
+                <Pressable
+                  onPress={() => setHotMatchesModalVisible(true)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 8,
+                    paddingHorizontal: 8,
+                    paddingLeft: 4,
+                    borderRadius: 8,
+                    backgroundColor: 'transparent',
+                    gap: 6,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Text style={{ fontSize: 18 }}>🔥</Text>
+                  <Text style={{ 
+                    color: '#fd9c68', 
+                    fontWeight: '700', 
+                    fontSize: 12,
+                    flexShrink: 0,
+                  }}>
+                    {hotMatches.length}
+                  </Text>
+                </Pressable>
+              </CopilotStep>
             )}
             
             <Pressable

@@ -6,6 +6,7 @@ import { router, Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import 'react-native-gesture-handler';
+import { CopilotStep } from 'react-native-copilot';
 import { CopilotTutorialProvider } from '../../components/CopilotTutorial';
 import { supabase } from '../../lib/supabase';
 
@@ -213,41 +214,43 @@ export default function TabsLayout() {
             </Pressable>
           ),
           headerRight: () => (
-            <Pressable
-              onPress={async () => { await loadNotifications(); setNotifsOpen(true); }}
-              style={({ pressed }) => [
-                { paddingHorizontal: 6, paddingVertical: 6, marginRight: 0 },
-                pressed ? { opacity: 0.8 } : null
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Afficher les notifications"
-            >
-              <View style={{ position: 'relative' }}>
-                <Ionicons name="notifications-outline" size={36} color="#ffffff" />
-                {unreadCount > 0 ? (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: -2,
-                      right: -2,
-                      minWidth: 18,
-                      height: 18,
-                      borderRadius: 9,
-                      backgroundColor: '#ef4444',
-                      borderWidth: 1,
-                      borderColor: '#ffffff',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      paddingHorizontal: 3,
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>
-                      {unreadCount > 99 ? '99+' : String(unreadCount)}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            </Pressable>
+            <CopilotStep name="step6_notifications" text="Notifications">
+              <Pressable
+                onPress={async () => { await loadNotifications(); setNotifsOpen(true); }}
+                style={({ pressed }) => [
+                  { paddingHorizontal: 6, paddingVertical: 6, marginRight: 0 },
+                  pressed ? { opacity: 0.8 } : null
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Afficher les notifications"
+              >
+                <View style={{ position: 'relative' }}>
+                  <Ionicons name="notifications-outline" size={36} color="#ffffff" />
+                  {unreadCount > 0 ? (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: -2,
+                        right: -2,
+                        minWidth: 18,
+                        height: 18,
+                        borderRadius: 9,
+                        backgroundColor: '#ef4444',
+                        borderWidth: 1,
+                        borderColor: '#ffffff',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingHorizontal: 3,
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>
+                        {unreadCount > 99 ? '99+' : String(unreadCount)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </Pressable>
+            </CopilotStep>
           ),
           tabBarStyle: {
             backgroundColor: '#011932',
