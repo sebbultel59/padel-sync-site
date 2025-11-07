@@ -1116,6 +1116,83 @@ export default function ProfilScreen() {
             </View>
           </Pressable>
         </Modal>
+
+        {/* Modal Liste de choix pour Côté */}
+        <Modal
+          visible={cotePickerVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setCotePickerVisible(false)}
+        >
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+            onPress={() => setCotePickerVisible(false)}
+          >
+            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20 }}>
+              <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Sélectionner le côté</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setCote("droite");
+                  setCotePickerVisible(false);
+                }}
+                style={({ pressed }) => ({
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  backgroundColor: pressed ? '#f3f4f6' : cote === "droite" ? '#e0f2fe' : '#ffffff',
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#e5e7eb',
+                })}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: cote === "droite" ? '700' : '400' }}>
+                    Droite
+                  </Text>
+                  {cote === "droite" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setCote("gauche");
+                  setCotePickerVisible(false);
+                }}
+                style={({ pressed }) => ({
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  backgroundColor: pressed ? '#f3f4f6' : cote === "gauche" ? '#e0f2fe' : '#ffffff',
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#e5e7eb',
+                })}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: cote === "gauche" ? '700' : '400' }}>
+                    Gauche
+                  </Text>
+                  {cote === "gauche" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setCote("les_deux");
+                  setCotePickerVisible(false);
+                }}
+                style={({ pressed }) => ({
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  backgroundColor: pressed ? '#f3f4f6' : cote === "les_deux" ? '#e0f2fe' : '#ffffff',
+                })}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: cote === "les_deux" ? '700' : '400' }}>
+                    Les 2
+                  </Text>
+                  {cote === "les_deux" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                </View>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
