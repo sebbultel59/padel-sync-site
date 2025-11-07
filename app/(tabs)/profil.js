@@ -684,7 +684,7 @@ export default function ProfilScreen() {
         </View>
 
         {/* Tiles d'informations du profil */}
-        <View style={{ gap: 3, marginTop: 8 }}>
+        <View style={{ gap: 1, marginTop: 8 }}>
           {/* Ligne 1 : Pseudo à 100% */}
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
@@ -1414,7 +1414,7 @@ const s = StyleSheet.create({
     padding: 8,
     minWidth: 0,
     width: '100%',
-    marginBottom: 3,
+    marginBottom: 1,
   },
   tileFull: {
     width: '100%',
