@@ -25,8 +25,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
-import { Step, useCopilot } from '../../../components/AppCopilot';
-import { useAppTour } from '../../../components/useAppTour';
+import { Step } from '../../../components/AppCopilot';
+// Temporairement désactivé pour éviter les boucles infinies
+// import { useCopilot } from '../../../components/AppCopilot';
+// import { useAppTour } from '../../../components/useAppTour';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
