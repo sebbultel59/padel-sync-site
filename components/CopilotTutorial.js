@@ -27,24 +27,24 @@ function CopilotAutoStart({ children }) {
   }, [start, copilotEvents]);
 
   useEffect(() => {
+    // Écouter les événements pour voir ce qui se passe
+    if (copilotEvents) {
+      copilotEvents.on("stepChange", (step) => {
+        console.log("[Copilot] Étape changée:", step);
+      });
+      copilotEvents.on("start", () => {
+        console.log("[Copilot] Tutoriel démarré (événement start)");
+      });
+      copilotEvents.on("stop", () => {
+        console.log("[Copilot] Tutoriel arrêté");
+      });
+    }
+    
     const checkAndStartTutorial = async () => {
       try {
         const seen = await AsyncStorage.getItem(TUTORIAL_SEEN_KEY);
         if (!seen && !hasStartedRef.current) {
           hasStartedRef.current = true;
-          
-          // Écouter les événements pour voir ce qui se passe
-          if (copilotEvents) {
-            copilotEvents.on("stepChange", (step) => {
-              console.log("[Copilot] Étape changée:", step);
-            });
-            copilotEvents.on("start", () => {
-              console.log("[Copilot] Tutoriel démarré (événement start)");
-            });
-            copilotEvents.on("stop", () => {
-              console.log("[Copilot] Tutoriel arrêté");
-            });
-          }
           
           // Ne pas démarrer automatiquement ici - laisser groupes.js le faire
           // car il faut que l'utilisateur soit sur l'onglet Groupes pour que step1 soit monté
