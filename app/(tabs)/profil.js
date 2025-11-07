@@ -1474,6 +1474,6 @@ const s = StyleSheet.create({
   // Pills rows
   levelRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
   rayonRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
-  pill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb" },
-  pillTxt: { fontWeight: "800", color: "#374151", fontSize: 14 },
+  pill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb", alignItems: 'center', justifyContent: 'center' },
+  pillTxt: { fontWeight: "800", color: "#374151", fontSize: 14, textAlign: 'center' },
 });
