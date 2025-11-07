@@ -32,10 +32,11 @@ function CopilotAutoStart({ children }) {
         const seen = await AsyncStorage.getItem(TUTORIAL_SEEN_KEY);
         if (!seen && !hasStartedRef.current) {
           hasStartedRef.current = true;
-          // Délai pour s'assurer que l'UI est prête
+          // Délai plus long pour s'assurer que tous les CopilotStep sont montés
           setTimeout(() => {
+            console.log("[Copilot] Démarrage automatique du tutoriel...");
             start();
-          }, 1000);
+          }, 2000);
         }
       } catch (error) {
         console.error("[Copilot] Erreur vérification tutorial:", error);

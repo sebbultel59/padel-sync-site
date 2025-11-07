@@ -285,14 +285,17 @@ export default function GroupesScreen() {
         // Vérifier si le tutoriel doit être relancé
         const seen = await AsyncStorage.getItem("@padel_sync_tutorial_seen");
         if (!seen) {
-          // Attendre un peu pour que les CopilotStep soient montés
+          // Attendre plus longtemps pour que tous les CopilotStep soient montés
           setTimeout(() => {
             const startFn = getGlobalCopilotStart();
             if (startFn && typeof startFn === 'function') {
               console.log("[Groupes] Relance automatique du tutoriel...");
-              startFn();
+              // Attendre encore un peu avant de démarrer
+              setTimeout(() => {
+                startFn();
+              }, 500);
             }
-          }, 1500);
+          }, 2000);
         }
       })();
       return () => {

@@ -1146,12 +1146,15 @@ export default function ProfilScreen() {
                 
                 if (startFn && typeof startFn === 'function') {
                   try {
-                    startFn();
-                    console.log("[Profil] Tutoriel démarré avec succès !");
+                    // Attendre un peu plus pour que tous les CopilotStep soient montés
+                    setTimeout(() => {
+                      startFn();
+                      console.log("[Profil] Tutoriel démarré avec succès !");
+                    }, 1000);
                   } catch (err) {
                     console.error(`[Profil] Erreur tentative ${attempts}:`, err);
                     if (attempts < maxAttempts) {
-                      setTimeout(tryStartTutorial, 600);
+                      setTimeout(tryStartTutorial, 1000);
                     } else {
                       Alert.alert("Information", "Le tutoriel sera relancé automatiquement. Si rien ne se passe, fermez et rouvrez l'app.");
                     }
@@ -1159,7 +1162,7 @@ export default function ProfilScreen() {
                 } else {
                   console.warn(`[Profil] start() n'est pas disponible (tentative ${attempts})`);
                   if (attempts < maxAttempts) {
-                    setTimeout(tryStartTutorial, 600);
+                    setTimeout(tryStartTutorial, 1000);
                   } else {
                     Alert.alert("Erreur", "Le tutoriel n'est pas disponible. Veuillez redémarrer l'app.");
                   }

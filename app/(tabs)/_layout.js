@@ -8,6 +8,7 @@ import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimension
 import { CopilotStep } from 'react-native-copilot';
 import 'react-native-gesture-handler';
 import { CopilotTutorialProvider } from '../../components/CopilotTutorial';
+import { copilotSteps } from '../../lib/copilotSteps';
 import { supabase } from '../../lib/supabase';
 
 
