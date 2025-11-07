@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -150,24 +150,43 @@ function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
   const { start, copilotEvents } = useCopilot();
+  const hasStartedRef = useRef(false);
+  const startRef = useRef(start);
+  const copilotEventsRef = useRef(copilotEvents);
+
+  // Mettre à jour les refs sans déclencher de re-render
+  useEffect(() => {
+    startRef.current = start;
+    copilotEventsRef.current = copilotEvents;
+  });
 
   // Lancer automatiquement le tour à la première ouverture
   useEffect(() => {
-    if (shouldStart && consumeStartFlag() && start) {
-      start();
+    if (shouldStart && !hasStartedRef.current && startRef.current && typeof startRef.current === 'function') {
+      hasStartedRef.current = true;
+      if (consumeStartFlag()) {
+        // Délai pour s'assurer que tous les composants sont montés
+        setTimeout(() => {
+          if (startRef.current) {
+            startRef.current();
+          }
+        }, 500);
+      }
     }
-  }, [shouldStart, start, consumeStartFlag]);
+  }, [shouldStart, consumeStartFlag]);
 
   // Marquer l'onboarding comme vu quand le tour se termine
   useEffect(() => {
-    if (!copilotEvents) return;
-    const sub = copilotEvents.on('stop', () => {
+    const events = copilotEventsRef.current;
+    if (!events) return;
+    const handleStop = () => {
       markSeen();
-    });
-    return () => {
-      copilotEvents.off('stop', sub);
     };
-  }, [copilotEvents, markSeen]);
+    events.on('stop', handleStop);
+    return () => {
+      events.off('stop', handleStop);
+    };
+  }, [markSeen]);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
