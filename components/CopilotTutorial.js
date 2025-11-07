@@ -109,6 +109,8 @@ function StepNumber({ currentStepNumber, totalSteps }) {
 
 // Composant personnalisé pour le tooltip
 function CustomTooltip({ currentStep, handlePrev, handleNext, handleStop, isFirstStep, isLastStep }) {
+  console.log("[Copilot] CustomTooltip appelé avec currentStep:", currentStep ? currentStep.name : "null");
+  
   // Gérer le format du text (peut être string ou object)
   const stepText = typeof currentStep?.text === 'string' 
     ? currentStep.text 
