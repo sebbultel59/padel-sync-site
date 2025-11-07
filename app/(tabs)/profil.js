@@ -51,7 +51,7 @@ const RAYONS = [
 ];
 
 export default function ProfilScreen() {
-  const { start } = useCopilot();
+  const copilot = useCopilot();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1128,12 +1128,18 @@ export default function ProfilScreen() {
           onPress={press("profile-restart-tutorial", async () => {
             try {
               await AsyncStorage.removeItem("@padel_sync_tutorial_seen");
-              if (start) {
-                start();
+              if (copilot && copilot.start) {
+                // Délai pour s'assurer que l'UI est prête
+                setTimeout(() => {
+                  copilot.start();
+                }, 500);
+              } else {
+                console.warn("[Profil] copilot.start() n'est pas disponible", copilot);
+                Alert.alert("Information", "Le tutoriel sera relancé au prochain démarrage de l'app");
               }
             } catch (error) {
               console.error("[Profil] Erreur relance tutorial:", error);
-              Alert.alert("Erreur", "Impossible de relancer le tutoriel");
+              Alert.alert("Erreur", "Impossible de relancer le tutoriel: " + error.message);
             }
           })}
           style={[
