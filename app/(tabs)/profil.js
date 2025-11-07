@@ -596,7 +596,7 @@ export default function ProfilScreen() {
 
           {/* Ligne 2 : Niveau et Classement */}
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={[s.tile, s.tileHalf]}>
+            <View style={[s.tile, { width: '48%' }]}>
               <View style={s.tileHeader}>
                 <Text style={s.tileIcon}>🔥</Text>
                 <Text style={s.tileTitle}>Niveau</Text>
@@ -631,7 +631,7 @@ export default function ProfilScreen() {
               )}
             </View>
 
-            <View style={[s.tile, s.tileHalf]}>
+            <View style={[s.tile, { width: '48%' }]}>
               <View style={s.tileHeader}>
                 <Text style={s.tileIcon}>🏆</Text>
                 <Text style={s.tileTitle}>Classement</Text>
