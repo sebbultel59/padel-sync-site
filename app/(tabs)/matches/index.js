@@ -1171,7 +1171,7 @@ async function seedMaybeRsvps({ matchId, groupId, startsAt, endsAt, excludeUserI
 
 const cardStyle = {
   backgroundColor: '#ffffff',
-  padding: 16,
+  padding: 10,
   borderRadius: 12,
   marginBottom: 12,
   shadowColor: '#000',
