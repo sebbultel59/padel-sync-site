@@ -577,9 +577,9 @@ export default function ProfilScreen() {
         </View>
 
         {/* Tiles d'informations du profil */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
-          {/* Tile Pseudo */}
-          <View style={s.tile}>
+        <View style={{ gap: 12, marginTop: 8 }}>
+          {/* Ligne 1 : Pseudo à 100% */}
+          <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>👤</Text>
               <Text style={s.tileTitle}>Pseudo</Text>
@@ -594,85 +594,87 @@ export default function ProfilScreen() {
             />
           </View>
 
-          {/* Tile Niveau */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🔥</Text>
-              <Text style={s.tileTitle}>Niveau</Text>
+          {/* Ligne 2 : Niveau et Classement */}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={[s.tile, s.tileHalf]}>
+              <View style={s.tileHeader}>
+                <Text style={s.tileIcon}>🔥</Text>
+                <Text style={s.tileTitle}>Niveau</Text>
+              </View>
+              <View style={s.levelRow}>
+                {LEVELS.map((lv) => {
+                  const active = niveau === lv.v;
+                  return (
+                    <Pressable
+                      key={lv.v}
+                      onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
+                      style={[
+                        s.pill,
+                        {
+                          backgroundColor: lv.color,
+                          borderColor: active ? BRAND : 'transparent',
+                          borderWidth: active ? 2 : 1,
+                          transform: active ? [{ scale: 1.06 }] : [],
+                        },
+                        Platform.OS === 'web' && { cursor: 'pointer' },
+                      ]}
+                    >
+                      <Text style={[s.pillTxt, { color: '#111827', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {niveau && levelInfo?.label && (
+                <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
+                  {levelInfo.label}
+                </Text>
+              )}
             </View>
-            <View style={s.levelRow}>
-              {LEVELS.map((lv) => {
-                const active = niveau === lv.v;
-                return (
-                  <Pressable
-                    key={lv.v}
-                    onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
-                    style={[
-                      s.pill,
-                      {
-                        backgroundColor: lv.color,
-                        borderColor: active ? BRAND : 'transparent',
-                        borderWidth: active ? 2 : 1,
-                        transform: active ? [{ scale: 1.06 }] : [],
-                      },
-                      Platform.OS === 'web' && { cursor: 'pointer' },
-                    ]}
-                  >
-                    <Text style={[s.pillTxt, { color: '#111827', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {niveau && levelInfo?.label && (
-              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                {levelInfo.label}
-              </Text>
-            )}
-          </View>
 
-          {/* Tile Classement */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🏆</Text>
-              <Text style={s.tileTitle}>Classement</Text>
-            </View>
-            <TextInput
-              value={classement}
-              onChangeText={setClassement}
-              placeholder="Ex. 500"
-              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-              style={s.tileInput}
-              maxLength={6}
-            />
-          </View>
-
-          {/* Tile Main */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🖐️</Text>
-              <Text style={s.tileTitle}>Main</Text>
-            </View>
-            <View style={s.segment}>
-              <SegBtn label="Droite" active={main === "droite"} onPress={() => setMain("droite")} />
-              <SegBtn label="Gauche" active={main === "gauche"} onPress={() => setMain("gauche")} />
+            <View style={[s.tile, s.tileHalf]}>
+              <View style={s.tileHeader}>
+                <Text style={s.tileIcon}>🏆</Text>
+                <Text style={s.tileTitle}>Classement</Text>
+              </View>
+              <TextInput
+                value={classement}
+                onChangeText={setClassement}
+                placeholder="Ex. 500"
+                keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                style={s.tileInput}
+                maxLength={6}
+              />
             </View>
           </View>
 
-          {/* Tile Côté */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🎯</Text>
-              <Text style={s.tileTitle}>Côté</Text>
+          {/* Ligne 3 : Main et Côté */}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={[s.tile, s.tileHalf]}>
+              <View style={s.tileHeader}>
+                <Text style={s.tileIcon}>🖐️</Text>
+                <Text style={s.tileTitle}>Main</Text>
+              </View>
+              <View style={s.segment}>
+                <SegBtn label="Droite" active={main === "droite"} onPress={() => setMain("droite")} />
+                <SegBtn label="Gauche" active={main === "gauche"} onPress={() => setMain("gauche")} />
+              </View>
             </View>
-            <View style={s.segment}>
-              <SegBtn label="Droite" active={cote === "droite"} onPress={() => setCote("droite")} />
-              <SegBtn label="Gauche" active={cote === "gauche"} onPress={() => setCote("gauche")} />
-              <SegBtn label="Les 2" active={cote === "les_deux"} onPress={() => setCote("les_deux")} />
+
+            <View style={[s.tile, s.tileHalf]}>
+              <View style={s.tileHeader}>
+                <Text style={s.tileIcon}>🎯</Text>
+                <Text style={s.tileTitle}>Côté</Text>
+              </View>
+              <View style={s.segment}>
+                <SegBtn label="Droite" active={cote === "droite"} onPress={() => setCote("droite")} />
+                <SegBtn label="Gauche" active={cote === "gauche"} onPress={() => setCote("gauche")} />
+                <SegBtn label="Les 2" active={cote === "les_deux"} onPress={() => setCote("les_deux")} />
+              </View>
             </View>
           </View>
 
-          {/* Tile Club */}
-          <View style={s.tile}>
+          {/* Ligne 4 : Club à 100% */}
+          <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>🏟️</Text>
               <Text style={s.tileTitle}>Club</Text>
@@ -680,60 +682,35 @@ export default function ProfilScreen() {
             <TextInput value={club} onChangeText={setClub} placeholder="Nom du club" style={s.tileInput} />
           </View>
 
-          {/* Tile Rayon */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>📍</Text>
-              <Text style={s.tileTitle}>Rayon</Text>
+          {/* Ligne 5 : Email et Téléphone */}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={[s.tile, s.tileHalf]}>
+              <View style={s.tileHeader}>
+                <Text style={s.tileIcon}>✉️</Text>
+                <Text style={s.tileTitle}>Email</Text>
+              </View>
+              <Text style={s.tileValue}>{me?.email ?? '—'}</Text>
             </View>
-            <View style={s.rayonRow}>
-              {RAYONS.map((r) => {
-                const active = rayonKm === r.v;
-                return (
-                  <Pressable
-                    key={r.v}
-                    onPress={press(`rayon-${r.v}`, () => setRayonKm(r.v))}
-                    style={[
-                      s.pill,
-                      active && { backgroundColor: "#eaf2ff", borderColor: BRAND },
-                      Platform.OS === "web" && { cursor: "pointer" }
-                    ]}
-                  >
-                    <Text style={[s.pillTxt, active && { color: BRAND, fontWeight: "800" }]}>{r.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
 
-          {/* Tile Email */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>✉️</Text>
-              <Text style={s.tileTitle}>Email</Text>
+            <View style={[s.tile, s.tileHalf]}>
+              <View style={s.tileHeader}>
+                <Text style={s.tileIcon}>📞</Text>
+                <Text style={s.tileTitle}>Téléphone</Text>
+              </View>
+              <TextInput
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="06 12 34 56 78"
+                keyboardType="phone-pad"
+                style={s.tileInput}
+                maxLength={20}
+              />
             </View>
-            <Text style={s.tileValue}>{me?.email ?? '—'}</Text>
-          </View>
-
-          {/* Tile Téléphone */}
-          <View style={s.tile}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>📞</Text>
-              <Text style={s.tileTitle}>Téléphone</Text>
-            </View>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="06 12 34 56 78"
-              keyboardType="phone-pad"
-              style={s.tileInput}
-              maxLength={20}
-            />
           </View>
         </View>
 
-        {/* Adresses */}
-        <View style={[s.card, { gap: 12 }]}>
+        {/* Ligne 6 : Adresses */}
+        <View style={[s.card, { gap: 12, marginTop: 0 }]}>
           <Text style={s.label}>📍 Adresses</Text>
           
           {/* Domicile */}
@@ -983,9 +960,13 @@ const s = StyleSheet.create({
     borderColor: "#e5e7eb",
     borderRadius: 12,
     padding: 12,
-    minWidth: '47%',
+  },
+  tileFull: {
+    width: '100%',
+  },
+  tileHalf: {
     flex: 1,
-    maxWidth: '47%',
+    minWidth: 0,
   },
   tileHeader: {
     flexDirection: 'row',
