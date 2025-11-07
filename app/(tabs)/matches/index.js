@@ -5351,7 +5351,7 @@ const HourSlotRow = ({ item }) => {
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
 <View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0 }}>
       {/* 4 — Matchs (zone liste/onglets) */}
-      <Step order={4} name="matchs" text="Ici, retrouve les matchs proposés selon les dispos du groupe.">
+      <Step order={3} name="matchs" text="Ici, retrouve les matchs proposés selon les dispos du groupe.">
         <View style={{ flexDirection: 'row', gap: 8 }}>
 {/* Matchs possibles */}
   <Pressable
@@ -5764,7 +5764,7 @@ const HourSlotRow = ({ item }) => {
       )}
 
       {/* 5 — Match éclair */}
-      <Step order={5} name="flash" text="Pressé ? Propose un match éclair : choisis l'heure, Padel Sync fait le reste.">
+      <Step order={4} name="flash" text="Pressé ? Propose un match maintenant en 3 clics.">
         <Pressable
           onPress={() => openFlashMatchDateModal()}
           style={{
@@ -7902,7 +7902,7 @@ const HourSlotRow = ({ item }) => {
       </View>
 
       {/* 1 — Groupes */}
-      <Step order={1} name="groupes" text="Commence par choisir ton groupe de joueurs. Tu peux en rejoindre plusieurs.">
+      <Step order={1} name="groupes" text="Choisis ton groupe (club/amis). Tu peux en rejoindre plusieurs.">
         <Pressable
           onPress={() => setGroupSelectorOpen(true)}
           style={{
