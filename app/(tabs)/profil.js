@@ -1441,6 +1441,8 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
     flexShrink: 1,
     flexWrap: 'wrap',
+    flex: 1,
+    minWidth: 0,
   },
   tileInput: {
     marginTop: 2,
