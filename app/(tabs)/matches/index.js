@@ -148,64 +148,10 @@ function MatchesScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
-  const copilotHook = useCopilot();
-  const hasStartedRef = useRef(false);
-  const markSeenRef = useRef(markSeen);
-  const startRef = useRef(null);
-  const copilotEventsRef = useRef(null);
-
-  // Stocker les valeurs dans des refs pour éviter les re-renders
-  if (copilotHook) {
-    startRef.current = copilotHook.start;
-    copilotEventsRef.current = copilotHook.copilotEvents;
-  }
-
-  // Mettre à jour la ref de markSeen
-  markSeenRef.current = markSeen;
-
-  // Lancer automatiquement le tour à la première ouverture
-  useEffect(() => {
-    if (!shouldStart || hasStartedRef.current) {
-      return;
-    }
-    
-    const startFn = startRef.current;
-    if (!startFn || typeof startFn !== 'function') {
-      return;
-    }
-    
-    if (consumeStartFlag()) {
-      hasStartedRef.current = true;
-      // Délai pour s'assurer que tous les composants sont montés
-      const timeoutId = setTimeout(() => {
-        try {
-          if (startRef.current) {
-            startRef.current();
-          }
-        } catch (error) {
-          console.error('[Matches] Erreur démarrage tutoriel:', error);
-        }
-      }, 500);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [shouldStart, consumeStartFlag]);
-
-  // Marquer l'onboarding comme vu quand le tour se termine
-  useEffect(() => {
-    const events = copilotEventsRef.current;
-    if (!events) return;
-    
-    const handleStop = () => {
-      markSeenRef.current();
-    };
-    
-    events.on('stop', handleStop);
-    return () => {
-      events.off('stop', handleStop);
-    };
-  }, []);
+  // Désactivation temporaire du lancement automatique du tutoriel pour éviter les boucles infinies
+  // Le tutoriel sera lancé depuis le bouton "Revoir le tuto" dans la popup d'aide
+  // const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
+  // const copilotHook = useCopilot();
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
