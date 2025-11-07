@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-import { copilot, CopilotStep, walkthroughable, DEFAULT_TOOLTIP } from 'react-native-copilot';
+import { CopilotProvider, CopilotStep, useCopilot, walkthroughable, DEFAULT_TOOLTIP } from 'react-native-copilot';
 
 import { View, Text } from 'react-native';
 
@@ -30,24 +30,17 @@ const stepNumberTextColor = '#FF751F';
 
 
 
+// Export CopilotProvider pour wrapper l'app
+export { CopilotProvider };
+
+// Export useCopilot hook pour utiliser dans les composants
+export { useCopilot };
+
+// HOC pour wrapper un composant (maintenant utilise CopilotProvider au niveau de l'app)
 export function withCopilot(Component) {
-
-  return copilot({
-
-    animated: true,
-
-    overlay: 'svg',         // spotlight doux
-
-    tooltipStyle,
-
-    arrowColor,
-
-    stepNumberTextColor,
-
-    labels: { previous: 'Préc.', next: 'Suivant', skip: 'Passer', finish: 'Terminer' },
-
-  })(Component);
-
+  // Dans la nouvelle API, on n'a plus besoin de HOC, mais on garde cette fonction pour compatibilité
+  // Le composant doit être utilisé avec CopilotProvider au niveau de l'app
+  return Component;
 }
 
 
