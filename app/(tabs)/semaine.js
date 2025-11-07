@@ -1215,46 +1215,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           borderBottomWidth: 0,
         }}
       >
-        {/* Ligne 1 : navigation semaine + libellé */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: isPortrait ? 16 : 8,
-            width: '100%'
-          }}
-        >
-          <Pressable
-            onPress={() => setWeekStart((w) => w.subtract(1, 'week'))}
-            accessibilityRole="button"
-            accessibilityLabel="Semaine précédente"
-            hitSlop={10}
-            style={{ padding: isPortrait ? 8 : 4, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Ionicons name="caret-back" size={isPortrait ? 32 : 24} color="#156BC9" />
-          </Pressable>
-
-          <Text style={{ fontWeight: '900', color: '#ffffff', fontSize: isPortrait ? 16 : 14 }}>
-            {formatWeekRangeLabel(weekStart.toDate(), weekStart.add(6, 'day').toDate())}
-          </Text>
-
-          <Pressable
-            onPress={() => setWeekStart((w) => w.add(1, 'week'))}
-            accessibilityRole="button"
-            accessibilityLabel="Semaine suivante"
-            hitSlop={10}
-            style={{ padding: isPortrait ? 8 : 4, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Ionicons name="caret-forward" size={isPortrait ? 32 : 24} color="#156BC9" />
-          </Pressable>
-        </View>
-
-        {/* Ligne: nom du groupe sélectionné + toggle global (sous la navigation) */}
-        {activeGroup?.name ? (
+        {/* Toggle "Appliquer à tous les groupes" - Reste en haut */}
+        {activeGroup?.name && (
           <View
             style={{
-              flexDirection: 'column',
+              flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
               paddingLeft: Math.max(12, insets.left + 8),
@@ -1262,21 +1227,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               marginTop: isPortrait ? 4 : 2,
               marginBottom: isPortrait ? 6 : 4,
               width: '100%',
-              gap: isPortrait ? 8 : 6,
             }}
           >
-            <Pressable
-              onPress={() => { setGroupSelectorOpen(true); loadMyGroups(); }}
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }}
-            >
-              <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-              <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 16 }}>
-                {activeGroup.name}
-              </Text>
-              <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 6 }} />
-            </Pressable>
-            
-            {/* Toggle "Appliquer à tous les groupes" */}
             <Pressable
               onPress={() => setApplyToAllGroups((prev) => !prev)}
               style={{
@@ -1305,7 +1257,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               </Text>
             </Pressable>
           </View>
-        ) : null}
+        )}
 
       </View>
 
