@@ -734,7 +734,7 @@ export default function ProfilScreen() {
                       {
                         backgroundColor: lv.color,
                         borderColor: active ? '#dcff13' : 'transparent',
-                        borderWidth: active ? 2 : 1,
+                        borderWidth: active ? 4 : 1,
                         transform: active ? [{ scale: 1.06 }] : [],
                       },
                       Platform.OS === 'web' && { cursor: 'pointer' },
