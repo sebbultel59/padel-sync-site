@@ -80,6 +80,9 @@ export default function ProfilScreen() {
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
   const [mainPickerVisible, setMainPickerVisible] = useState(false);
   const [cotePickerVisible, setCotePickerVisible] = useState(false);
+  const [clubPickerVisible, setClubPickerVisible] = useState(false);
+  const [clubsList, setClubsList] = useState([]);
+  const [loadingClubs, setLoadingClubs] = useState(false);
   
   // Zoom pour l'image des niveaux
   const scale = useSharedValue(1);
@@ -113,6 +116,78 @@ export default function ProfilScreen() {
   const [initialSnap, setInitialSnap] = useState(null);
 
   const insets = useSafeAreaInsets();
+
+  // Fonction pour calculer la distance entre deux points (formule de Haversine)
+  const haversineKm = useCallback((a, b) => {
+    if (!a || !b || !a.lat || !a.lng || !b.lat || !b.lng) return Infinity;
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+    const dLon = ((b.lng - a.lng) * Math.PI) / 180;
+    const lat1 = (a.lat * Math.PI) / 180;
+    const lat2 = (b.lat * Math.PI) / 180;
+    const x =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    return Math.round(R * c * 10) / 10; // 0.1 km
+  }, []);
+
+  // Charger et trier les clubs
+  const loadClubs = useCallback(async () => {
+    setLoadingClubs(true);
+    try {
+      // Charger tous les clubs avec pagination
+      const pageSize = 1000;
+      let from = 0;
+      let to = pageSize - 1;
+      let allClubs = [];
+      
+      while (true) {
+        const { data: page, error } = await supabase
+          .from('clubs')
+          .select('id, name, address, lat, lng')
+          .not('lat', 'is', null)
+          .not('lng', 'is', null)
+          .order('name', { ascending: true })
+          .range(from, to);
+        
+        if (error) throw error;
+        
+        const batch = Array.isArray(page) ? page : [];
+        allClubs = allClubs.concat(batch);
+        
+        if (batch.length < pageSize) break; // dernière page atteinte
+        from += pageSize;
+        to += pageSize;
+      }
+
+      // Si le joueur a un domicile, trier par distance
+      if (addressHome?.lat && addressHome?.lng) {
+        const clubsWithDist = allClubs.map(c => ({
+          ...c,
+          distance: haversineKm(addressHome, { lat: c.lat, lng: c.lng })
+        }));
+        clubsWithDist.sort((a, b) => a.distance - b.distance);
+        setClubsList(clubsWithDist);
+      } else {
+        // Sinon, trier par ordre alphabétique
+        allClubs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setClubsList(allClubs);
+      }
+    } catch (e) {
+      console.error('[Profil] Erreur chargement clubs:', e);
+      Alert.alert('Erreur', 'Impossible de charger la liste des clubs');
+    } finally {
+      setLoadingClubs(false);
+    }
+  }, [addressHome, haversineKm]);
+
+  // Charger les clubs quand on ouvre le picker
+  useEffect(() => {
+    if (clubPickerVisible) {
+      loadClubs();
+    }
+  }, [clubPickerVisible, loadClubs]);
 
   // Charger session + profil
   useEffect(() => {
@@ -752,7 +827,24 @@ export default function ProfilScreen() {
               <Text style={s.tileIcon}>🏟️</Text>
               <Text style={s.tileTitle}>Club</Text>
             </View>
-            <TextInput value={club} onChangeText={setClub} placeholder="Nom du club" style={s.tileInput} />
+            <Pressable
+              onPress={() => setClubPickerVisible(true)}
+              style={[
+                s.tileInput,
+                {
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginTop: 4,
+                },
+                Platform.OS === 'web' && { cursor: 'pointer' }
+              ]}
+            >
+              <Text style={{ fontSize: 14, color: club ? '#111827' : '#9ca3af', flex: 1 }}>
+                {club || "Sélectionner un club"}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color="#6b7280" />
+            </Pressable>
           </View>
 
           {/* Ligne 5 : Email et Téléphone */}
