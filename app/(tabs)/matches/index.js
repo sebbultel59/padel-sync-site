@@ -7796,8 +7796,8 @@ const HourSlotRow = ({ item }) => {
         style={{
           position: 'absolute',
           bottom: (tabBarHeight || 0) + 40,
-          left: 0,
-          right: 0,
+          left: 16,
+          right: 16,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
@@ -7805,6 +7805,8 @@ const HourSlotRow = ({ item }) => {
           paddingVertical: 8,
           paddingHorizontal: 16,
           backgroundColor: '#001831',
+          zIndex: 999,
+          elevation: 9,
         }}
       >
         <Pressable
@@ -7838,14 +7840,16 @@ const HourSlotRow = ({ item }) => {
         style={{
           position: 'absolute',
           bottom: (tabBarHeight || 0),
-          left: 0,
-          right: 0,
+          left: 16,
+          right: 16,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
           paddingVertical: 8,
           paddingHorizontal: 16,
           backgroundColor: '#001831',
+          zIndex: 998,
+          elevation: 8,
           ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
         }}
       >
