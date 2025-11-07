@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
-import racketIcon from '../../assets/icons/racket.png';
+import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
 
 
 // Fallback alert helper (web/mobile)
@@ -1535,7 +1535,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 opacity: pressed ? 0.92 : 1,
               })}
             >
-              {/* Affichage pour les admins : nombre en haut à droite + raquette blanche au centre si disponible */}
+              {/* Affichage pour les admins : nombre en haut à droite + balle de padel au centre si disponible */}
               {isAdmin ? (
                 <>
                   {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
@@ -1560,7 +1560,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       </Text>
                     </View>
                   )}
-                  {/* Raquette blanche au centre si l'admin est disponible */}
+                  {/* Balle de padel au centre si l'admin est disponible */}
                   {myStatus === 'available' && (
                     <View style={{
                       position: 'absolute',
@@ -1571,11 +1571,10 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       justifyContent: 'center',
                     }}>
                       <Image
-                        source={racketIcon}
+                        source={ballIcon}
                         style={{
                           width: 24,
                           height: 24,
-                          tintColor: '#ffffff',
                           shadowColor: '#ffffff',
                           shadowOffset: { width: 0, height: 0 },
                           shadowOpacity: 1,
@@ -1588,7 +1587,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   )}
                 </>
               ) : (
-                /* Affichage pour les joueurs : icône raquette sur fond transparent si disponible */
+                /* Affichage pour les joueurs : icône balle de padel sur fond transparent si disponible */
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                   {myStatus === 'available' ? (
                     <View style={{
@@ -1601,11 +1600,10 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       height: 30,
                     }}>
                       <Image
-                        source={racketIcon}
+                        source={ballIcon}
                         style={{
                           width: 22,
                           height: 22,
-                          tintColor: '#ffffff',
                           shadowColor: '#ffffff',
                           shadowOffset: { width: 0, height: 0 },
                           shadowOpacity: 1,
