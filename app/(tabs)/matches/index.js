@@ -25,6 +25,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
+import { Step, withCopilot } from '../../../components/AppCopilot';
+import { useAppTour } from '../../../components/useAppTour';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
@@ -142,10 +144,29 @@ function colorForLevel(level) {
   }
 }
 
-export default function MatchesScreen() {
+function MatchesScreen({ start, copilotEvents }) {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
+
+  // Lancer automatiquement le tour à la première ouverture
+  useEffect(() => {
+    if (shouldStart && consumeStartFlag() && start) {
+      start();
+    }
+  }, [shouldStart, start, consumeStartFlag]);
+
+  // Marquer l'onboarding comme vu quand le tour se termine
+  useEffect(() => {
+    if (!copilotEvents) return;
+    const sub = copilotEvents.on('stop', () => {
+      markSeen();
+    });
+    return () => {
+      copilotEvents.off('stop', sub);
+    };
+  }, [copilotEvents, markSeen]);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
@@ -5337,7 +5358,9 @@ const HourSlotRow = ({ item }) => {
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
 <View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0 }}>
-  <View style={{ flexDirection: 'row', gap: 8 }}>
+      {/* 4 — Matchs (zone liste/onglets) */}
+      <Step order={4} name="matchs" text="Ici, retrouve les matchs proposés selon les dispos du groupe.">
+        <View style={{ flexDirection: 'row', gap: 8 }}>
 {/* Matchs possibles */}
   <Pressable
     onPress={() => {
@@ -5438,8 +5461,9 @@ const HourSlotRow = ({ item }) => {
         </Text>
       </View>
     </Pressable>
-  </View>
-  </View>
+        </View>
+      </Step>
+</View>
 
   {tab === 'proposes' && (
   <>
@@ -5747,29 +5771,31 @@ const HourSlotRow = ({ item }) => {
       </Pressable>
       )}
 
-      {/* Icône flottante pour créer un match éclair - Positionnée au-dessus de la ligne de filtres */}
-      <Pressable
-        onPress={() => openFlashMatchDateModal()}
-        style={{
-          position: 'absolute',
-          bottom: (tabBarHeight || 0) + 133,
-          right: 20,
-          width: 64,
-          height: 64,
-          borderRadius: 32,
-          backgroundColor: '#e0ff00',
-          alignItems: 'center',
-          justifyContent: 'center',
-          elevation: 8,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 4,
-          zIndex: 1001,
-        }}
-      >
-        <Ionicons name="flash" size={32} color="#000000" />
-      </Pressable>
+      {/* 5 — Match éclair */}
+      <Step order={5} name="flash" text="Pressé ? Propose un match éclair : choisis l'heure, Padel Sync fait le reste.">
+        <Pressable
+          onPress={() => openFlashMatchDateModal()}
+          style={{
+            position: 'absolute',
+            bottom: (tabBarHeight || 0) + 133,
+            right: 20,
+            width: 64,
+            height: 64,
+            borderRadius: 32,
+            backgroundColor: '#e0ff00',
+            alignItems: 'center',
+            justifyContent: 'center',
+            elevation: 8,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 4,
+            zIndex: 1001,
+          }}
+        >
+          <Ionicons name="flash" size={32} color="#000000" />
+        </Pressable>
+      </Step>
 
       {/* Modale de choix date/heure/durée */}
       <Modal
@@ -7883,32 +7909,37 @@ const HourSlotRow = ({ item }) => {
         </Pressable>
       </View>
 
-      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
-      <Pressable
-        onPress={() => setGroupSelectorOpen(true)}
-        style={{
-          position: 'absolute',
-          bottom: (tabBarHeight || 0),
-          left: 0,
-          right: 0,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: 8,
-          paddingHorizontal: 16,
-          backgroundColor: '#001831',
-          zIndex: 998,
-          elevation: 8,
-          marginTop: 0,
-          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-        }}
-      >
-        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-          {activeGroup?.name || 'Sélectionner un groupe'}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-      </Pressable>
+      {/* 1 — Groupes */}
+      <Step order={1} name="groupes" text="Commence par choisir ton groupe de joueurs. Tu peux en rejoindre plusieurs.">
+        <Pressable
+          onPress={() => setGroupSelectorOpen(true)}
+          style={{
+            position: 'absolute',
+            bottom: (tabBarHeight || 0),
+            left: 0,
+            right: 0,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 8,
+            paddingHorizontal: 16,
+            backgroundColor: '#001831',
+            zIndex: 998,
+            elevation: 8,
+            marginTop: 0,
+            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+          }}
+        >
+          <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+          <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+            {activeGroup?.name || 'Sélectionner un groupe'}
+          </Text>
+          <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+        </Pressable>
+      </Step>
     </View>
   );
 }
+
+// Très important : wrappé par Copilot
+export default withCopilot(MatchesScreen);
