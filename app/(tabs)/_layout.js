@@ -5,8 +5,8 @@ import * as Notifications from 'expo-notifications';
 import { router, Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
-import 'react-native-gesture-handler';
 import { CopilotStep } from 'react-native-copilot';
+import 'react-native-gesture-handler';
 import { CopilotTutorialProvider } from '../../components/CopilotTutorial';
 import { supabase } from '../../lib/supabase';
 
@@ -274,18 +274,26 @@ export default function TabsLayout() {
           },
           tabBarIcon: ({ focused, color, size }) => {
             let name = 'ellipse';
+            let stepName = null;
+            let stepText = null;
 
             if (route.name === 'semaine') {
               name = focused ? 'calendar' : 'calendar-outline';
+              stepName = 'step3_dispos';
+              stepText = 'Dispos';
             } else if (route.name === 'matches') {
               name = focused ? 'tennisball' : 'tennisball-outline';
+              stepName = 'step4_matchs';
+              stepText = 'Matchs';
             } else if (route.name === 'groupes') {
               name = focused ? 'people' : 'people-outline';
+              stepName = 'step1_groupes';
+              stepText = 'Groupes';
             } else if (route.name === 'profil') {
               name = focused ? 'person' : 'person-outline';
             }
 
-            return (
+            const iconContent = (
               <View
                 style={{
                   transform: [{ scale: focused ? 1.15 : 1 }],
@@ -303,6 +311,16 @@ export default function TabsLayout() {
                 />
               </View>
             );
+
+            if (stepName) {
+              return (
+                <CopilotStep name={stepName} text={stepText}>
+                  {iconContent}
+                </CopilotStep>
+              );
+            }
+
+            return iconContent;
           },
         })}
       >
