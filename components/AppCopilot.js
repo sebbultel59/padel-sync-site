@@ -36,11 +36,12 @@ export { CopilotProvider };
 // Export useCopilot hook pour utiliser dans les composants
 export { useCopilot };
 
-// HOC pour wrapper un composant (maintenant utilise CopilotProvider au niveau de l'app)
+// HOC pour wrapper un composant et passer start/copilotEvents en props
 export function withCopilot(Component) {
-  // Dans la nouvelle API, on n'a plus besoin de HOC, mais on garde cette fonction pour compatibilité
-  // Le composant doit être utilisé avec CopilotProvider au niveau de l'app
-  return Component;
+  return function WrappedComponent(props) {
+    const { start, copilotEvents } = useCopilot();
+    return <Component {...props} start={start} copilotEvents={copilotEvents} />;
+  };
 }
 
 
