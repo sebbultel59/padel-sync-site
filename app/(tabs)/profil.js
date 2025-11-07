@@ -976,6 +976,48 @@ const s = StyleSheet.create({
   label: { fontSize: 18, color: "#001831", fontWeight: "800" },
   value: { fontSize: 16, color: "#001831", marginTop: 4 },
 
+  // Tiles
+  tile: {
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    padding: 12,
+    minWidth: '47%',
+    flex: 1,
+    maxWidth: '47%',
+  },
+  tileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  tileIcon: {
+    fontSize: 18,
+  },
+  tileTitle: {
+    fontSize: 14,
+    color: "#001831",
+    fontWeight: "700",
+  },
+  tileInput: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: "#111827",
+    backgroundColor: "#f9fafb",
+  },
+  tileValue: {
+    fontSize: 14,
+    color: "#001831",
+    marginTop: 4,
+  },
+
   input: {
     marginTop: 6,
     borderWidth: 1, borderColor: "#d1d5db",
