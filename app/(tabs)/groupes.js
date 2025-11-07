@@ -281,6 +281,19 @@ export default function GroupesScreen() {
           setMeId(uid);
           setAuthChecked(true);
         }
+        
+        // Vérifier si le tutoriel doit être relancé
+        const seen = await AsyncStorage.getItem("@padel_sync_tutorial_seen");
+        if (!seen) {
+          // Attendre un peu pour que les CopilotStep soient montés
+          setTimeout(() => {
+            const startFn = getGlobalCopilotStart();
+            if (startFn && typeof startFn === 'function') {
+              console.log("[Groupes] Relance automatique du tutoriel...");
+              startFn();
+            }
+          }, 1500);
+        }
       })();
       return () => {
         mounted = false;
