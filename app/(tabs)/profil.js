@@ -1027,7 +1027,7 @@ export default function ProfilScreen() {
                     Platform.OS === "web" && { cursor: "pointer" }
                   ]}
                 >
-                  <Text style={[s.pillTxt, active && { color: BRAND, fontWeight: "800" }]}>{r.label}</Text>
+                  <Text style={[s.pillTxt, { color: active ? '#111827' : '#9ca3af', fontWeight: active ? "800" : "600" }]}>{r.label}</Text>
                 </Pressable>
               );
             })}
