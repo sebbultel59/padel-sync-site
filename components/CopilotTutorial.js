@@ -212,7 +212,7 @@ export function CopilotTutorialProvider({ children }) {
 }
 
 // Export walkthroughable pour créer des composants wrappables
-export { walkthroughable, CopilotStep };
+export { walkthroughable, CopilotStep, useCopilot };
 
 // Fonction utilitaire pour relancer le tutoriel
 export async function restartTutorial(copilotStart) {
