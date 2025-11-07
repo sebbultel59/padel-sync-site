@@ -1431,7 +1431,7 @@ const s = StyleSheet.create({
   },
   tileTitle: {
     fontSize: 14,
-    color: "#001831",
+    color: "#dcff13",
     fontWeight: "700",
   },
   tileInput: {
