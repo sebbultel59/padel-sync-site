@@ -5042,7 +5042,11 @@ const HourSlotRow = ({ item }) => {
             
             {/* Icône flammes pour les matchs en feu - centrée entre les filtres */}
             {hotMatches.length > 0 && (
-              <CopilotStep name="step5_match_feu" text="Matchs en feu">
+              <CopilotStep 
+                name="step5_match_feu" 
+                text={{ title: "🔥 Matchs en feu", body: "Cette icône te montre les matchs où il ne manque plus qu'un joueur ! Parfait pour compléter rapidement un match." }}
+                order={5}
+              >
                 <Pressable
                   onPress={() => setHotMatchesModalVisible(true)}
                   style={{

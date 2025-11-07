@@ -1555,7 +1555,11 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
         {/* Boutons Rejoindre et Créer un groupe */}
         <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-          <CopilotStep name="step2_rejoindre" text="Rejoindre un groupe">
+          <CopilotStep 
+            name="step2_rejoindre" 
+            text={{ title: "➕ Rejoindre un groupe", body: "Clique sur ce bouton pour rejoindre un groupe existant avec un code d'invitation." }}
+            order={2}
+          >
             <Pressable 
               onPress={press("join-group", () => setJoinModalVisible(true))} 
               style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}

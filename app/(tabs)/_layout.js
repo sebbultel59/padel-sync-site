@@ -214,7 +214,11 @@ export default function TabsLayout() {
             </Pressable>
           ),
           headerRight: () => (
-            <CopilotStep name="step6_notifications" text="Notifications">
+            <CopilotStep 
+              name="step6_notifications" 
+              text={{ title: "🔔 Notifications", body: "Tu recevras ici toutes les notifications importantes : invitations, confirmations de matchs, etc." }}
+              order={6}
+            >
               <Pressable
                 onPress={async () => { await loadNotifications(); setNotifsOpen(true); }}
                 style={({ pressed }) => [
@@ -313,8 +317,13 @@ export default function TabsLayout() {
             );
 
             if (stepName) {
+              const stepConfig = copilotSteps.find(s => s.name === stepName);
               return (
-                <CopilotStep name={stepName} text={stepText}>
+                <CopilotStep 
+                  name={stepName} 
+                  text={stepConfig?.text || { title: stepText, body: "" }}
+                  order={stepConfig?.order}
+                >
                   {iconContent}
                 </CopilotStep>
               );
