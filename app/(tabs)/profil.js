@@ -51,7 +51,6 @@ const RAYONS = [
 ];
 
 export default function ProfilScreen() {
-  const { start, canStart } = useCopilot();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1128,37 +1127,48 @@ export default function ProfilScreen() {
           onPress={press("profile-restart-tutorial", async () => {
             try {
               console.log("[Profil] Bouton revoir tuto cliqué");
-              console.log("[Profil] canStart:", canStart);
-              console.log("[Profil] start disponible:", typeof start === 'function');
               
               await AsyncStorage.removeItem("@padel_sync_tutorial_seen");
               
-              if (typeof start === 'function') {
-                // Essayer de démarrer même si canStart est false
-                // Le délai permet aux composants CopilotStep de se monter
-                setTimeout(() => {
-                  console.log("[Profil] Tentative de lancement du tutoriel...");
+              // Naviguer vers l'onglet Groupes où se trouve la première étape
+              console.log("[Profil] Navigation vers l'onglet Groupes...");
+              router.push("/(tabs)/groupes");
+              
+              // Attendre que la page soit montée et que les CopilotStep soient prêts
+              // On utilise plusieurs tentatives avec des délais croissants
+              let attempts = 0;
+              const maxAttempts = 15;
+              
+              const tryStartTutorial = () => {
+                attempts++;
+                const startFn = getGlobalCopilotStart();
+                console.log(`[Profil] Tentative ${attempts}/${maxAttempts} de démarrage du tutoriel...`, { startFn: typeof startFn });
+                
+                if (startFn && typeof startFn === 'function') {
                   try {
-                    start();
-                    // Si ça ne fonctionne pas, essayer de naviguer vers la première étape
-                    setTimeout(() => {
-                      if (!canStart) {
-                        console.log("[Profil] Navigation vers l'onglet Groupes pour démarrer le tutoriel...");
-                        router.push("/(tabs)/groupes");
-                        setTimeout(() => {
-                          start();
-                        }, 1000);
-                      }
-                    }, 1000);
+                    startFn();
+                    console.log("[Profil] Tutoriel démarré avec succès !");
                   } catch (err) {
-                    console.error("[Profil] Erreur lors du start():", err);
-                    Alert.alert("Information", "Veuillez naviguer vers l'onglet Groupes pour voir le tutoriel");
+                    console.error(`[Profil] Erreur tentative ${attempts}:`, err);
+                    if (attempts < maxAttempts) {
+                      setTimeout(tryStartTutorial, 600);
+                    } else {
+                      Alert.alert("Information", "Le tutoriel sera relancé automatiquement. Si rien ne se passe, fermez et rouvrez l'app.");
+                    }
                   }
-                }, 1000);
-              } else {
-                console.error("[Profil] start() n'est pas une fonction", { start, canStart });
-                Alert.alert("Erreur", "Le tutoriel n'est pas disponible pour le moment");
-              }
+                } else {
+                  console.warn(`[Profil] start() n'est pas disponible (tentative ${attempts})`);
+                  if (attempts < maxAttempts) {
+                    setTimeout(tryStartTutorial, 600);
+                  } else {
+                    Alert.alert("Erreur", "Le tutoriel n'est pas disponible. Veuillez redémarrer l'app.");
+                  }
+                }
+              };
+              
+              // Commencer les tentatives après un délai initial pour laisser le temps à la navigation
+              setTimeout(tryStartTutorial, 2000);
+              
             } catch (error) {
               console.error("[Profil] Erreur relance tutorial:", error);
               Alert.alert("Erreur", "Impossible de relancer le tutoriel: " + (error.message || String(error)));

@@ -7,10 +7,24 @@ import { copilotSteps } from "../lib/copilotSteps";
 
 const TUTORIAL_SEEN_KEY = "@padel_sync_tutorial_seen";
 
+// Référence globale pour accéder à start() depuis n'importe où
+let globalCopilotStart = null;
+let globalCopilotEvents = null;
+
 // Composant interne qui gère le lancement automatique
 function CopilotAutoStart({ children }) {
   const { start, copilotEvents } = useCopilot();
   const hasStartedRef = useRef(false);
+
+  // Stocker la référence globale
+  useEffect(() => {
+    globalCopilotStart = start;
+    globalCopilotEvents = copilotEvents;
+    return () => {
+      globalCopilotStart = null;
+      globalCopilotEvents = null;
+    };
+  }, [start, copilotEvents]);
 
   useEffect(() => {
     const checkAndStartTutorial = async () => {
@@ -217,10 +231,16 @@ export { walkthroughable, CopilotStep, useCopilot };
 export async function restartTutorial(copilotStart) {
   try {
     await AsyncStorage.removeItem(TUTORIAL_SEEN_KEY);
-    if (copilotStart) {
-      copilotStart();
+    const startFn = copilotStart || globalCopilotStart;
+    if (startFn && typeof startFn === 'function') {
+      startFn();
     }
   } catch (error) {
     console.error("[Copilot] Erreur relance tutorial:", error);
   }
+}
+
+// Fonction pour obtenir la fonction start globale
+export function getGlobalCopilotStart() {
+  return globalCopilotStart;
 }
