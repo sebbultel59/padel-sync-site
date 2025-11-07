@@ -4967,7 +4967,7 @@ const HourSlotRow = ({ item }) => {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 16,
-          marginBottom: 5,  // réduit l'espace sous la ligne
+          marginBottom: 0,  // réduit l'espace sous la ligne
           marginTop: -10,    // réduit l'espace au-dessus (entre le header et cette ligne)
         }}
       >
@@ -5003,7 +5003,7 @@ const HourSlotRow = ({ item }) => {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          marginTop: 4,
+          marginTop: 2,
           marginBottom: 6,
           paddingVertical: 4,
           paddingHorizontal: 8,
