@@ -1428,6 +1428,8 @@ const s = StyleSheet.create({
     gap: 6,
     marginBottom: 4,
     flexWrap: 'wrap',
+    width: '100%',
+    minWidth: 0,
   },
   tileIcon: {
     fontSize: 22,
