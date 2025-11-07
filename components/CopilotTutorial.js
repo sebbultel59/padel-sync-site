@@ -35,7 +35,13 @@ function CopilotAutoStart({ children }) {
           // Délai plus long pour s'assurer que tous les CopilotStep sont montés
           setTimeout(() => {
             console.log("[Copilot] Démarrage automatique du tutoriel...");
-            start();
+            console.log("[Copilot] Événements disponibles:", Object.keys(copilotEvents || {}));
+            try {
+              start();
+              console.log("[Copilot] start() appelé avec succès");
+            } catch (err) {
+              console.error("[Copilot] Erreur lors de start():", err);
+            }
           }, 2000);
         }
       } catch (error) {
@@ -44,7 +50,7 @@ function CopilotAutoStart({ children }) {
     };
 
     checkAndStartTutorial();
-  }, [start]);
+  }, [start, copilotEvents]);
 
   useEffect(() => {
     const handleTutorialEnd = () => {
