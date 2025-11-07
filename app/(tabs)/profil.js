@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PinchGestureHandler, State } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, PinchGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedGestureHandler, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import {
   ActivityIndicator,
@@ -981,43 +981,45 @@ export default function ProfilScreen() {
             savedScale.value = 1;
           }}
         >
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <View style={{ backgroundColor: '#ffffff', borderRadius: 12, padding: 16, width: '100%', maxWidth: 600, maxHeight: '90%' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Niveaux de Padel 2025</Text>
-                <Pressable 
-                  onPress={() => {
-                    setNiveauInfoModalVisible(false);
-                    // Réinitialiser le zoom quand on ferme
-                    scale.value = 1;
-                    savedScale.value = 1;
-                  }} 
-                  style={{ padding: 8 }}
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <View style={{ backgroundColor: '#ffffff', borderRadius: 12, padding: 16, width: '100%', maxWidth: 600, maxHeight: '90%' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Niveaux de Padel 2025</Text>
+                  <Pressable 
+                    onPress={() => {
+                      setNiveauInfoModalVisible(false);
+                      // Réinitialiser le zoom quand on ferme
+                      scale.value = 1;
+                      savedScale.value = 1;
+                    }} 
+                    style={{ padding: 8 }}
+                  >
+                    <Ionicons name="close" size={24} color="#111827" />
+                  </Pressable>
+                </View>
+                <ScrollView 
+                  style={{ maxHeight: '80%' }} 
+                  showsVerticalScrollIndicator={true}
+                  showsHorizontalScrollIndicator={true}
+                  contentContainerStyle={{ alignItems: 'center', justifyContent: 'center' }}
+                  bouncesZoom={true}
+                  maximumZoomScale={4}
+                  minimumZoomScale={1}
+                  scrollEventThrottle={16}
                 >
-                  <Ionicons name="close" size={24} color="#111827" />
-                </Pressable>
+                  <PinchGestureHandler onGestureEvent={pinchHandler}>
+                    <Animated.View style={[{ overflow: 'hidden', borderRadius: 8 }, animatedStyle]}>
+                      <Image
+                        source={require('../../assets/images/niveaux_padel_2025.jpg')}
+                        style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain' }}
+                      />
+                    </Animated.View>
+                  </PinchGestureHandler>
+                </ScrollView>
               </View>
-              <ScrollView 
-                style={{ maxHeight: '80%' }} 
-                showsVerticalScrollIndicator={true}
-                showsHorizontalScrollIndicator={true}
-                contentContainerStyle={{ alignItems: 'center', justifyContent: 'center' }}
-                bouncesZoom={true}
-                maximumZoomScale={4}
-                minimumZoomScale={1}
-                scrollEventThrottle={16}
-              >
-                <PinchGestureHandler onGestureEvent={pinchHandler}>
-                  <Animated.View style={[{ overflow: 'hidden', borderRadius: 8 }, animatedStyle]}>
-                    <Image
-                      source={require('../../assets/images/niveaux_padel_2025.jpg')}
-                      style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain' }}
-                    />
-                  </Animated.View>
-                </PinchGestureHandler>
-              </ScrollView>
             </View>
-          </View>
+          </GestureHandlerRootView>
         </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
