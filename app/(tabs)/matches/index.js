@@ -5704,7 +5704,7 @@ const HourSlotRow = ({ item }) => {
         onPress={() => openFlashMatchDateModal()}
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 116,
+          bottom: (tabBarHeight || 0) + 160,
           right: 20,
           width: 64,
           height: 64,
