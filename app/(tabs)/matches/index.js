@@ -149,16 +149,23 @@ function MatchesScreen({ start, copilotEvents }) {
   const insets = useSafeAreaInsets();
 
   // 🔔 Lancement du tour quand Aide émet l'événement
+  const startRef = useRef(start);
+  
+  // Mettre à jour la ref sans déclencher de re-render
+  useEffect(() => {
+    startRef.current = start;
+  });
+
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('padelsync:startTour', () => {
-      if (start && typeof start === 'function') {
+      if (startRef.current && typeof startRef.current === 'function') {
         setTimeout(() => {
-          start();
+          startRef.current();
         }, 300);
       }
     });
     return () => sub?.remove?.();
-  }, [start]);
+  }, []); // Pas de dépendances pour éviter les boucles
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {

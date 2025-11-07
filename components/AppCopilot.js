@@ -37,10 +37,17 @@ export { CopilotProvider };
 export { useCopilot };
 
 // HOC pour wrapper un composant et passer start/copilotEvents en props
+// Utilise useMemo pour éviter les re-renders infinis
 export function withCopilot(Component) {
   return function WrappedComponent(props) {
     const { start, copilotEvents } = useCopilot();
-    return <Component {...props} start={start} copilotEvents={copilotEvents} />;
+    // Utiliser useMemo pour stabiliser les props et éviter les boucles infinies
+    const copilotProps = React.useMemo(() => ({
+      start,
+      copilotEvents
+    }), [start, copilotEvents]);
+    
+    return <Component {...props} {...copilotProps} />;
   };
 }
 
