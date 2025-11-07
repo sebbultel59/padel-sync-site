@@ -253,7 +253,7 @@ export function CopilotTutorialProvider({ children }) {
     <CopilotProvider
       stepNumberComponent={StepNumber}
       tooltipComponent={CustomTooltip}
-      overlay="view"
+      overlay="svg"
       animated
       backdropColor="rgba(0, 0, 0, 0.7)"
     >
