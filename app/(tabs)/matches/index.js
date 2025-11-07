@@ -6187,7 +6187,7 @@ const HourSlotRow = ({ item }) => {
 
                 {/* Avatars sélectionnés (bandeau) */}
                 {flashSelected.length > 0 && (
-                  <View style={{ marginBottom: 0 }}>
+                  <View style={{ marginBottom: 0, borderTopWidth: 0, borderBottomWidth: 0 }}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4 }}>
                       {flashMembers
                         .filter(m => flashSelected.includes(String(m.id)))
