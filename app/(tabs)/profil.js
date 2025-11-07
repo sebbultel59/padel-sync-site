@@ -19,6 +19,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from "../../context/auth";
 import { supabase } from "../../lib/supabase";
@@ -1125,7 +1126,15 @@ export default function ProfilScreen() {
         {/* Bouton Revoir le tuto */}
         <Pressable
           onPress={press("profile-restart-tutorial", async () => {
-            await restartTutorial(start);
+            try {
+              await AsyncStorage.removeItem("@padel_sync_tutorial_seen");
+              if (start) {
+                start();
+              }
+            } catch (error) {
+              console.error("[Profil] Erreur relance tutorial:", error);
+              Alert.alert("Erreur", "Impossible de relancer le tutoriel");
+            }
           })}
           style={[
             s.btn,
