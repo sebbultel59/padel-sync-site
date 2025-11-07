@@ -27,6 +27,7 @@ import {
   Vibration,
   View,
 } from "react-native";
+import { CopilotStep } from "react-native-copilot";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
