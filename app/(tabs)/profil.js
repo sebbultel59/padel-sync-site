@@ -733,7 +733,7 @@ export default function ProfilScreen() {
                       s.pill,
                       {
                         backgroundColor: lv.color,
-                        borderColor: active ? BRAND : 'transparent',
+                        borderColor: active ? '#dcff13' : 'transparent',
                         borderWidth: active ? 2 : 1,
                         transform: active ? [{ scale: 1.06 }] : [],
                       },
