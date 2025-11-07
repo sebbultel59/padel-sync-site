@@ -1407,7 +1407,7 @@ const s = StyleSheet.create({
 
   // Tiles
   tile: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "#e5e7eb",
     borderRadius: 12,
