@@ -1134,16 +1134,27 @@ export default function ProfilScreen() {
               await AsyncStorage.removeItem("@padel_sync_tutorial_seen");
               
               if (typeof start === 'function') {
-                if (canStart) {
-                  // Délai pour s'assurer que l'UI est prête
-                  setTimeout(() => {
-                    console.log("[Profil] Lancement du tutoriel...");
+                // Essayer de démarrer même si canStart est false
+                // Le délai permet aux composants CopilotStep de se monter
+                setTimeout(() => {
+                  console.log("[Profil] Tentative de lancement du tutoriel...");
+                  try {
                     start();
-                  }, 500);
-                } else {
-                  console.warn("[Profil] Le tutoriel ne peut pas être démarré maintenant (canStart = false)");
-                  Alert.alert("Information", "Le tutoriel ne peut pas être démarré maintenant. Veuillez réessayer dans quelques instants.");
-                }
+                    // Si ça ne fonctionne pas, essayer de naviguer vers la première étape
+                    setTimeout(() => {
+                      if (!canStart) {
+                        console.log("[Profil] Navigation vers l'onglet Groupes pour démarrer le tutoriel...");
+                        router.push("/(tabs)/groupes");
+                        setTimeout(() => {
+                          start();
+                        }, 1000);
+                      }
+                    }, 1000);
+                  } catch (err) {
+                    console.error("[Profil] Erreur lors du start():", err);
+                    Alert.alert("Information", "Veuillez naviguer vers l'onglet Groupes pour voir le tutoriel");
+                  }
+                }, 1000);
               } else {
                 console.error("[Profil] start() n'est pas une fonction", { start, canStart });
                 Alert.alert("Erreur", "Le tutoriel n'est pas disponible pour le moment");
