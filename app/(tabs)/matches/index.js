@@ -3942,7 +3942,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         <View style={{ marginBottom: 8 }}>
           <Badge tone='amber' text={`${type === 'ready' ? '🎾' : '🔥'} ${userIds.length} joueurs`} />
         </View>
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
           {userIds.map((uid) => {
             const p = profileOf(profilesById, uid);
             const isSelected = selectedIds.includes(String(uid));
@@ -3959,7 +3959,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             );
           })}
         </View>
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
           {type === "ready" ? (
             <Pressable
               disabled={!canCreate}
@@ -4017,7 +4017,7 @@ const LongSlotRow = ({ item }) => {
         {formatRange(item.starts_at, item.ends_at)}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
         {userIds.map((uid) => {
           const p = profilesById[String(uid)] || {};
           console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
@@ -4034,8 +4034,7 @@ const LongSlotRow = ({ item }) => {
         })}
       </View>
 
-      <Divider m={8} />
-      <View style={{ flexDirection: "row", gap: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
         <Pressable
           disabled={!canCreate}
           accessibilityState={{ disabled: !canCreate }}
@@ -4090,7 +4089,7 @@ const HourSlotRow = ({ item }) => {
         {formatRange(item.starts_at, item.ends_at)}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
         {userIds.map((uid) => {
           const p = profilesById[String(uid)] || {};
           console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
@@ -4107,8 +4106,7 @@ const HourSlotRow = ({ item }) => {
         })}
       </View>
 
-      <Divider m={8} />
-      <View style={{ flexDirection: "row", gap: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
         <Pressable
           disabled={!canCreate}
           accessibilityState={{ disabled: !canCreate }}
