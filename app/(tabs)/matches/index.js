@@ -7851,6 +7851,7 @@ const HourSlotRow = ({ item }) => {
           backgroundColor: '#001831',
           zIndex: 998,
           elevation: 8,
+          marginTop: 0,
           ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
         }}
       >
