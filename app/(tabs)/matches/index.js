@@ -7784,11 +7784,11 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* Week navigator - Positionné en bas, juste au-dessus du sélecteur de groupe */}
+      {/* Week navigator - Positionné en bas, collé au sélecteur de groupe */}
       <View
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 50,
+          bottom: (tabBarHeight || 0) + 40,
           left: 0,
           right: 0,
           flexDirection: 'row',
