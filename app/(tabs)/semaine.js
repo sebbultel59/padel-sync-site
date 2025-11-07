@@ -1692,8 +1692,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
         style={{
           position: 'absolute',
           bottom: (tabBarHeight || 0) + 28,
-          left: 16,
-          right: 16,
+          left: 0,
+          right: 0,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
@@ -1738,8 +1738,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           style={{
             position: 'absolute',
             bottom: (tabBarHeight || 0),
-            left: 16,
-            right: 16,
+            left: 0,
+            right: 0,
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'center',
