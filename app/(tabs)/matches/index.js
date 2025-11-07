@@ -4965,15 +4965,20 @@ const HourSlotRow = ({ item }) => {
       {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
       {tab === 'proposes' && (
         <>
-          {/* Icônes filtres pour afficher/masquer les configurations */}
+          {/* Icônes filtres pour afficher/masquer les configurations - Positionnées en bas, au-dessus du sélecteur de semaine */}
           <View style={{ 
+            position: 'absolute',
+            bottom: (tabBarHeight || 0) + 100,
+            left: 0,
+            right: 0,
             flexDirection: 'row', 
             flexWrap: 'nowrap',
             alignItems: 'center', 
             justifyContent: 'space-between', 
             gap: 4,
-            marginBottom: (filterConfigVisible || filterGeoVisible) ? 8 : 0,
-            marginTop: 4,
+            paddingVertical: 8,
+            paddingHorizontal: 16,
+            backgroundColor: '#001831',
           }}>
             <Pressable
               onPress={() => {
@@ -5074,7 +5079,7 @@ const HourSlotRow = ({ item }) => {
             </Pressable>
           </View>
           
-          {/* Zone de configuration du filtre (masquée par défaut) */}
+          {/* Zone de configuration du filtre (masquée par défaut) - Reste en position normale */}
           {filterConfigVisible && (
             <View style={{ 
               marginBottom: 12, 
