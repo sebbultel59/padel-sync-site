@@ -958,7 +958,7 @@ export default function ProfilScreen() {
               </View>
               <ScrollView style={{ maxHeight: '80%' }} showsVerticalScrollIndicator={true}>
                 <Image
-                  source={{ uri: 'https://www.padelmagazine.fr/wp-content/uploads/2024/12/niveaux-de-padel-2025.jpg' }}
+                  source={require('../../assets/images/niveaux_padel_2025.jpg')}
                   style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain', borderRadius: 8 }}
                 />
               </ScrollView>
