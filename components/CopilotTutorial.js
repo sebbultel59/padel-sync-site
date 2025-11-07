@@ -227,6 +227,11 @@ export function CopilotTutorialProvider({ children }) {
 // Export walkthroughable pour créer des composants wrappables
 export { walkthroughable, CopilotStep, useCopilot };
 
+// Fonction pour obtenir la fonction start globale
+export function getGlobalCopilotStart() {
+  return globalCopilotStart;
+}
+
 // Fonction utilitaire pour relancer le tutoriel
 export async function restartTutorial(copilotStart) {
   try {
@@ -238,9 +243,4 @@ export async function restartTutorial(copilotStart) {
   } catch (error) {
     console.error("[Copilot] Erreur relance tutorial:", error);
   }
-}
-
-// Fonction pour obtenir la fonction start globale
-export function getGlobalCopilotStart() {
-  return globalCopilotStart;
 }
