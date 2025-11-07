@@ -1544,15 +1544,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
             onPress={press("join-group", () => setJoinModalVisible(true))} 
             style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
           >
-            <Ionicons name="add-circle-outline" size={20} color="#ffffff" />
-            <Text style={[s.btnTxt, { fontSize: 16 }]}>Rejoindre un groupe</Text>
+            <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
+            <Text style={[s.btnTxt, { fontSize: 13 }]}>Rejoindre un groupe</Text>
           </Pressable>
           <Pressable 
             onPress={press("create-group", onCreateGroup)} 
             style={[s.btn, { backgroundColor: "#001831", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#e0ff00" }, Platform.OS === "web" && { cursor: "pointer" }]}
           >
-            <Text style={{ fontSize: 18 }}>👑</Text>
-            <Text style={[s.btnTxt, { fontSize: 16, color: "#e0ff00" }]}>Créer un groupe</Text>
+            <Text style={{ fontSize: 16 }}>👑</Text>
+            <Text style={[s.btnTxt, { fontSize: 13, color: "#e0ff00" }]}>Créer un groupe</Text>
           </Pressable>
         </View>
 
