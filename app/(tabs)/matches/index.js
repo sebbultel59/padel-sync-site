@@ -5081,16 +5081,21 @@ const HourSlotRow = ({ item }) => {
             </Pressable>
           </View>
           
-          {/* Zone de configuration du filtre (masquée par défaut) - Reste en position normale */}
+          {/* Zone de configuration du filtre (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
           {filterConfigVisible && (
             <View style={{ 
-              marginBottom: 12, 
-              marginTop: 0, 
+              position: 'absolute',
+              bottom: (tabBarHeight || 0) + 116,
+              left: 16,
+              right: 16,
               backgroundColor: '#f3f4f6', 
               borderRadius: 12, 
               padding: 12,
               borderWidth: 1,
               borderColor: filterByLevel ? '#15803d' : '#d1d5db',
+              zIndex: 1002,
+              elevation: 11,
+              maxHeight: 300,
             }}>
               <Text style={{ fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
                 Sélectionnez les niveaux à afficher
@@ -5144,16 +5149,21 @@ const HourSlotRow = ({ item }) => {
             </View>
           )}
           
-          {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+          {/* Zone de configuration du filtre géographique (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
           {filterGeoVisible && (
             <View style={{ 
-              marginBottom: 12, 
-              marginTop: 0, 
+              position: 'absolute',
+              bottom: (tabBarHeight || 0) + 116,
+              left: 16,
+              right: 16,
               backgroundColor: '#f3f4f6', 
               borderRadius: 12, 
               padding: 12,
               borderWidth: 1,
               borderColor: filterByGeo ? '#15803d' : '#d1d5db',
+              zIndex: 1002,
+              elevation: 11,
+              maxHeight: 400,
             }}>
               {/* Sélection du type de position */}
               <View style={{ marginBottom: 12 }}>
