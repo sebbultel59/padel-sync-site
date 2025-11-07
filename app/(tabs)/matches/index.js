@@ -151,42 +151,45 @@ function MatchesScreen() {
   const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
   const { start, copilotEvents } = useCopilot();
   const hasStartedRef = useRef(false);
-  const startRef = useRef(start);
-  const copilotEventsRef = useRef(copilotEvents);
+  const markSeenRef = useRef(markSeen);
 
-  // Mettre à jour les refs sans déclencher de re-render
-  useEffect(() => {
-    startRef.current = start;
-    copilotEventsRef.current = copilotEvents;
-  });
+  // Mettre à jour la ref de markSeen
+  markSeenRef.current = markSeen;
 
   // Lancer automatiquement le tour à la première ouverture
   useEffect(() => {
-    if (shouldStart && !hasStartedRef.current && startRef.current && typeof startRef.current === 'function') {
-      hasStartedRef.current = true;
-      if (consumeStartFlag()) {
-        // Délai pour s'assurer que tous les composants sont montés
-        setTimeout(() => {
-          if (startRef.current) {
-            startRef.current();
-          }
-        }, 500);
-      }
+    if (!shouldStart || hasStartedRef.current || !start || typeof start !== 'function') {
+      return;
     }
-  }, [shouldStart, consumeStartFlag]);
+    
+    if (consumeStartFlag()) {
+      hasStartedRef.current = true;
+      // Délai pour s'assurer que tous les composants sont montés
+      const timeoutId = setTimeout(() => {
+        try {
+          start();
+        } catch (error) {
+          console.error('[Matches] Erreur démarrage tutoriel:', error);
+        }
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [shouldStart, start, consumeStartFlag]);
 
   // Marquer l'onboarding comme vu quand le tour se termine
   useEffect(() => {
-    const events = copilotEventsRef.current;
-    if (!events) return;
+    if (!copilotEvents) return;
+    
     const handleStop = () => {
-      markSeen();
+      markSeenRef.current();
     };
-    events.on('stop', handleStop);
+    
+    copilotEvents.on('stop', handleStop);
     return () => {
-      events.off('stop', handleStop);
+      copilotEvents.off('stop', handleStop);
     };
-  }, [markSeen]);
+  }, [copilotEvents]);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
