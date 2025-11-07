@@ -1127,9 +1127,13 @@ export default function ProfilScreen() {
           animationType="fade"
           onRequestClose={() => {
             setNiveauInfoModalVisible(false);
-            // Réinitialiser le zoom quand on ferme
+            // Réinitialiser le zoom et la position quand on ferme
             scale.value = 1;
             savedScale.value = 1;
+            translateX.value = 0;
+            translateY.value = 0;
+            savedTranslateX.value = 0;
+            savedTranslateY.value = 0;
           }}
         >
           <GestureHandlerRootView style={{ flex: 1 }}>
