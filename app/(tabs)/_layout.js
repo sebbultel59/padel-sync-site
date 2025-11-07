@@ -1,11 +1,11 @@
 // app/(tabs)/_layout.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { router, Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, DeviceEventEmitter, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import 'react-native-gesture-handler';
 import { supabase } from '../../lib/supabase';
 
@@ -428,7 +428,10 @@ export default function TabsLayout() {
                 await AsyncStorage.removeItem('onboarding_v1_done');
                 // Naviguer vers matches où le tutoriel peut être relancé
                 router.push('/(tabs)/matches');
-                // Le tutoriel se relancera automatiquement via useAppTour
+                // Émettre l'événement pour démarrer le tutoriel
+                setTimeout(() => {
+                  DeviceEventEmitter.emit('padelsync:startTour');
+                }, 500);
               }}
               style={{
                 backgroundColor: '#156bc9',

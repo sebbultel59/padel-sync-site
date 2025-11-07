@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -25,10 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
-import { Step } from '../../../components/AppCopilot';
-// Temporairement désactivé pour éviter les boucles infinies
-// import { useCopilot } from '../../../components/AppCopilot';
-// import { useAppTour } from '../../../components/useAppTour';
+import { Step, withCopilot } from '../../../components/AppCopilot';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
@@ -146,14 +143,22 @@ function colorForLevel(level) {
   }
 }
 
-function MatchesScreen() {
+function MatchesScreen({ start, copilotEvents }) {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  // Désactivation temporaire du lancement automatique du tutoriel pour éviter les boucles infinies
-  // Le tutoriel sera lancé depuis le bouton "Revoir le tuto" dans la popup d'aide
-  // const { shouldStart, consumeStartFlag, markSeen } = useAppTour();
-  // const copilotHook = useCopilot();
+
+  // 🔔 Lancement du tour quand Aide émet l'événement
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('padelsync:startTour', () => {
+      if (start && typeof start === 'function') {
+        setTimeout(() => {
+          start();
+        }, 300);
+      }
+    });
+    return () => sub?.remove?.();
+  }, [start]);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
@@ -7928,5 +7933,5 @@ const HourSlotRow = ({ item }) => {
   );
 }
 
-// Export par défaut du composant
-export default MatchesScreen;
+// Export par défaut du composant wrappé par Copilot
+export default withCopilot(MatchesScreen);
