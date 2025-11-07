@@ -874,7 +874,7 @@ export default function ProfilScreen() {
         </View>
 
         {/* Ligne 7 : Adresses */}
-        <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'transparent' }]}>
+        <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }]}>
           <Text style={[s.label, { color: '#dcff13' }]}>📍 Adresses</Text>
           
           {/* Domicile */}
