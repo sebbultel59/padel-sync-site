@@ -25,7 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
-import { Step, withCopilot } from '../../../components/AppCopilot';
+import { Step, useCopilot } from '../../../components/AppCopilot';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
@@ -143,10 +143,11 @@ function colorForLevel(level) {
   }
 }
 
-function MatchesScreen({ start, copilotEvents }) {
+function MatchesScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { start, copilotEvents } = useCopilot();
 
   // 🔔 Lancement du tour quand Aide émet l'événement
   const startRef = useRef(start);
@@ -7940,5 +7941,6 @@ const HourSlotRow = ({ item }) => {
   );
 }
 
-// Export par défaut du composant wrappé par Copilot
-export default withCopilot(MatchesScreen);
+// Export par défaut du composant
+// Note: Le composant utilise useCopilot() directement, pas besoin de withCopilot
+export default MatchesScreen;
