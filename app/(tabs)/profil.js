@@ -1411,7 +1411,7 @@ const s = StyleSheet.create({
     borderWidth: 0,
     borderColor: "transparent",
     borderRadius: 12,
-    padding: 12,
+    padding: 8,
   },
   tileFull: {
     width: '100%',
@@ -1424,7 +1424,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   tileIcon: {
     fontSize: 18,
