@@ -1566,15 +1566,15 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       position: 'absolute',
                       top: '50%',
                       left: '50%',
-                      transform: [{ translateX: -9 }, { translateY: -9 }],
+                      transform: [{ translateX: -12 }, { translateY: -12 }],
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
                       <Image
                         source={ballIcon}
                         style={{
-                          width: 18,
-                          height: 18,
+                          width: 24,
+                          height: 24,
                           shadowColor: '#ffffff',
                           shadowOffset: { width: 0, height: 0 },
                           shadowOpacity: 1,
@@ -1587,14 +1587,14 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   )}
                 </>
               ) : (
-                /* Affichage pour les joueurs : nombre en haut à gauche + balle de padel au centre si disponible */
+                /* Affichage pour les joueurs : nombre en haut à droite + balle de padel au centre si disponible */
                 <>
-                  {/* Nombre de joueurs disponibles dans le coin supérieur gauche */}
+                  {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
                   {availableCount > 0 && (
                     <View style={{
                       position: 'absolute',
                       top: 2,
-                      left: 2,
+                      right: 2,
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
@@ -1614,29 +1614,19 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   {/* Balle de padel au centre si le joueur est disponible */}
                   <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                     {myStatus === 'available' ? (
-                      <View style={{
-                        backgroundColor: 'transparent',
-                        borderRadius: 6,
-                        padding: 4,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 24,
-                        height: 24,
-                      }}>
-                        <Image
-                          source={ballIcon}
-                          style={{
-                            width: 16,
-                            height: 16,
-                            shadowColor: '#ffffff',
-                            shadowOffset: { width: 0, height: 0 },
-                            shadowOpacity: 1,
-                            shadowRadius: 2,
-                            elevation: 2,
-                          }}
-                          resizeMode="contain"
-                        />
-                      </View>
+                      <Image
+                        source={ballIcon}
+                        style={{
+                          width: 22,
+                          height: 22,
+                          shadowColor: '#ffffff',
+                          shadowOffset: { width: 0, height: 0 },
+                          shadowOpacity: 1,
+                          shadowRadius: 2,
+                          elevation: 2,
+                        }}
+                        resizeMode="contain"
+                      />
                     ) : null}
                   </View>
                 </>
