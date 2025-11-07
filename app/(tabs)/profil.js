@@ -1425,18 +1425,22 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginBottom: 4,
+    flexWrap: 'wrap',
   },
   tileIcon: {
     fontSize: 22,
     textShadowColor: 'rgba(255, 255, 255, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+    flexShrink: 0,
   },
   tileTitle: {
     fontSize: 16,
     color: "#dcff13",
     fontWeight: "700",
     textTransform: 'uppercase',
+    flexShrink: 1,
+    flexWrap: 'wrap',
   },
   tileInput: {
     marginTop: 2,
