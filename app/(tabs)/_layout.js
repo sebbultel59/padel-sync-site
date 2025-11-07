@@ -1,4 +1,5 @@
 // app/(tabs)/_layout.js
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
@@ -21,6 +22,7 @@ export default function TabsLayout() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   async function loadNotifications() {
     try {
@@ -200,15 +202,15 @@ export default function TabsLayout() {
           },
           headerLeft: () => (
             <Pressable
-              onPress={() => router.push('/profil')}
+              onPress={() => setHelpModalOpen(true)}
               style={({ pressed }) => [
                 { paddingHorizontal: 6, paddingVertical: 6, marginLeft: 0 },
                 pressed ? { opacity: 0.8 } : null
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Ouvrir le profil"
+              accessibilityLabel="Aide"
             >
-              <Ionicons name="person-circle-outline" size={40} color="#ffffff" />
+              <Ionicons name="help-circle-outline" size={40} color="#ffffff" />
             </Pressable>
           ),
           headerRight: () => (
@@ -359,6 +361,88 @@ export default function TabsLayout() {
                 )}
               />
             )}
+          </View>
+        </View>
+      </Modal>
+      {/* Help Popup */}
+      <Modal
+        visible={helpModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHelpModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Aide</Text>
+              <Pressable
+                onPress={() => setHelpModalOpen(false)}
+                style={{ padding: 8 }}
+              >
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+            
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 14, color: '#374151', lineHeight: 20, marginBottom: 12 }}>
+                Bienvenue sur Padel Sync ! Voici comment utiliser l'application :
+              </Text>
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b2240', marginBottom: 4 }}>
+                  1. Groupes
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>
+                  Choisis ou rejoins un groupe de joueurs pour organiser tes matchs.
+                </Text>
+              </View>
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b2240', marginBottom: 4 }}>
+                  2. Disponibilités
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>
+                  Indique tes créneaux disponibles dans l'onglet "Dispos". L'app calcule automatiquement les meilleurs matchs possibles.
+                </Text>
+              </View>
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b2240', marginBottom: 4 }}>
+                  3. Matchs
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>
+                  Consulte les matchs proposés selon les disponibilités du groupe. Tu peux confirmer ta participation ou proposer un match éclair.
+                </Text>
+              </View>
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b2240', marginBottom: 4 }}>
+                  4. Notifications
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>
+                  Tu recevras des notifications pour les invitations, confirmations de matchs et autres événements importants.
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={async () => {
+                setHelpModalOpen(false);
+                // Réinitialiser l'onboarding pour relancer le tutoriel
+                await AsyncStorage.removeItem('onboarding_v1_done');
+                // Naviguer vers matches où le tutoriel peut être relancé
+                router.push('/(tabs)/matches');
+                // Le tutoriel se relancera automatiquement via useAppTour
+              }}
+              style={{
+                backgroundColor: '#156bc9',
+                borderRadius: 10,
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                alignItems: 'center',
+                marginTop: 8,
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 15 }}>
+                Revoir le tuto
+              </Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
