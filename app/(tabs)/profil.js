@@ -1428,6 +1428,9 @@ const s = StyleSheet.create({
   },
   tileIcon: {
     fontSize: 18,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   tileTitle: {
     fontSize: 14,
