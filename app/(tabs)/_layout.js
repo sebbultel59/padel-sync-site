@@ -2,7 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { CopilotStep } from 'react-native-copilot';
@@ -204,13 +204,19 @@ export default function TabsLayout() {
           headerLeft: () => (
             <Pressable
               onPress={() => {
-                const startFn = getGlobalCopilotStart();
-                if (startFn && typeof startFn === 'function') {
-                  console.log("[Header] Démarrage du tutoriel depuis l'icône aide...");
-                  startFn();
-                } else {
-                  console.warn("[Header] start() n'est pas disponible");
-                }
+                console.log("[Header] Démarrage du tutoriel depuis l'icône aide...");
+                // Naviguer vers l'onglet Groupes où se trouve step2_rejoindre qui peut être mesuré
+                router.push("/(tabs)/groupes");
+                // Attendre que la page soit montée puis démarrer le tutoriel
+                setTimeout(() => {
+                  const startFn = getGlobalCopilotStart();
+                  if (startFn && typeof startFn === 'function') {
+                    console.log("[Header] Démarrage du tutoriel après navigation...");
+                    startFn();
+                  } else {
+                    console.warn("[Header] start() n'est pas disponible");
+                  }
+                }, 1000);
               }}
               style={({ pressed }) => [
                 { paddingHorizontal: 6, paddingVertical: 6, marginLeft: 0 },
