@@ -78,6 +78,7 @@ export default function ProfilScreen() {
   // classement (UI uniquement pour l'instant — non persisté tant que la colonne n'existe pas en base)
   const [classement, setClassement] = useState("");
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
+  const [mainPickerVisible, setMainPickerVisible] = useState(false);
   
   // Zoom pour l'image des niveaux
   const scale = useSharedValue(1);
@@ -698,10 +699,24 @@ export default function ProfilScreen() {
                 <Text style={s.tileIcon}>🖐️</Text>
                 <Text style={s.tileTitle}>Main</Text>
               </View>
-              <View style={s.segment}>
-                <SegBtn label="Droite" active={main === "droite"} onPress={() => setMain("droite")} />
-                <SegBtn label="Gauche" active={main === "gauche"} onPress={() => setMain("gauche")} />
-              </View>
+              <Pressable
+                onPress={() => setMainPickerVisible(true)}
+                style={[
+                  s.tileInput,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 4,
+                  },
+                  Platform.OS === 'web' && { cursor: 'pointer' }
+                ]}
+              >
+                <Text style={{ fontSize: 14, color: main ? '#111827' : '#9ca3af' }}>
+                  {main === "droite" ? "Droite" : main === "gauche" ? "Gauche" : "Sélectionner"}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="#6b7280" />
+              </Pressable>
             </View>
 
             <View style={[s.tile, s.tileHalf]}>
