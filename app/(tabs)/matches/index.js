@@ -143,24 +143,20 @@ function colorForLevel(level) {
   }
 }
 
-function MatchesScreen() {
+export default function MatchesScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const copilotHook = useCopilot();
+  const { start } = useCopilot();
   const startRef = useRef(null);
-  const hasListenerRef = useRef(false);
-
-  // Stocker start dans une ref sans déclencher de re-render
-  if (copilotHook?.start) {
-    startRef.current = copilotHook.start;
+  
+  // Stocker start dans une ref
+  if (start) {
+    startRef.current = start;
   }
 
-  // 🔔 Lancement du tour quand Aide émet l'événement
+  // 🔔 Écouter l'événement pour démarrer le tutoriel
   useEffect(() => {
-    if (hasListenerRef.current) return; // Éviter les listeners multiples
-    hasListenerRef.current = true;
-    
     const sub = DeviceEventEmitter.addListener('padelsync:startTour', () => {
       if (startRef.current && typeof startRef.current === 'function') {
         setTimeout(() => {
@@ -168,11 +164,8 @@ function MatchesScreen() {
         }, 300);
       }
     });
-    return () => {
-      hasListenerRef.current = false;
-      sub?.remove?.();
-    };
-  }, []); // Pas de dépendances pour éviter les boucles
+    return () => sub?.remove?.();
+  }, []);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
@@ -5001,7 +4994,7 @@ const HourSlotRow = ({ item }) => {
   }
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: '#001831' }}>
+    <View style={{ flex: 1, padding: 16, backgroundColor: '#001831', overflow: 'visible' }}>
       {networkNotice && (
         <View style={{ backgroundColor: '#f59e0b', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, marginBottom: 8 }}>
           <Text style={{ color: '#111827', fontWeight: '800', textAlign: 'center' }}>{networkNotice}</Text>
@@ -5363,10 +5356,10 @@ const HourSlotRow = ({ item }) => {
       )}
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0 }}>
-      {/* 4 — Matchs (zone liste/onglets) */}
-      <Step order={3} name="matchs" text="Ici, retrouve les matchs proposés selon les dispos du groupe.">
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0, zIndex: 1002, elevation: 12 }}>
+  {/* 3 — Matchs (zone liste/onglets) */}
+  <Step order={3} name="matchs" text="En appuyant ici, retrouve les matchs possibles selon les dispos du groupe.">
+    <View style={{ flexDirection: 'row', gap: 8 }}>
 {/* Matchs possibles */}
   <Pressable
     onPress={() => {
@@ -5467,9 +5460,9 @@ const HourSlotRow = ({ item }) => {
         </Text>
       </View>
     </Pressable>
-        </View>
-      </Step>
-</View>
+    </View>
+  </Step>
+  </View>
 
   {tab === 'proposes' && (
   <>
@@ -5549,9 +5542,9 @@ const HourSlotRow = ({ item }) => {
                     ItemSeparatorComponent={() => null}
                     SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
                     renderItem={({ item }) => <LongSlotRow item={item} />}
-                    contentContainerStyle={{ paddingBottom: bottomPad }}
-                    scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
                     extraData={{ profilesById, displayLongSections, dataVersion }}
                     removeClippedSubviews={false}
                   />
@@ -5567,9 +5560,9 @@ const HourSlotRow = ({ item }) => {
                     data={displayHourReady}
                     keyExtractor={(x) => x.time_slot_id + '-hour'}
                     renderItem={({ item }) => <HourSlotRow item={item} />}
-                    contentContainerStyle={{ paddingBottom: bottomPad }}
-                    scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
                     extraData={{ profilesById, displayHourReady, dataVersion }}
                     removeClippedSubviews={false}
                   />
@@ -5582,7 +5575,7 @@ const HourSlotRow = ({ item }) => {
       {tab === 'rsvp' && (
         <>
           {/* Sélecteur 1h / 1h30 pour RSVP */}
-          <View style={{ marginBottom: 12, marginTop: -18, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable
                 onPress={() => setRsvpMode('long')}
@@ -5632,10 +5625,10 @@ const HourSlotRow = ({ item }) => {
             <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
                   )}
           extraData={rsvpsVersion}
-                  contentContainerStyle={{ paddingBottom: bottomPad }}
-                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                  ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-                />
+                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+                  />
               )
             ) : (
               (pendingLongWeek?.length || 0) === 0 ? (
@@ -5648,9 +5641,9 @@ const HourSlotRow = ({ item }) => {
             <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
                   )}
           extraData={rsvpsVersion}
-                  contentContainerStyle={{ paddingBottom: bottomPad }}
-                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                  contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                  scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+          ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
         />
               )
             )}
@@ -5660,7 +5653,7 @@ const HourSlotRow = ({ item }) => {
       {tab === 'valides' && (
         <>
           {/* Sélecteur 1h / 1h30 pour Validés */}
-          <View style={{ marginBottom: 12, marginTop: -18, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10, zIndex: 998, elevation: 8 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable
                 onPress={() => setConfirmedMode('long')}
@@ -5720,9 +5713,9 @@ const HourSlotRow = ({ item }) => {
                 renderItem={({ item: m }) => (
                   <MatchCardConfirmed m={m} />
                 )}
-                contentContainerStyle={{ paddingBottom: bottomPad }}
-                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+          ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
         />
             )
           ) : (
@@ -5742,9 +5735,9 @@ const HourSlotRow = ({ item }) => {
                 renderItem={({ item: m }) => (
                   <MatchCardConfirmed m={m} />
                 )}
-                contentContainerStyle={{ paddingBottom: bottomPad }}
-                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
               />
             )
           )}
@@ -5783,11 +5776,11 @@ const HourSlotRow = ({ item }) => {
           onPress={() => openFlashMatchDateModal()}
           style={{
             position: 'absolute',
-            bottom: (tabBarHeight || 0) + 133,
-            right: 20,
-            width: 64,
-            height: 64,
-            borderRadius: 32,
+            bottom: (tabBarHeight || 0) + 140,
+            right: 3,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
             backgroundColor: '#e0ff00',
             alignItems: 'center',
             justifyContent: 'center',
@@ -5796,10 +5789,10 @@ const HourSlotRow = ({ item }) => {
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.3,
             shadowRadius: 4,
-            zIndex: 1001,
+            zIndex: 1000,
           }}
         >
-          <Ionicons name="flash" size={32} color="#000000" />
+          <Ionicons name="flash" size={24} color="#000000" />
         </Pressable>
       </Step>
 
@@ -7871,7 +7864,7 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* Week navigator - Positionné en bas, collé au sélecteur de groupe */}
+      {/* Week navigator - Positionné en bas */}
       <View
         style={{
           position: 'absolute',
@@ -7915,38 +7908,32 @@ const HourSlotRow = ({ item }) => {
         </Pressable>
       </View>
 
-      {/* 1 — Groupes */}
-      <Step order={1} name="groupes" text="Choisis ton groupe (club/amis). Tu peux en rejoindre plusieurs.">
-        <Pressable
-          onPress={() => setGroupSelectorOpen(true)}
-          style={{
-            position: 'absolute',
-            bottom: (tabBarHeight || 0),
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingVertical: 8,
-            paddingHorizontal: 16,
-            backgroundColor: '#001831',
-            zIndex: 998,
-            elevation: 8,
-            marginTop: 0,
-            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-          }}
-        >
-          <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-          <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-            {activeGroup?.name || 'Sélectionner un groupe'}
-          </Text>
-          <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-        </Pressable>
-      </Step>
+      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
+      <Pressable
+        onPress={() => setGroupSelectorOpen(true)}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0),
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          zIndex: 998,
+          elevation: 8,
+          marginTop: 0,
+          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+        }}
+      >
+        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+          {activeGroup?.name || 'Sélectionner un groupe'}
+        </Text>
+        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+      </Pressable>
     </View>
   );
 }
-
-// Export par défaut du composant
-// Note: Le composant utilise useCopilot() directement, pas besoin de withCopilot
-export default MatchesScreen;
