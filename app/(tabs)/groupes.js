@@ -901,6 +901,76 @@ Padel Sync — Ton match en 3 clics 🎾`;
     }
   }, [activeGroup?.id, loadJoinRequests, loadMembersAndAdmin, loadGroups]);
 
+  // Exclure un membre du groupe
+  const removeMember = useCallback(async (member) => {
+    console.log('[removeMember] Appelé avec:', { member: member?.name, memberId: member?.id, activeGroupId: activeGroup?.id, isAdmin, isSuperAdmin, meId });
+    
+    if (!activeGroup?.id || !member?.id) {
+      console.log('[removeMember] Retour précoce: pas de groupe ou pas de membre');
+      return;
+    }
+    
+    // Vérifier que l'utilisateur peut exclure ce membre
+    if (!isAdmin && !isSuperAdmin) {
+      console.log('[removeMember] Non autorisé: pas admin ni superadmin');
+      Alert.alert("Non autorisé", "Seuls les administrateurs peuvent exclure des membres.");
+      return;
+    }
+    
+    // Ne pas permettre d'exclure soi-même
+    if (member.id === meId) {
+      console.log('[removeMember] Impossible: tentative d\'exclure soi-même');
+      Alert.alert("Impossible", "Tu ne peux pas t'exclure toi-même du groupe.");
+      return;
+    }
+    
+    // Ne pas permettre d'exclure un admin (sauf si superadmin)
+    if (member.is_admin && !isSuperAdmin) {
+      console.log('[removeMember] Impossible: tentative d\'exclure un admin');
+      Alert.alert("Impossible", "Tu ne peux pas exclure un administrateur du groupe.");
+      return;
+    }
+    
+    console.log('[removeMember] Affichage de la confirmation');
+    // Confirmation avant suppression
+    Alert.alert(
+      "Exclure le membre",
+      `Es-tu sûr de vouloir exclure ${member.name || "ce membre"} du groupe ?`,
+      [
+        { text: "Annuler", style: "cancel", onPress: () => console.log('[removeMember] Annulé') },
+        {
+          text: "Exclure",
+          style: "destructive",
+          onPress: async () => {
+            console.log('[removeMember] Confirmation: suppression en cours');
+            try {
+              const { error } = await supabase
+                .from("group_members")
+                .delete()
+                .eq("group_id", activeGroup.id)
+                .eq("user_id", member.id);
+              
+              if (error) {
+                console.error('[removeMember] Erreur Supabase:', error);
+                throw error;
+              }
+              
+              console.log('[removeMember] Membre supprimé, rechargement...');
+              // Recharger les membres
+              await loadMembersAndAdmin(activeGroup.id);
+              await loadGroups();
+              
+              Alert.alert("Membre exclu ✅", `${member.name || "Le membre"} a été exclu du groupe.`);
+            } catch (e) {
+              console.error('[removeMember] Exception:', e);
+              Alert.alert("Erreur", e?.message ?? "Impossible d'exclure le membre");
+            }
+          },
+        },
+      ]
+    );
+  }, [activeGroup?.id, isAdmin, isSuperAdmin, meId, loadMembersAndAdmin, loadGroups]);
+
   // Rejeter une demande de rejoindre
   const rejectJoinRequest = useCallback(async (requestId) => {
     try {
@@ -1906,6 +1976,20 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   >
                     <Ionicons name="call-outline" size={20} color={BRAND} />
                   </Pressable>
+                  {/* Icône d'exclusion - visible uniquement pour les admins/superadmins */}
+                  {(isAdmin || isSuperAdmin) && m.id !== meId && (!m.is_admin || isSuperAdmin) && (
+                    <Pressable
+                      onPress={() => {
+                        console.log('[Pressable] Clic sur exclure membre:', m.name, m.id);
+                        removeMember(m);
+                      }}
+                      style={[{ padding: 6, borderRadius: 8 }, Platform.OS === 'web' && { cursor: 'pointer' }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Exclure ${m.name}`}
+                    >
+                      <Ionicons name="person-remove-outline" size={20} color="#dc2626" />
+                    </Pressable>
+                  )}
                 </View>
               ))}
             </ScrollView>
