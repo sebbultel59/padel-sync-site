@@ -60,7 +60,7 @@ export default function ProfilScreen() {
   // champs profil
   const [niveau, setNiveau] = useState(null); // 1..8
   const [main, setMain] = useState(null);     // "droite" | "gauche"
-  const [cote, setCote] = useState(null);     // "droite" | "gauche"
+  const [cote, setCote] = useState(null);     // "droite" | "gauche" | "les_deux"
   const [club, setClub] = useState("");
   const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
   const [phone, setPhone] = useState("");
@@ -75,7 +75,7 @@ export default function ProfilScreen() {
   const [geocodingHome, setGeocodingHome] = useState(false);
   const [geocodingWork, setGeocodingWork] = useState(false);
 
-  // classement (UI uniquement pour l'instant — non persisté tant que la colonne n'existe pas en base)
+  // classement (facultatif)
   const [classement, setClassement] = useState("");
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
   const [mainPickerVisible, setMainPickerVisible] = useState(false);
@@ -224,7 +224,7 @@ export default function ProfilScreen() {
 
         const { data: p, error } = await supabase
           .from("profiles")
-          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work")
+          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work, classement")
           .eq("id", id)
           .maybeSingle();
         if (error) throw error;
@@ -241,6 +241,7 @@ export default function ProfilScreen() {
           phone: p?.phone ?? "",
           addressHome: p?.address_home || null,
           addressWork: p?.address_work || null,
+          classement: p?.classement ?? "",
         };
 
         if (mounted) {
@@ -256,6 +257,7 @@ export default function ProfilScreen() {
           setAddressWork(init.addressWork);
           setAddressHomeInput(init.addressHome?.address || "");
           setAddressWorkInput(init.addressWork?.address || "");
+          setClassement(init.classement);
           setInitialSnap(init);
         }
       } catch (e) {
@@ -339,32 +341,46 @@ export default function ProfilScreen() {
       phone,
       addressHome,
       addressWork,
+      classement,
     };
     try {
       return JSON.stringify(cur) !== JSON.stringify(initialSnap);
     } catch {
       return true;
     }
-  }, [initialSnap, displayName, avatarUrl, niveau, main, cote, club, rayonKm, phone, addressHome, addressWork]);
+  }, [initialSnap, displayName, avatarUrl, niveau, main, cote, club, rayonKm, phone, addressHome, addressWork, classement]);
 
   // Sauvegarde du profil (fonction principale)
   const onSave = useCallback(async () => {
     if (!me?.id) return false;
     const name = (displayName || "").trim();
-    if (!name) { Alert.alert("Nom public", "Merci de renseigner un nom public."); return false; }
+    if (!name) { Alert.alert("Champ obligatoire", "Merci de renseigner un nom public."); return false; }
+    
+    // Vérifier que tous les champs sont remplis
+    if (!niveau) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre niveau."); return false; }
+    if (!main) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre main (droite ou gauche)."); return false; }
+    if (!cote) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre côté (droite, gauche ou les deux)."); return false; }
+    const clubTrimmed = (club || "").trim();
+    if (!clubTrimmed) { Alert.alert("Champ obligatoire", "Merci de sélectionner un club."); return false; }
+    const phoneTrimmed = (phone || "").trim();
+    if (!phoneTrimmed) { Alert.alert("Champ obligatoire", "Merci de renseigner votre numéro de téléphone."); return false; }
+    if (!addressHome || !addressHome.address) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de domicile."); return false; }
+    if (!addressWork || !addressWork.address) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de travail."); return false; }
+    if (rayonKm === null || rayonKm === undefined) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre rayon de jeu possible."); return false; }
 
     try {
       setSaving(true);
       const patch = {
         display_name: name,
-        niveau: niveau ?? null,
-        main: main ?? null,
-        cote: cote ?? null,
-        club: (club || "").trim() || null,
-        rayon_km: rayonKm ?? null,
-        phone: (phone || "").trim() || null,
-        address_home: addressHome || null,
-        address_work: addressWork || null,
+        niveau: niveau,
+        main: main,
+        cote: cote,
+        club: clubTrimmed,
+        rayon_km: rayonKm,
+        phone: phoneTrimmed,
+        address_home: addressHome,
+        address_work: addressWork,
+        classement: (classement || "").trim() || null,
       };
       const { error } = await supabase.from("profiles").update(patch).eq("id", me.id);
       if (error) throw error;
@@ -373,14 +389,15 @@ export default function ProfilScreen() {
       const newSnap = {
         displayName: name,
         avatarUrl,
-        niveau,
-        main,
-        cote,
-        club: (club || "").trim(),
-        rayonKm,
-        phone: (phone || "").trim(),
-        addressHome,
-        addressWork,
+        niveau: niveau,
+        main: main,
+        cote: cote,
+        club: clubTrimmed,
+        rayonKm: rayonKm,
+        phone: phoneTrimmed,
+        addressHome: addressHome,
+        addressWork: addressWork,
+        classement: (classement || "").trim(),
       };
       setInitialSnap(newSnap);
 

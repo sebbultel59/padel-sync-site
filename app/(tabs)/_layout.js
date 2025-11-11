@@ -5,6 +5,8 @@ import * as Notifications from 'expo-notifications';
 import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, DeviceEventEmitter, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import 'react-native-gesture-handler';
 import { supabase } from '../../lib/supabase';
 
@@ -16,6 +18,7 @@ export default function TabsLayout() {
 
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  const insets = useSafeAreaInsets();
 
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -161,7 +164,28 @@ export default function TabsLayout() {
     }
   }
 
-  useEffect(() => { loadNotifications(); }, []);
+  useEffect(() => { 
+    loadNotifications(); 
+    
+    // Écouter les notifications reçues (push notifications)
+    const subscription = Notifications.addNotificationReceivedListener(notification => {
+      console.log('[Layout] Notification push reçue:', notification);
+      // Recharger les notifications quand une nouvelle arrive
+      loadNotifications();
+    });
+    
+    // Écouter les notifications ouvertes (quand l'utilisateur clique dessus)
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('[Layout] Notification ouverte:', response);
+      // Recharger les notifications
+      loadNotifications();
+    });
+    
+    return () => {
+      subscription.remove();
+      responseSubscription.remove();
+    };
+  }, []);
 
   if (!fontsLoaded) {
     return (
@@ -173,14 +197,19 @@ export default function TabsLayout() {
 
   return (
     <>
+      <StatusBar style="light" translucent />
       <Tabs
         initialRouteName="matches"
         screenOptions={({ route }) => ({
           headerShown: true,
           headerStyle: {
             backgroundColor: '#011932',
-            height: isLandscape ? 48 : 100,
+            height: isLandscape ? 48 + insets.top : 60 + insets.top,
+            paddingTop: insets.top,
+            elevation: 0,
+            shadowOpacity: 0,
           },
+          headerTransparent: false,
           headerTitleAlign: 'center',
           headerTintColor: '#fff',
           headerTitleStyle: {
@@ -197,7 +226,7 @@ export default function TabsLayout() {
           headerTitleContainerStyle: {
             flexGrow: 1,
             maxWidth: '66%',
-            paddingVertical: isLandscape ? 2 : 6,
+            paddingVertical: isLandscape ? 1 : 2,
           },
           headerLeft: () => (
             <Pressable
@@ -254,9 +283,11 @@ export default function TabsLayout() {
             borderTopWidth: 0,
             elevation: 0,
             shadowOpacity: 0,
-            height: 90,
-            paddingBottom: 12,
+            height: 90 + insets.bottom,
+            paddingBottom: 12 + insets.bottom,
             paddingTop: 6,
+            paddingLeft: Math.max(0, insets.left),
+            paddingRight: Math.max(0, insets.right),
             position: 'absolute',
             bottom: 0,
             left: 0,

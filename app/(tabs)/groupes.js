@@ -1461,7 +1461,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
       </Modal>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: Math.max(24, insets.bottom + 140) }}
+        contentContainerStyle={{ 
+          padding: Platform.OS === 'ios' ? 4 : 12, 
+          paddingHorizontal: Math.max(16, Math.max(insets.left, insets.right) + 8),
+          gap: 10, 
+          paddingBottom: Math.max(24, insets.bottom + 140),
+          paddingTop: Platform.OS === 'ios' ? 4 : Math.max(4, insets.top + 2)
+        }}
+        contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'automatic' : undefined}
         scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 70) }}
         keyboardShouldPersistTaps="handled"
         {...(Platform.OS === "web" ? {} : { pointerEvents: "box-none" })}
@@ -1609,7 +1616,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         )}
 
         {/* Boutons Rejoindre et Créer un groupe */}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
           <Pressable 
             onPress={press("join-group", () => setJoinModalVisible(true))} 
             style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
@@ -1627,7 +1634,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         </View>
 
         {/* Mes groupes */}
-        <View style={s.sectionHeader}>
+        <View style={[s.sectionHeader, { marginTop: 0 }]}>
           <Text style={s.sectionTitle}>Mes groupes</Text>
         </View>
         {(groups.mine ?? []).length === 0 ? (
@@ -2005,7 +2012,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  sectionHeader: { marginTop: 4, marginBottom: 2 },
+  sectionHeader: { marginTop: 2, marginBottom: 2 },
   sectionTitle: { color: "#ffffff", fontWeight: "800" },
   card: { backgroundColor: "#001831", borderWidth: 0.5, borderColor: "#808080", borderRadius: 12, padding: 12, gap: 8 },
   activeCard: { backgroundColor: "#ffffff", borderColor: "gold" },

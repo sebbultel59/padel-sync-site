@@ -1,9 +1,11 @@
 // app/_layout.js
 import { Slot } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CopilotProvider } from '../components/AppCopilot';
 import { AuthProvider } from '../context/auth';
 import { ActiveGroupProvider } from '../lib/activeGroup';
+import { registerPushToken } from '../lib/notifications';
 
 const tooltipStyle = {
   backgroundColor: '#dcff13',
@@ -23,22 +25,35 @@ const buttonStyle = {
 };
 
 export default function RootLayout() {
+  // Enregistrer le token push au démarrage de l'app
+  useEffect(() => {
+    // Attendre un peu pour que l'auth soit prête
+    const timer = setTimeout(() => {
+      registerPushToken().catch(err => {
+        console.warn('[RootLayout] Erreur enregistrement token push:', err);
+      });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
-    <CopilotProvider
-      animated
-      overlay="view"
-      tooltipStyle={tooltipStyle}
-      textStyle={textStyle}
-      buttonStyle={buttonStyle}
-      arrowColor="#dcff13"
-      stepNumberTextColor="#000000"
-      labels={{ previous: 'Préc.', next: 'Suivant', skip: 'Passer', finish: 'Terminer' }}
-    >
-      <AuthProvider>
-        <ActiveGroupProvider>
-          <Slot />
-        </ActiveGroupProvider>
-      </AuthProvider>
-    </CopilotProvider>
+    <SafeAreaProvider>
+      <CopilotProvider
+        animated
+        overlay="view"
+        tooltipStyle={tooltipStyle}
+        textStyle={textStyle}
+        buttonStyle={buttonStyle}
+        arrowColor="#dcff13"
+        stepNumberTextColor="#000000"
+        labels={{ previous: 'Préc.', next: 'Suivant', skip: 'Passer', finish: 'Terminer' }}
+      >
+        <AuthProvider>
+          <ActiveGroupProvider>
+            <Slot />
+          </ActiveGroupProvider>
+        </AuthProvider>
+      </CopilotProvider>
+    </SafeAreaProvider>
   );
 }

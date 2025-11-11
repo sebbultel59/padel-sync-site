@@ -5,22 +5,22 @@ import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  ActionSheetIOS,
-  ActivityIndicator,
-  Alert,
-  DeviceEventEmitter,
-  FlatList,
-  Image,
-  InteractionManager,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  SectionList,
-  Text,
-  TextInput,
-  View
+    ActionSheetIOS,
+    ActivityIndicator,
+    Alert,
+    DeviceEventEmitter,
+    FlatList,
+    Image,
+    InteractionManager,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    SectionList,
+    Text,
+    TextInput,
+    View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
@@ -216,6 +216,14 @@ export default function MatchesScreen() {
   const [flashSelected, setFlashSelected] = useState([]);
   const [flashPickerOpen, setFlashPickerOpen] = useState(false);
   const [flashQuery, setFlashQuery] = useState('');
+  const [flashLevelFilter, setFlashLevelFilter] = useState([]); // Plages de niveaux sélectionnées ['1/2', '3/4', etc.]
+  const [flashLevelFilterVisible, setFlashLevelFilterVisible] = useState(false); // Visibilité de la zone de configuration des niveaux
+  const [flashGeoLocationType, setFlashGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [flashGeoRefPoint, setFlashGeoRefPoint] = useState(null); // { lat, lng, address }
+  const [flashGeoCityQuery, setFlashGeoCityQuery] = useState('');
+  const [flashGeoCitySuggestions, setFlashGeoCitySuggestions] = useState([]);
+  const [flashGeoRadiusKm, setFlashGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
+  const [flashGeoFilterVisible, setFlashGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
   const [flashWhenOpen, setFlashWhenOpen] = useState(false);
   const [flashDateModalOpen, setFlashDateModalOpen] = useState(false);
   const [flashDatePickerModalOpen, setFlashDatePickerModalOpen] = useState(false);
@@ -295,6 +303,15 @@ export default function MatchesScreen() {
   const [hotMatchMembers, setHotMatchMembers] = useState([]);
   const [loadingHotMatchMembers, setLoadingHotMatchMembers] = useState(false);
   const [selectedHotMatch, setSelectedHotMatch] = useState(null);
+  const [hotMatchSearchQuery, setHotMatchSearchQuery] = useState('');
+  const [hotMatchLevelFilter, setHotMatchLevelFilter] = useState([]); // Plages de niveaux sélectionnées ['1/2', '3/4', etc.]
+  const [hotMatchLevelFilterVisible, setHotMatchLevelFilterVisible] = useState(false); // Visibilité de la zone de configuration des niveaux
+  const [hotMatchGeoLocationType, setHotMatchGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [hotMatchGeoRefPoint, setHotMatchGeoRefPoint] = useState(null); // { lat, lng, address }
+  const [hotMatchGeoCityQuery, setHotMatchGeoCityQuery] = useState('');
+  const [hotMatchGeoCitySuggestions, setHotMatchGeoCitySuggestions] = useState([]);
+  const [hotMatchGeoRadiusKm, setHotMatchGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
+  const [hotMatchGeoFilterVisible, setHotMatchGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
   // Modale de contacts du joueur
   const [playerContactsModalVisible, setPlayerContactsModalVisible] = useState(false);
   const [selectedPlayerForContacts, setSelectedPlayerForContacts] = useState(null);
@@ -403,9 +420,12 @@ const longReadyWeek = React.useMemo(
               return allowedLevels.has(playerLevel);
             });
             
-            // Le créneau doit avoir au moins 3 joueurs (4 au total avec le créateur) avec les niveaux autorisés
-            // On accepte le match si au moins 3 joueurs ont un niveau autorisé
-            return filteredUserIds.length >= 3;
+            // Le créneau doit avoir au moins 4 joueurs au total
+            // meId compte toujours comme participant (même s'il n'a pas le niveau autorisé)
+            // Donc on a besoin de 3 autres joueurs avec le niveau autorisé (3 + meId = 4 au total)
+            // Compter le nombre de joueurs autres que meId dans filteredUserIds
+            const otherPlayersCount = filteredUserIds.filter(uid => String(uid) !== String(meId)).length;
+            return otherPlayersCount >= 3;
           }).map(slot => {
             // Filtrer ready_user_ids pour ne garder que les joueurs autorisés
             const userIds = slot.ready_user_ids || [];
@@ -464,8 +484,9 @@ const longReadyWeek = React.useMemo(
             return distanceKm <= filterGeoRadiusKm;
           });
           
-          // Le créneau doit avoir au moins 3 joueurs dans le rayon
-          return filteredUserIds.length >= 3;
+          // Le créneau doit avoir au moins 4 joueurs au total dans le rayon
+          // filteredUserIds inclut l'utilisateur s'il est dans le rayon, donc on a besoin de 4 joueurs au total
+          return filteredUserIds.length >= 4;
         }).map(slot => {
           // Filtrer ready_user_ids pour ne garder que les joueurs dans le rayon
           const userIds = slot.ready_user_ids || [];
@@ -571,9 +592,12 @@ const hourReadyWeek = React.useMemo(
               return allowedLevels.has(playerLevel);
             });
             
-            // Le créneau doit avoir au moins 3 joueurs (4 au total avec le créateur) avec les niveaux autorisés
-            // On accepte le match si au moins 3 joueurs ont un niveau autorisé
-            return filteredUserIds.length >= 3;
+            // Le créneau doit avoir au moins 4 joueurs au total
+            // meId compte toujours comme participant (même s'il n'a pas le niveau autorisé)
+            // Donc on a besoin de 3 autres joueurs avec le niveau autorisé (3 + meId = 4 au total)
+            // Compter le nombre de joueurs autres que meId dans filteredUserIds
+            const otherPlayersCount = filteredUserIds.filter(uid => String(uid) !== String(meId)).length;
+            return otherPlayersCount >= 3;
           }).map(slot => {
             // Filtrer ready_user_ids pour ne garder que les joueurs autorisés
             const userIds = slot.ready_user_ids || [];
@@ -632,8 +656,9 @@ const hourReadyWeek = React.useMemo(
             return distanceKm <= filterGeoRadiusKm;
           });
           
-          // Le créneau doit avoir au moins 3 joueurs dans le rayon
-          return filteredUserIds.length >= 3;
+          // Le créneau doit avoir au moins 4 joueurs au total dans le rayon
+          // filteredUserIds inclut l'utilisateur s'il est dans le rayon, donc on a besoin de 4 joueurs au total
+          return filteredUserIds.length >= 4;
         }).map(slot => {
           // Filtrer ready_user_ids pour ne garder que les joueurs dans le rayon
           const userIds = slot.ready_user_ids || [];
@@ -892,6 +917,39 @@ const hotMatches = React.useMemo(
       });
     }
     
+    // Exclure les créneaux où l'utilisateur a déjà un RSVP (match accepté ou en attente)
+    // ET les créneaux où un match existe déjà (même sans RSVP pour l'utilisateur)
+    if (meId) {
+      finalFiltered = finalFiltered.filter(slot => {
+        // Vérifier si l'utilisateur a un RSVP pour un match sur ce créneau
+        const slotStart = slot.starts_at;
+        const slotEnd = slot.ends_at;
+        
+        // Parcourir tous les matchs pour trouver ceux sur ce créneau
+        const allMatches = [...(matchesPending || []), ...(matchesConfirmed || [])];
+        const matchOnThisSlot = allMatches.find(m => {
+          const matchStart = m?.time_slots?.starts_at;
+          const matchEnd = m?.time_slots?.ends_at;
+          return matchStart === slotStart && matchEnd === slotEnd;
+        });
+        
+        if (matchOnThisSlot) {
+          // Si un match existe déjà sur ce créneau, vérifier si l'utilisateur a un RSVP
+          const rsvps = rsvpsByMatch[matchOnThisSlot.id] || [];
+          const myRsvp = rsvps.find(r => String(r.user_id) === String(meId));
+          if (myRsvp && (myRsvp.status === 'accepted' || myRsvp.status === 'maybe')) {
+            // L'utilisateur a déjà un RSVP sur ce créneau, exclure ce match en feu
+            return false;
+          }
+          // Si un match existe déjà sur ce créneau (même sans RSVP pour l'utilisateur),
+          // exclure ce match en feu car le créneau est déjà pris
+          return false;
+        }
+        
+        return true;
+      });
+    }
+    
     console.log('[hotMatches] 🔥 Matchs en feu trouvés:', finalFiltered.length);
     if (finalFiltered.length > 0) {
       console.log('[hotMatches] Exemples:', finalFiltered.slice(0, 3).map(s => ({
@@ -901,8 +959,20 @@ const hotMatches = React.useMemo(
       })));
     }
     
+    // Dédupliquer les créneaux basés sur starts_at et ends_at (même créneau peut avoir plusieurs time_slot_id)
+    const uniqueSlots = [];
+    const seenSlots = new Set();
+    
+    for (const slot of finalFiltered) {
+      const slotKey = `${slot.starts_at}_${slot.ends_at}`;
+      if (!seenSlots.has(slotKey)) {
+        seenSlots.add(slotKey);
+        uniqueSlots.push(slot);
+      }
+    }
+    
     // Convertir les créneaux en format "match" pour l'affichage
-    return finalFiltered.map(slot => ({
+    return uniqueSlots.map(slot => ({
       id: slot.time_slot_id || `hot-${slot.starts_at}`,
       time_slot_id: slot.time_slot_id,
       time_slots: {
@@ -2338,47 +2408,46 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         } catch {}
       }
 
-      // Calculer les dates de début et fin
-        const startsIso = flashStart instanceof Date ? flashStart.toISOString() : new Date().toISOString();
-        const endDate = new Date(flashStart);
-        endDate.setMinutes(endDate.getMinutes() + (flashDurationMin || 90));
-        const endsIso = endDate.toISOString();
-
-      // 1. Récupérer les IDs des joueurs disponibles sur le créneau (comme pour les matchs possibles)
-      const availableIds = await computeAvailableUserIdsForInterval(groupId, startsIso, endsIso);
+      // Charger TOUS les membres du groupe, peu importe leur disponibilité
+      const allMembers = await loadGroupMembersForFlash();
       
-      console.log('[FlashMatch] Joueurs disponibles pour l\'intervalle:', availableIds.length, 'ids:', availableIds);
+      console.log('[FlashMatch] Tous les membres du groupe:', allMembers.length);
       
-      if (availableIds.length === 0) {
+      if (allMembers.length === 0) {
         setFlashMembers([]);
         setFlashSelected([]);
         setFlashQuery("");
         setFlashPickerOpen(true);
-        Alert.alert('Aucun joueur disponible', 'Aucun membre n\'est disponible pour ce créneau.');
+        Alert.alert('Aucun membre', 'Aucun membre dans ce groupe.');
         return;
       }
 
-      // 2. Charger les profils des joueurs disponibles
+      // Charger les profils complets avec adresses pour le filtre géographique
+      const memberIds = allMembers.map(m => m.id).filter(Boolean);
       const { data: profiles, error: profileError } = await supabase
         .from('profiles')
-        .select('id, display_name, name, niveau')
-        .in('id', availableIds);
+        .select('id, display_name, name, niveau, email, avatar_url, address_home, address_work')
+        .in('id', memberIds);
 
       if (profileError) {
         console.error('[FlashMatch] Erreur chargement profils:', profileError);
         throw profileError;
       }
 
-      // 3. Normaliser les membres disponibles (exclure l'utilisateur authentifié)
+      // Exclure uniquement l'utilisateur authentifié et mapper avec les profils complets
       let ms = (profiles || [])
+        .filter(p => !uid || String(p.id) !== String(uid))
         .map(p => ({
           id: p.id,
           name: p.display_name || p.name || 'Joueur inconnu',
           niveau: p.niveau || null,
-        }))
-        .filter(m => !uid || String(m.id) !== String(uid));
+          email: p.email || null,
+          avatar_url: p.avatar_url || null,
+          address_home: p.address_home || null,
+          address_work: p.address_work || null,
+        }));
 
-      console.log('[FlashMatch] Membres disponibles après filtrage:', ms.length);
+      console.log('[FlashMatch] Membres après exclusion de l\'utilisateur:', ms.length);
 
       setFlashMembers(ms);
       setFlashSelected([]);
@@ -3014,6 +3083,182 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       }
     })();
   }, [filterGeoLocationType, filterGeoVisible, computeFilterGeoRefPoint]);
+
+  // Calculer le point de référence géographique pour la modale d'invitation
+  const computeHotMatchGeoRefPoint = useCallback(async () => {
+    let point = null;
+    if (hotMatchGeoLocationType === 'current') {
+      if (locationPermission !== 'granted') {
+        Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la localisation.');
+        setHotMatchGeoLocationType(null);
+        return null;
+      }
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        point = { lat: loc.coords.latitude, lng: loc.coords.longitude, address: 'Position actuelle' };
+      } catch (e) {
+        Alert.alert('Erreur', 'Impossible d\'obtenir votre position. Utilisez une ville.');
+        setHotMatchGeoLocationType(null);
+        return null;
+      }
+    } else if (hotMatchGeoLocationType === 'home') {
+      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
+        setHotMatchGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_home;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
+    } else if (hotMatchGeoLocationType === 'work') {
+      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
+        setHotMatchGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_work;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
+    }
+    
+    return point;
+  }, [hotMatchGeoLocationType, locationPermission, myProfile]);
+
+  // Charger le point de référence géographique pour la modale d'invitation quand le type change
+  useEffect(() => {
+    if (!inviteHotMatchModalVisible) return; // Ne pas charger si la modale n'est pas visible
+    
+    (async () => {
+      // Pour 'city', le point sera défini quand l'utilisateur sélectionne une ville
+      if (hotMatchGeoLocationType === 'city') {
+        // Ne rien faire, attendre la sélection de ville
+        return;
+      }
+      
+      // Pour les autres types (current, home, work), charger automatiquement
+      const point = await computeHotMatchGeoRefPoint();
+      if (point) {
+        setHotMatchGeoRefPoint(point);
+      } else {
+        setHotMatchGeoRefPoint(null);
+      }
+    })();
+  }, [hotMatchGeoLocationType, inviteHotMatchModalVisible, computeHotMatchGeoRefPoint]);
+
+  // Autocomplétion ville pour le filtre géographique de la modale d'invitation
+  const searchHotMatchGeoCity = useCallback(async (query) => {
+    if (!query || query.length < 3) {
+      setHotMatchGeoCitySuggestions([]);
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const suggestions = (data || []).map(item => ({
+        name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+      }));
+      setHotMatchGeoCitySuggestions(suggestions);
+    } catch (e) {
+      console.warn('[HotMatchGeo] city search error:', e);
+      setHotMatchGeoCitySuggestions([]);
+    }
+  }, []);
+
+  // Réinitialiser le rayon quand le type de localisation change
+  useEffect(() => {
+    if (!hotMatchGeoLocationType) {
+      setHotMatchGeoRadiusKm(null);
+    }
+  }, [hotMatchGeoLocationType]);
+
+  // Calculer le point de référence géographique pour le modal match éclair
+  const computeFlashGeoRefPoint = useCallback(async () => {
+    let point = null;
+    if (flashGeoLocationType === 'current') {
+      if (locationPermission !== 'granted') {
+        Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la localisation.');
+        setFlashGeoLocationType(null);
+        return null;
+      }
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        point = { lat: loc.coords.latitude, lng: loc.coords.longitude, address: 'Position actuelle' };
+      } catch (e) {
+        Alert.alert('Erreur', 'Impossible d\'obtenir votre position. Utilisez une ville.');
+        setFlashGeoLocationType(null);
+        return null;
+      }
+    } else if (flashGeoLocationType === 'home') {
+      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
+        setFlashGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_home;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
+    } else if (flashGeoLocationType === 'work') {
+      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
+        setFlashGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_work;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
+    }
+    
+    return point;
+  }, [flashGeoLocationType, locationPermission, myProfile]);
+
+  // Charger le point de référence géographique pour le modal match éclair quand le type change
+  useEffect(() => {
+    if (!flashPickerOpen) return; // Ne pas charger si la modale n'est pas visible
+    
+    (async () => {
+      // Pour 'city', le point sera défini quand l'utilisateur sélectionne une ville
+      if (flashGeoLocationType === 'city') {
+        // Ne rien faire, attendre la sélection de ville
+        return;
+      }
+      
+      // Pour les autres types (current, home, work), charger automatiquement
+      const point = await computeFlashGeoRefPoint();
+      if (point) {
+        setFlashGeoRefPoint(point);
+      } else {
+        setFlashGeoRefPoint(null);
+      }
+    })();
+  }, [flashGeoLocationType, flashPickerOpen, computeFlashGeoRefPoint]);
+
+  // Autocomplétion ville pour le filtre géographique du modal match éclair
+  const searchFlashGeoCity = useCallback(async (query) => {
+    if (!query || query.length < 3) {
+      setFlashGeoCitySuggestions([]);
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const suggestions = (data || []).map(item => ({
+        name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+      }));
+      setFlashGeoCitySuggestions(suggestions);
+    } catch (e) {
+      console.warn('[FlashGeo] city search error:', e);
+      setFlashGeoCitySuggestions([]);
+    }
+  }, []);
+
+  // Réinitialiser le rayon quand le type de localisation change pour flash
+  useEffect(() => {
+    if (!flashGeoLocationType) {
+      setFlashGeoRadiusKm(null);
+    }
+  }, [flashGeoLocationType]);
 
   // Mémoriser préférences
   useEffect(() => {
@@ -5016,7 +5261,7 @@ const HourSlotRow = ({ item }) => {
             alignItems: 'center', 
             justifyContent: 'center', 
             gap: 4,
-            paddingVertical: 8,
+            paddingVertical: 4,
             paddingHorizontal: 16,
             backgroundColor: '#001831',
             zIndex: 1000,
@@ -5033,7 +5278,7 @@ const HourSlotRow = ({ item }) => {
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingVertical: 8,
+                paddingVertical: 4,
                 paddingHorizontal: 12,
                 paddingRight: 4,
                 borderRadius: 8,
@@ -5055,7 +5300,7 @@ const HourSlotRow = ({ item }) => {
                 fontWeight: '700', 
                 fontSize: 12 
               }}>
-                {filterByLevel ? `Filtre actif (${filterLevelRanges.length})` : 'Filtrer niveaux'}
+                {filterByLevel ? `Filtre actif (${filterLevelRanges.length})` : 'Filtre niveau'}
               </Text>
             </Pressable>
             
@@ -5066,7 +5311,7 @@ const HourSlotRow = ({ item }) => {
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  paddingVertical: 8,
+                  paddingVertical: 4,
                   paddingHorizontal: 8,
                   paddingLeft: 4,
                   borderRadius: 8,
@@ -5098,7 +5343,7 @@ const HourSlotRow = ({ item }) => {
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingVertical: 8,
+                paddingVertical: 4,
                 paddingHorizontal: 12,
                 paddingLeft: 4,
                 borderRadius: 8,
@@ -5106,11 +5351,6 @@ const HourSlotRow = ({ item }) => {
                 gap: 8,
               }}
             >
-              <Ionicons 
-                name="location" 
-                size={20} 
-                color={filterByGeo ? '#15803d' : '#9ca3af'}
-              />
               <Text style={{ 
                 color: filterByGeo ? '#15803d' : '#9ca3af', 
                 fontWeight: '700', 
@@ -5118,6 +5358,11 @@ const HourSlotRow = ({ item }) => {
               }}>
                 {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
               </Text>
+              <Ionicons 
+                name="location" 
+                size={20} 
+                color={filterByGeo ? '#15803d' : '#9ca3af'}
+              />
             </Pressable>
           </View>
           
@@ -5164,15 +5409,15 @@ const HourSlotRow = ({ item }) => {
                         paddingVertical: 8,
                         paddingHorizontal: 12,
                         borderRadius: 8,
-                        backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                        backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
                         borderWidth: 1,
-                        borderColor: isSelected ? '#15803d' : '#d1d5db',
+                        borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
                       }}
                     >
                       <Text style={{ 
                         fontSize: 14, 
                         fontWeight: isSelected ? '800' : '700', 
-                        color: isSelected ? '#ffffff' : '#111827' 
+                        color: isSelected ? '#000000' : '#111827' 
                       }}>
                         {range}
                       </Text>
@@ -5356,7 +5601,7 @@ const HourSlotRow = ({ item }) => {
       )}
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0, zIndex: 1002, elevation: 12 }}>
+<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: -8, zIndex: 1002, elevation: 12 }}>
   {/* 3 — Matchs (zone liste/onglets) */}
   <Step order={3} name="matchs" text="En appuyant ici, retrouve les matchs possibles selon les dispos du groupe.">
     <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -6177,42 +6422,736 @@ const HourSlotRow = ({ item }) => {
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
           <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0b2240' }}>Sélectionner 3 joueurs</Text>
             <Pressable
-              onPress={() => setFlashPickerOpen(false)}
-              accessibilityRole="button"
-              accessibilityLabel="Fermer"
-              style={{ position: 'absolute', top: 10, right: 10, padding: 6 }}
-            >
-              <Ionicons name="close" size={22} color="#111827" />
+                onPress={() => {
+                  setFlashPickerOpen(false);
+                  setFlashQuery(''); // Réinitialiser la recherche
+                  setFlashLevelFilter([]); // Réinitialiser le filtre de niveau
+                  setFlashLevelFilterVisible(false); // Masquer la zone de configuration
+                  setFlashGeoLocationType(null); // Réinitialiser le filtre géographique
+                  setFlashGeoRefPoint(null);
+                  setFlashGeoCityQuery('');
+                  setFlashGeoCitySuggestions([]);
+                  setFlashGeoRadiusKm(null);
+                  setFlashGeoFilterVisible(false); // Masquer la zone de configuration
+                }}
+                style={{ padding: 8 }}
+              >
+                <Ionicons name="close" size={24} color="#111827" />
             </Pressable>
-            <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginBottom: 20 }}>
-              Sélectionner 3 joueurs
-            </Text>
+            </View>
 
             {flashLoading ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
               <ActivityIndicator size="large" color={COLORS.accent} />
+                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
+              </View>
             ) : (
               <>
-                {/* Barre de recherche */}
+                {/* Filtrer les membres en fonction de la recherche, du niveau et de la géolocalisation */}
+                {(() => {
+                  const filteredMembers = flashMembers.filter(member => {
+                    // Filtre par recherche textuelle
+                    if (flashQuery.trim()) {
+                      const query = flashQuery.toLowerCase().trim();
+                      const name = (member.name || '').toLowerCase();
+                      const email = (member.email || '').toLowerCase();
+                      const niveau = String(member.niveau || '').toLowerCase();
+                      if (!name.includes(query) && !email.includes(query) && !niveau.includes(query)) {
+                        return false;
+                      }
+                    }
+                    
+                    // Filtre par niveau
+                    if (flashLevelFilter.length > 0) {
+                      const memberLevel = Number(member.niveau);
+                      if (!Number.isFinite(memberLevel)) return false;
+                      
+                      const isInRange = flashLevelFilter.some(range => {
+                        const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+                        if (parts.length !== 2) return false;
+                        const [min, max] = parts.sort((a, b) => a - b);
+                        return memberLevel >= min && memberLevel <= max;
+                      });
+                      
+                      if (!isInRange) return false;
+                    }
+                    
+                    // Filtre géographique
+                    if (flashGeoRefPoint && flashGeoRefPoint.lat != null && flashGeoRefPoint.lng != null && flashGeoRadiusKm != null) {
+                      // Utiliser domicile, puis travail, comme position du joueur
+                      let playerLat = null;
+                      let playerLng = null;
+                      if (member.address_home?.lat && member.address_home?.lng) {
+                        playerLat = member.address_home.lat;
+                        playerLng = member.address_home.lng;
+                      } else if (member.address_work?.lat && member.address_work?.lng) {
+                        playerLat = member.address_work.lat;
+                        playerLng = member.address_work.lng;
+                      }
+                      
+                      if (!playerLat || !playerLng) return false; // Pas de position = exclu
+                      
+                      // Calculer la distance
+                      const distanceKm = haversineKm(flashGeoRefPoint, { lat: playerLat, lng: playerLng });
+                      if (distanceKm > flashGeoRadiusKm) return false;
+                    }
+                    
+                    return true;
+                  });
+                  
+                  if (flashMembers.length === 0) {
+                    return (
+                      <View style={{ padding: 20 }}>
+                        <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                          Aucun membre dans ce groupe.
+                        </Text>
+                      </View>
+                    );
+                  }
+                  
+                  if (filteredMembers.length === 0) {
+                    return (
+                      <>
                 <TextInput
+                          placeholder="Rechercher un joueur (nom, email, niveau)..."
+                          placeholderTextColor="#9ca3af"
                   value={flashQuery}
                   onChangeText={setFlashQuery}
-                  placeholder="Rechercher un joueur..."
                   style={{
+                            backgroundColor: '#f9fafb',
+                            borderWidth: 1,
+                            borderColor: '#e5e7eb',
+                            borderRadius: 10,
+                            paddingHorizontal: 12,
+                            paddingVertical: 10,
+                            color: '#111827',
+                            marginBottom: 12,
+                            fontSize: 14,
+                          }}
+                          returnKeyType="search"
+                          autoCapitalize="none"
+                        />
+                        
+                        {/* Boutons de filtres */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                          <Pressable
+                            onPress={() => {
+                              if (!flashLevelFilterVisible) {
+                                setFlashGeoFilterVisible(false);
+                              }
+                              setFlashLevelFilterVisible(!flashLevelFilterVisible);
+                            }}
+                            style={{
+                              padding: 10,
+                              backgroundColor: 'transparent',
+                            }}
+                          >
+                            <Image 
+                              source={racketIcon}
+                              style={{
+                                width: 20,
+                                height: 20,
+                                tintColor: flashLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 3,
+                                elevation: 4,
+                              }}
+                              resizeMode="contain"
+                            />
+                          </Pressable>
+                          
+                          <Text style={{ 
+                            color: '#111827', 
+                            fontWeight: '700', 
+                            fontSize: 14 
+                          }}>
+                            Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                          </Text>
+                          
+                          <Pressable
+                            onPress={() => {
+                              if (!flashGeoFilterVisible) {
+                                setFlashLevelFilterVisible(false);
+                              }
+                              setFlashGeoFilterVisible(!flashGeoFilterVisible);
+                            }}
+                            style={{
+                              padding: 10,
+                              backgroundColor: 'transparent',
+                            }}
+                          >
+                            <Ionicons 
+                              name="location" 
+                              size={20} 
+                              color={(flashGeoRefPoint && flashGeoRadiusKm) ? '#ff751d' : '#374151'}
+                              style={{
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 3,
+                                elevation: 4,
+                              }}
+                            />
+                          </Pressable>
+                        </View>
+                        
+                        {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
+                        {flashLevelFilterVisible && (
+                          <View style={{ 
                     backgroundColor: '#f3f4f6',
+                            borderRadius: 12, 
+                            padding: 12,
+                            borderWidth: 1,
+                            borderColor: flashLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                            marginBottom: 12,
+                          }}>
+                            <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                              Sélectionnez les niveaux à afficher
+                            </Text>
+                            
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                              {['1/2', '3/4', '5/6', '7/8'].map((range) => {
+                                const isSelected = flashLevelFilter.includes(range);
+                                return (
+                                  <Pressable
+                                    key={range}
+                                    onPress={() => {
+                                      setFlashLevelFilter((prev) => {
+                                        if (prev.includes(range)) {
+                                          return prev.filter(r => r !== range);
+                                        } else {
+                                          return [...prev, range];
+                                        }
+                                      });
+                                    }}
+                                    style={{
+                                      paddingVertical: 8,
+                                      paddingHorizontal: 12,
                     borderRadius: 8,
+                                      backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
+                                      borderWidth: 1,
+                                      borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                    }}
+                                  >
+                                    <Text style={{ 
+                                      fontSize: 13, 
+                                      fontWeight: isSelected ? '800' : '700', 
+                                      color: isSelected ? '#000000' : '#111827' 
+                                    }}>
+                                      {range}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                            
+                            {flashLevelFilter.length > 0 && (
+                              <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                                ✓ Filtre actif : {flashLevelFilter.length} plage{flashLevelFilter.length > 1 ? 's' : ''} sélectionnée{flashLevelFilter.length > 1 ? 's' : ''}
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                        
+                        {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+                        {flashGeoFilterVisible && (
+                          <View style={{ 
+                            backgroundColor: '#f3f4f6', 
+                            borderRadius: 12, 
                     padding: 12,
-                    marginBottom: 16,
+                            borderWidth: 1,
+                            borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                            marginBottom: 12,
+                          }}>
+                            <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                              Filtrer par distance
+                            </Text>
+                            
+                            {/* Sélection du type de position */}
+                            <View style={{ marginBottom: 12 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                                Position de référence
+                              </Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                {[
+                                  { key: 'current', label: '📍 Position actuelle' },
+                                  { key: 'home', label: '🏠 Domicile' },
+                                  { key: 'work', label: '💼 Travail' },
+                                  { key: 'city', label: '🏙️ Ville' },
+                                ].map(({ key, label }) => {
+                                  const isSelected = flashGeoLocationType === key;
+                                  return (
+                                    <Pressable
+                                      key={key}
+                                      onPress={() => {
+                                        if (isSelected) {
+                                          setFlashGeoRefPoint(null);
+                                          setFlashGeoCityQuery('');
+                                          setFlashGeoCitySuggestions([]);
+                                          setFlashGeoLocationType(null);
+                                          setFlashGeoRadiusKm(null);
+                                        } else {
+                                          setFlashGeoLocationType(key);
+                                          if (key === 'city') {
+                                            setFlashGeoRefPoint(null);
+                                            setFlashGeoCityQuery('');
+                                          }
+                                        }
+                                      }}
+                                      style={{
+                                        paddingVertical: 8,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 8,
+                                        backgroundColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#ffffff',
+                                        borderWidth: 1,
+                                        borderColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                      }}
+                                    >
+                                      <Text style={{ 
+                                        fontSize: 13, 
+                                        fontWeight: (isSelected && flashGeoRefPoint) ? '800' : '700', 
+                                        color: (isSelected && flashGeoRefPoint) ? '#ffffff' : '#111827' 
+                                      }}>
+                                        {label}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            </View>
+                            
+                            {/* Recherche de ville si type = 'city' */}
+                            {flashGeoLocationType === 'city' && (
+                              <View style={{ marginBottom: 12 }}>
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                                  Rechercher une ville
+                                </Text>
+                                <TextInput
+                                  placeholder="Tapez le nom d'une ville..."
+                                  value={flashGeoCityQuery}
+                                  onChangeText={(text) => {
+                                    setFlashGeoCityQuery(text);
+                                    searchFlashGeoCity(text);
+                                  }}
+                                  style={{
+                                    backgroundColor: '#ffffff',
+                                    borderRadius: 8,
+                                    padding: 12,
                     borderWidth: 1,
                     borderColor: '#d1d5db',
-                  }}
-                />
+                                    fontSize: 14,
+                                  }}
+                                />
+                                {flashGeoCitySuggestions.length > 0 && (
+                                  <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                                    <ScrollView>
+                                      {flashGeoCitySuggestions.map((suggestion, idx) => (
+                                        <Pressable
+                                          key={idx}
+                                          onPress={() => {
+                                            setFlashGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                                            setFlashGeoCityQuery(suggestion.name);
+                                            setFlashGeoCitySuggestions([]);
+                                          }}
+                                          style={{
+                                            padding: 12,
+                                            borderBottomWidth: idx < flashGeoCitySuggestions.length - 1 ? 1 : 0,
+                                            borderBottomColor: '#e5e7eb',
+                                          }}
+                                        >
+                                          <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                                        </Pressable>
+                                      ))}
+                                    </ScrollView>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                            
+                            {/* Sélection du rayon */}
+                            <View style={{ marginBottom: 12 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                                Rayon : {flashGeoRadiusKm ? `${flashGeoRadiusKm} km` : 'non sélectionné'}
+                              </Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                                {[10, 20, 30, 40, 50].map((km) => {
+                                  const isSelected = flashGeoRadiusKm === km;
+                                  return (
+                                    <Pressable
+                                      key={km}
+                                      onPress={() => {
+                                        if (isSelected) {
+                                          setFlashGeoRadiusKm(null);
+                                        } else {
+                                          setFlashGeoRadiusKm(km);
+                                        }
+                                      }}
+                                      style={{
+                                        flex: 1,
+                                        paddingVertical: 6,
+                                        paddingHorizontal: 8,
+                                        borderRadius: 8,
+                                        backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                        borderWidth: 1,
+                                        borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                      }}
+                                    >
+                                      <Text style={{ 
+                                        fontSize: 12, 
+                                        fontWeight: isSelected ? '800' : '700', 
+                                        color: isSelected ? '#ffffff' : '#111827' 
+                                      }}>
+                                        {km} km
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            </View>
+                            
+                            {(flashGeoRefPoint && flashGeoRadiusKm) && (
+                              <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                                ✓ Filtre actif : {flashGeoRadiusKm} km autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                        
+                        <View style={{ padding: 20 }}>
+                          <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                            Aucun membre trouvé
+                            {flashQuery.trim() && ` pour "${flashQuery}"`}
+                            {flashLevelFilter.length > 0 && ` avec les niveaux ${flashLevelFilter.join(', ')}`}
+                            {flashGeoRefPoint && flashGeoRadiusKm && ` dans un rayon de ${flashGeoRadiusKm} km autour de ${flashGeoRefPoint.address || 'la position sélectionnée'}`}
+                          </Text>
+                        </View>
+                      </>
+                    );
+                  }
+                  
+                  return (
+                    <>
+                      <TextInput
+                        placeholder="Rechercher un joueur (nom, email, niveau)..."
+                        placeholderTextColor="#9ca3af"
+                        value={flashQuery}
+                        onChangeText={setFlashQuery}
+                        style={{
+                          backgroundColor: '#f9fafb',
+                          borderWidth: 1,
+                          borderColor: '#e5e7eb',
+                          borderRadius: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          color: '#111827',
+                          marginBottom: 12,
+                          fontSize: 14,
+                        }}
+                        returnKeyType="search"
+                        autoCapitalize="none"
+                      />
+                      
+                      {/* Boutons de filtres */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                        <Pressable
+                          onPress={() => {
+                            if (!flashLevelFilterVisible) {
+                              setFlashGeoFilterVisible(false);
+                            }
+                            setFlashLevelFilterVisible(!flashLevelFilterVisible);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Image 
+                            source={racketIcon}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              tintColor: flashLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                            resizeMode="contain"
+                          />
+                        </Pressable>
+                        
+                        <Text style={{ 
+                          color: '#111827', 
+                          fontWeight: '700', 
+                          fontSize: 14 
+                        }}>
+                          Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                        </Text>
+                        
+                        <Pressable
+                          onPress={() => {
+                            if (!flashGeoFilterVisible) {
+                              setFlashLevelFilterVisible(false);
+                            }
+                            setFlashGeoFilterVisible(!flashGeoFilterVisible);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Ionicons 
+                            name="location" 
+                            size={20} 
+                            color={(flashGeoRefPoint && flashGeoRadiusKm) ? '#ff751d' : '#374151'}
+                            style={{
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                          />
+                        </Pressable>
+                      </View>
+                      
+                      {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
+                      {flashLevelFilterVisible && (
+                        <View style={{ 
+                          backgroundColor: '#f3f4f6', 
+                          borderRadius: 12, 
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: flashLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                          marginBottom: 12,
+                        }}>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                            Sélectionnez les niveaux à afficher
+                          </Text>
+                          
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {['1/2', '3/4', '5/6', '7/8'].map((range) => {
+                              const isSelected = flashLevelFilter.includes(range);
+                              return (
+                                <Pressable
+                                  key={range}
+                                  onPress={() => {
+                                    setFlashLevelFilter((prev) => {
+                                      if (prev.includes(range)) {
+                                        return prev.filter(r => r !== range);
+                                      } else {
+                                        return [...prev, range];
+                                      }
+                                    });
+                                  }}
+                                  style={{
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
+                                    borderWidth: 1,
+                                    borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                  }}
+                                >
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    fontWeight: isSelected ? '800' : '700', 
+                                    color: isSelected ? '#000000' : '#111827' 
+                                  }}>
+                                    {range}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                          
+                          {flashLevelFilter.length > 0 && (
+                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                              ✓ Filtre actif : {flashLevelFilter.length} plage{flashLevelFilter.length > 1 ? 's' : ''} sélectionnée{flashLevelFilter.length > 1 ? 's' : ''}
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                      
+                      {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+                      {flashGeoFilterVisible && (
+                        <View style={{ 
+                          backgroundColor: '#f3f4f6', 
+                          borderRadius: 12, 
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                          marginBottom: 12,
+                        }}>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                            Filtrer par distance
+                          </Text>
+                          
+                          {/* Sélection du type de position */}
+                          <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              Position de référence
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                              {[
+                                { key: 'current', label: '📍 Position actuelle' },
+                                { key: 'home', label: '🏠 Domicile' },
+                                { key: 'work', label: '💼 Travail' },
+                                { key: 'city', label: '🏙️ Ville' },
+                              ].map(({ key, label }) => {
+                                const isSelected = flashGeoLocationType === key;
+                                return (
+                                  <Pressable
+                                    key={key}
+                                    onPress={() => {
+                                      if (isSelected) {
+                                        setFlashGeoRefPoint(null);
+                                        setFlashGeoCityQuery('');
+                                        setFlashGeoCitySuggestions([]);
+                                        setFlashGeoLocationType(null);
+                                        setFlashGeoRadiusKm(null);
+                                      } else {
+                                        setFlashGeoLocationType(key);
+                                        if (key === 'city') {
+                                          setFlashGeoRefPoint(null);
+                                          setFlashGeoCityQuery('');
+                                        }
+                                      }
+                                    }}
+                                    style={{
+                                      paddingVertical: 8,
+                                      paddingHorizontal: 12,
+                                      borderRadius: 8,
+                                      backgroundColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#ffffff',
+                                      borderWidth: 1,
+                                      borderColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                    }}
+                                  >
+                                    <Text style={{ 
+                                      fontSize: 13, 
+                                      fontWeight: (isSelected && flashGeoRefPoint) ? '800' : '700', 
+                                      color: (isSelected && flashGeoRefPoint) ? '#ffffff' : '#111827' 
+                                    }}>
+                                      {label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                          
+                          {/* Recherche de ville si type = 'city' */}
+                          {flashGeoLocationType === 'city' && (
+                            <View style={{ marginBottom: 12 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                                Rechercher une ville
+                              </Text>
+                              <TextInput
+                                placeholder="Tapez le nom d'une ville..."
+                                value={flashGeoCityQuery}
+                                onChangeText={(text) => {
+                                  setFlashGeoCityQuery(text);
+                                  searchFlashGeoCity(text);
+                                }}
+                                style={{
+                                  backgroundColor: '#ffffff',
+                                  borderRadius: 8,
+                                  padding: 12,
+                                  borderWidth: 1,
+                                  borderColor: '#d1d5db',
+                                  fontSize: 14,
+                                }}
+                              />
+                              {flashGeoCitySuggestions.length > 0 && (
+                                <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                                  <ScrollView>
+                                    {flashGeoCitySuggestions.map((suggestion, idx) => (
+                                      <Pressable
+                                        key={idx}
+                                        onPress={() => {
+                                          setFlashGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                                          setFlashGeoCityQuery(suggestion.name);
+                                          setFlashGeoCitySuggestions([]);
+                                        }}
+                                        style={{
+                                          padding: 12,
+                                          borderBottomWidth: idx < flashGeoCitySuggestions.length - 1 ? 1 : 0,
+                                          borderBottomColor: '#e5e7eb',
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                                      </Pressable>
+                                    ))}
+                                  </ScrollView>
+                                </View>
+                              )}
+                            </View>
+                          )}
+                          
+                          {/* Sélection du rayon */}
+                          <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              Rayon : {flashGeoRadiusKm ? `${flashGeoRadiusKm} km` : 'non sélectionné'}
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                              {[10, 20, 30, 40, 50].map((km) => {
+                                const isSelected = flashGeoRadiusKm === km;
+                                return (
+                                  <Pressable
+                                    key={km}
+                                    onPress={() => {
+                                      if (isSelected) {
+                                        setFlashGeoRadiusKm(null);
+                                      } else {
+                                        setFlashGeoRadiusKm(km);
+                                      }
+                                    }}
+                                    style={{
+                                      flex: 1,
+                                      paddingVertical: 6,
+                                      paddingHorizontal: 8,
+                                      borderRadius: 8,
+                                      backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                      borderWidth: 1,
+                                      borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Text style={{ 
+                                      fontSize: 12, 
+                                      fontWeight: isSelected ? '800' : '700', 
+                                      color: isSelected ? '#ffffff' : '#111827' 
+                                    }}>
+                                      {km} km
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                          
+                          {(flashGeoRefPoint && flashGeoRadiusKm) && (
+                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                              ✓ Filtre actif : {flashGeoRadiusKm} km autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
+                            </Text>
+                          )}
+                        </View>
+                      )}
 
                 {/* Avatars sélectionnés (bandeau) */}
                 {flashSelected.length > 0 && (
-                  <View style={{ marginBottom: 0, borderTopWidth: 0, borderBottomWidth: 0 }}>
+                        <View style={{ marginBottom: 12, borderTopWidth: 0, borderBottomWidth: 0 }}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4 }}>
-                      {flashMembers
+                            {filteredMembers
                         .filter(m => flashSelected.includes(String(m.id)))
                         .map((member) => (
                           <Pressable
@@ -6275,17 +7214,8 @@ const HourSlotRow = ({ item }) => {
                 )}
 
                 {/* Liste des joueurs */}
-                {flashMembers.filter(m => (!flashQuery || (m.name || '').toLowerCase().includes(flashQuery.toLowerCase()))).length === 0 ? (
-                  <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 16 }}>
-                    Pas de joueurs disponibles sur ce créneau
-                  </Text>
-                ) : (
                   <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
-                    {flashMembers
-                      .filter(m => (
-                        !flashQuery || (m.name || '').toLowerCase().includes(flashQuery.toLowerCase())
-                      ))
-                      .map((member) => {
+                        {filteredMembers.map((member) => {
                       const isSelected = flashSelected.includes(String(member.id));
                       return (
                         <Pressable
@@ -6370,7 +7300,9 @@ const HourSlotRow = ({ item }) => {
                       );
                       })}
                   </ScrollView>
-                )}
+                    </>
+                  );
+                })()}
 
                 {/* Compteur de sélection */}
                 <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 16, textAlign: 'center' }}>
@@ -7395,43 +8327,77 @@ const HourSlotRow = ({ item }) => {
                       {userIsAvailable ? (
                         /* Bouton Inviter un joueur du groupe si l'utilisateur est disponible */
                         <Pressable
+                          disabled={!groupId}
                           onPress={async () => {
+                            console.log('[HotMatch] Bouton Inviter un joueur cliqué, groupId:', groupId);
+                            if (!groupId) {
+                              Alert.alert('Erreur', 'Aucun groupe sélectionné');
+                              return;
+                            }
+                            console.log('[HotMatch] Ouverture de la modale d\'invitation');
+                            // Fermer la modale des matchs en feu avant d'ouvrir la modale d'invitation
+                            setHotMatchesModalVisible(false);
                             setSelectedHotMatch(m);
                             setLoadingHotMatchMembers(true);
+                            setHotMatchMembers([]); // Réinitialiser la liste avant le chargement
+                            setHotMatchSearchQuery(''); // Réinitialiser la recherche
+                            setHotMatchLevelFilter([]); // Réinitialiser le filtre de niveau
+                            setHotMatchLevelFilterVisible(false); // Masquer la zone de configuration
+                            setHotMatchGeoLocationType(null); // Réinitialiser le filtre géographique
+                            setHotMatchGeoRefPoint(null);
+                            setHotMatchGeoCityQuery('');
+                            setHotMatchGeoCitySuggestions([]);
+                            setHotMatchGeoRadiusKm(null);
+                            setHotMatchGeoFilterVisible(false); // Masquer la zone de configuration
+                            // Attendre un court délai pour que la modale se ferme avant d'ouvrir la nouvelle
+                            setTimeout(() => {
                             setInviteHotMatchModalVisible(true);
+                            }, 200);
                             try {
                               // Charger les membres du groupe
+                              console.log('[HotMatch] Chargement des membres du groupe:', groupId);
                               const { data: members, error } = await supabase
                                 .from('group_members')
                                 .select('user_id, role')
                                 .eq('group_id', groupId);
-                              if (error) throw error;
+                              if (error) {
+                                console.error('[HotMatch] Erreur requête group_members:', error);
+                                throw error;
+                              }
 
+                              console.log('[HotMatch] Résultat group_members:', members);
                               const userIds = [...new Set((members || []).map((gm) => gm.user_id))];
+                              console.log('[HotMatch] Membres trouvés:', userIds.length, 'ids:', userIds);
                               if (userIds.length) {
                                 const { data: profs, error: profError } = await supabase
                                   .from('profiles')
-                                  .select('id, display_name, avatar_url, email, niveau, phone, expo_push_token')
+                                  .select('id, display_name, avatar_url, email, niveau, phone, expo_push_token, address_home, address_work')
                                   .in('id', userIds);
-                                if (profError) throw profError;
+                                if (profError) {
+                                  console.error('[HotMatch] Erreur requête profiles:', profError);
+                                  throw profError;
+                                }
                                 
-                                // Exclure les joueurs déjà disponibles sur ce créneau
-                                const availableUserIdsSet = new Set(allAvailableIds.map(String));
-                                const availableMembers = (profs || []).filter(p => !availableUserIdsSet.has(String(p.id)));
-                                
-                                setHotMatchMembers(availableMembers);
+                                // Afficher tous les membres du groupe, qu'ils soient disponibles ou non
+                                console.log('[HotMatch] Profils chargés:', profs?.length || 0, 'profils:', profs);
+                                setHotMatchMembers(profs || []);
                               } else {
+                                console.log('[HotMatch] Aucun membre trouvé dans group_members');
                                 setHotMatchMembers([]);
                               }
                             } catch (e) {
+                              console.error('[HotMatch] Erreur chargement membres:', e);
                               Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
                               setHotMatchMembers([]);
                             } finally {
                               setLoadingHotMatchMembers(false);
+                              // Note: hotMatchMembers.length peut être obsolète ici car setState est asynchrone
+                              // Le log sera dans le render de la modale
                             }
                           }}
-                          style={{
-                            backgroundColor: '#ff751f',
+                          style={({ pressed }) => [
+                            {
+                              backgroundColor: groupId ? '#ff751f' : '#9ca3af',
                             paddingVertical: 10,
                             paddingHorizontal: 12,
                             borderRadius: 8,
@@ -7440,7 +8406,10 @@ const HourSlotRow = ({ item }) => {
                             justifyContent: 'center',
                             marginTop: 12,
                             gap: 6,
-                          }}
+                              opacity: groupId ? (pressed ? 0.8 : 1) : 0.6,
+                            },
+                            Platform.OS === 'web' && { cursor: groupId ? 'pointer' : 'not-allowed' }
+                          ]}
                         >
                           <Text style={{ fontSize: 16 }}>👋</Text>
                           <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
@@ -7486,17 +8455,17 @@ const HourSlotRow = ({ item }) => {
                               let timeSlotId = m.time_slot_id;
                               
                               if (!timeSlotId || timeSlotId.startsWith('virtual-')) {
-                                // Vérifier si un time_slot existe déjà pour ce créneau
+                                // Vérifier si un time_slot existe déjà pour ce créneau (la contrainte unique est sur group_id + starts_at)
                                 const { data: existingTimeSlot } = await supabase
                                   .from('time_slots')
                                   .select('id')
                                   .eq('group_id', groupId)
                                   .eq('starts_at', slot.starts_at)
-                                  .eq('ends_at', slot.ends_at)
                                   .maybeSingle();
                                 
                                 if (existingTimeSlot?.id) {
                                   timeSlotId = existingTimeSlot.id;
+                                  console.log('[HotMatch] Time_slot existant trouvé:', timeSlotId);
                                 } else {
                                   // Créer un time_slot pour ce créneau
                                   const { data: newTimeSlot, error: timeSlotError } = await supabase
@@ -7511,14 +8480,16 @@ const HourSlotRow = ({ item }) => {
                                   
                                   if (timeSlotError) {
                                     // Si erreur de duplication (clé unique dupliquée), récupérer le time_slot existant
-                                    if (timeSlotError.code === '23505' || timeSlotError.message?.includes('duplicate key') || timeSlotError.message?.includes('unique constraint')) {
-                                      console.log('[HotMatch] Time_slot déjà existant, récupération...');
+                                    if (timeSlotError.code === '23505' || 
+                                        String(timeSlotError.message || '').includes('duplicate key') || 
+                                        String(timeSlotError.message || '').includes('unique constraint') ||
+                                        String(timeSlotError.message || '').includes('uniq_time_slots')) {
+                                      console.log('[HotMatch] Time_slot déjà existant (erreur de duplication), récupération...');
                                       const { data: existingTS, error: fetchError } = await supabase
                                         .from('time_slots')
                                         .select('id')
                                         .eq('group_id', groupId)
                                         .eq('starts_at', slot.starts_at)
-                                        .eq('ends_at', slot.ends_at)
                                         .maybeSingle();
                                       
                                       if (fetchError) {
@@ -7540,6 +8511,7 @@ const HourSlotRow = ({ item }) => {
                                     }
                                   } else {
                                     timeSlotId = newTimeSlot?.id;
+                                    console.log('[HotMatch] Time_slot créé:', timeSlotId);
                                   }
                                 }
                               }
@@ -7652,34 +8624,899 @@ const HourSlotRow = ({ item }) => {
 
       {/* Modale d'invitation de membres pour les matchs en feu */}
       <Modal visible={inviteHotMatchModalVisible} transparent animationType="fade" onRequestClose={() => setInviteHotMatchModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+        {(() => {
+          console.log('[HotMatch] Modale rendue, visible:', inviteHotMatchModalVisible, 'loading:', loadingHotMatchMembers, 'membres:', hotMatchMembers.length);
+          return null;
+        })()}
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%', elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Inviter un joueur</Text>
-              <Pressable onPress={() => setInviteHotMatchModalVisible(false)} style={{ padding: 8 }}>
+              <Pressable onPress={() => {
+                console.log('[HotMatch] Fermeture modale');
+                setInviteHotMatchModalVisible(false);
+                setHotMatchSearchQuery(''); // Réinitialiser la recherche
+                setHotMatchLevelFilter([]); // Réinitialiser le filtre de niveau
+                setHotMatchLevelFilterVisible(false); // Masquer la zone de configuration
+                setHotMatchGeoLocationType(null); // Réinitialiser le filtre géographique
+                setHotMatchGeoRefPoint(null);
+                setHotMatchGeoCityQuery('');
+                setHotMatchGeoCitySuggestions([]);
+                setHotMatchGeoRadiusKm(null);
+                setHotMatchGeoFilterVisible(false); // Masquer la zone de configuration
+              }} style={{ padding: 8 }}>
                 <Ionicons name="close" size={24} color="#111827" />
               </Pressable>
             </View>
             
-            {loadingHotMatchMembers ? (
+            {(() => {
+              console.log('[HotMatch] Rendu modale - loading:', loadingHotMatchMembers, 'count:', hotMatchMembers.length);
+              if (loadingHotMatchMembers) {
+                return (
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#156bc9" />
                 <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
               </View>
-            ) : hotMatchMembers.length === 0 ? (
+                );
+              }
+              
+              // Filtrer les membres en fonction de la recherche et du niveau
+              const filteredMembers = hotMatchMembers.filter(member => {
+                // Filtre par recherche textuelle
+                if (hotMatchSearchQuery.trim()) {
+                  const query = hotMatchSearchQuery.toLowerCase().trim();
+                  const name = (member.display_name || '').toLowerCase();
+                  const email = (member.email || '').toLowerCase();
+                  const niveau = String(member.niveau || '').toLowerCase();
+                  if (!name.includes(query) && !email.includes(query) && !niveau.includes(query)) {
+                    return false;
+                  }
+                }
+                
+                // Filtre par niveau
+                if (hotMatchLevelFilter.length > 0) {
+                  const memberLevel = Number(member.niveau);
+                  if (!Number.isFinite(memberLevel)) return false;
+                  
+                  const isInRange = hotMatchLevelFilter.some(range => {
+                    const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+                    if (parts.length !== 2) return false;
+                    const [min, max] = parts.sort((a, b) => a - b);
+                    return memberLevel >= min && memberLevel <= max;
+                  });
+                  
+                  if (!isInRange) return false;
+                }
+                
+                // Filtre géographique
+                if (hotMatchGeoRefPoint && hotMatchGeoRefPoint.lat != null && hotMatchGeoRefPoint.lng != null && hotMatchGeoRadiusKm != null) {
+                  // Utiliser domicile, puis travail, comme position du joueur
+                  let playerLat = null;
+                  let playerLng = null;
+                  if (member.address_home?.lat && member.address_home?.lng) {
+                    playerLat = member.address_home.lat;
+                    playerLng = member.address_home.lng;
+                  } else if (member.address_work?.lat && member.address_work?.lng) {
+                    playerLat = member.address_work.lat;
+                    playerLng = member.address_work.lng;
+                  }
+                  
+                  if (!playerLat || !playerLng) return false; // Pas de position = exclu
+                  
+                  // Calculer la distance
+                  const distanceKm = haversineKm(hotMatchGeoRefPoint, { lat: playerLat, lng: playerLng });
+                  if (distanceKm > hotMatchGeoRadiusKm) return false;
+                }
+                
+                return true;
+              });
+              
+              if (hotMatchMembers.length === 0) {
+                return (
               <View style={{ padding: 20 }}>
                 <Text style={{ color: '#6b7280', textAlign: 'center' }}>
-                  Aucun membre disponible à inviter (tous sont déjà disponibles sur ce créneau).
+                      Aucun membre dans ce groupe.
+                    </Text>
+                    <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 12, marginTop: 8 }}>
+                      (loading: {loadingHotMatchMembers ? 'true' : 'false'}, count: {hotMatchMembers.length})
                 </Text>
               </View>
-            ) : (
-              <ScrollView style={{ maxHeight: 400 }}>
-                {hotMatchMembers.map((member) => (
+                );
+              }
+              
+              if (filteredMembers.length === 0) {
+                return (
+                  <>
+                    <TextInput
+                      placeholder="Rechercher un joueur (nom, email, niveau)..."
+                      placeholderTextColor="#9ca3af"
+                      value={hotMatchSearchQuery}
+                      onChangeText={setHotMatchSearchQuery}
+                      style={{
+                        backgroundColor: '#f9fafb',
+                        borderWidth: 1,
+                        borderColor: '#e5e7eb',
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        color: '#111827',
+                        marginBottom: 12,
+                        fontSize: 14,
+                      }}
+                      returnKeyType="search"
+                      autoCapitalize="none"
+                    />
+                    
+                    {/* Boutons de filtres */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                  <Pressable
+                    onPress={() => {
+                          if (!hotMatchLevelFilterVisible) {
+                            setHotMatchGeoFilterVisible(false);
+                          }
+                          setHotMatchLevelFilterVisible(!hotMatchLevelFilterVisible);
+                        }}
+                        style={{
+                          padding: 10,
+                          backgroundColor: 'transparent',
+                        }}
+                      >
+                        <Image 
+                          source={racketIcon}
+                          style={{
+                            width: 20,
+                            height: 20,
+                            tintColor: hotMatchLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 3,
+                            elevation: 4,
+                          }}
+                          resizeMode="contain"
+                        />
+                      </Pressable>
+                      
+                      <Text style={{ 
+                        color: '#111827', 
+                        fontWeight: '700', 
+                        fontSize: 14 
+                      }}>
+                        Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                      </Text>
+                      
+                      <Pressable
+                        onPress={() => {
+                          if (!hotMatchGeoFilterVisible) {
+                            setHotMatchLevelFilterVisible(false);
+                          }
+                          setHotMatchGeoFilterVisible(!hotMatchGeoFilterVisible);
+                        }}
+                        style={{
+                          padding: 10,
+                          backgroundColor: 'transparent',
+                        }}
+                      >
+                        <Ionicons 
+                          name="location" 
+                          size={20} 
+                          color={(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#ff751d' : '#374151'}
+                          style={{
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 3,
+                            elevation: 4,
+                          }}
+                        />
+                      </Pressable>
+                    </View>
+                    
+                    {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
+                    {hotMatchLevelFilterVisible && (
+                      <View style={{ 
+                        backgroundColor: '#f3f4f6', 
+                        borderRadius: 12, 
+                        padding: 12,
+                        borderWidth: 1,
+                        borderColor: hotMatchLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                        marginBottom: 12,
+                      }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                          Sélectionnez les niveaux à afficher
+                        </Text>
+                        
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {['1/2', '3/4', '5/6', '7/8'].map((range) => {
+                            const isSelected = hotMatchLevelFilter.includes(range);
+                            return (
+                              <Pressable
+                                key={range}
+                                onPress={() => {
+                                  setHotMatchLevelFilter((prev) => {
+                                    if (prev.includes(range)) {
+                                      return prev.filter(r => r !== range);
+                                    } else {
+                                      return [...prev, range];
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 8,
+                                  backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
+                                  borderWidth: 1,
+                                  borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                }}
+                              >
+                                <Text style={{ 
+                                  fontSize: 13, 
+                                  fontWeight: isSelected ? '800' : '700', 
+                                  color: isSelected ? '#000000' : '#111827' 
+                                }}>
+                                  {range}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        
+                        {hotMatchLevelFilter.length > 0 && (
+                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                            ✓ Filtre actif : {hotMatchLevelFilter.length} plage{hotMatchLevelFilter.length > 1 ? 's' : ''} sélectionnée{hotMatchLevelFilter.length > 1 ? 's' : ''}
+                          </Text>
+                        )}
+                      </View>
+                    )}
+                    
+                    {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+                    {hotMatchGeoFilterVisible && (
+                      <View style={{ 
+                        backgroundColor: '#f3f4f6', 
+                        borderRadius: 12, 
+                        padding: 12,
+                        borderWidth: 1,
+                        borderColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                        marginBottom: 12,
+                      }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                          Filtrer par distance
+                        </Text>
+                        
+                        {/* Sélection du type de position */}
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                            Position de référence
+                          </Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {[
+                              { key: 'current', label: '📍 Position actuelle' },
+                              { key: 'home', label: '🏠 Domicile' },
+                              { key: 'work', label: '💼 Travail' },
+                              { key: 'city', label: '🏙️ Ville' },
+                            ].map(({ key, label }) => {
+                              const isSelected = hotMatchGeoLocationType === key;
+                              return (
+                                <Pressable
+                                  key={key}
+                                  onPress={() => {
+                                    if (isSelected) {
+                                      setHotMatchGeoRefPoint(null);
+                                      setHotMatchGeoCityQuery('');
+                                      setHotMatchGeoCitySuggestions([]);
+                                      setHotMatchGeoLocationType(null);
+                                      setHotMatchGeoRadiusKm(null);
+                                    } else {
+                                      setHotMatchGeoLocationType(key);
+                                      if (key === 'city') {
+                                        setHotMatchGeoRefPoint(null);
+                                        setHotMatchGeoCityQuery('');
+                                      }
+                                    }
+                                  }}
+                                  style={{
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    backgroundColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#ffffff',
+                                    borderWidth: 1,
+                                    borderColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                  }}
+                                >
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    fontWeight: (isSelected && hotMatchGeoRefPoint) ? '800' : '700', 
+                                    color: (isSelected && hotMatchGeoRefPoint) ? '#ffffff' : '#111827' 
+                                  }}>
+                                    {label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                        
+                        {/* Recherche de ville si type = 'city' */}
+                        {hotMatchGeoLocationType === 'city' && (
+                          <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              Rechercher une ville
+                            </Text>
+                            <TextInput
+                              placeholder="Tapez le nom d'une ville..."
+                              value={hotMatchGeoCityQuery}
+                              onChangeText={(text) => {
+                                setHotMatchGeoCityQuery(text);
+                                searchHotMatchGeoCity(text);
+                              }}
+                              style={{
+                                backgroundColor: '#ffffff',
+                                borderRadius: 8,
+                                padding: 12,
+                                borderWidth: 1,
+                                borderColor: '#d1d5db',
+                                fontSize: 14,
+                              }}
+                            />
+                            {hotMatchGeoCitySuggestions.length > 0 && (
+                              <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                                <ScrollView>
+                                  {hotMatchGeoCitySuggestions.map((suggestion, idx) => (
+                                    <Pressable
+                                      key={idx}
+                                      onPress={() => {
+                                        setHotMatchGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                                        setHotMatchGeoCityQuery(suggestion.name);
+                                        setHotMatchGeoCitySuggestions([]);
+                                      }}
+                                      style={{
+                                        padding: 12,
+                                        borderBottomWidth: idx < hotMatchGeoCitySuggestions.length - 1 ? 1 : 0,
+                                        borderBottomColor: '#e5e7eb',
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                                    </Pressable>
+                                  ))}
+                                </ScrollView>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                        
+                        {/* Sélection du rayon */}
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                            Rayon : {hotMatchGeoRadiusKm ? `${hotMatchGeoRadiusKm} km` : 'non sélectionné'}
+                          </Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                            {[10, 20, 30, 40, 50].map((km) => {
+                              const isSelected = hotMatchGeoRadiusKm === km;
+                              return (
+                                <Pressable
+                                  key={km}
+                                  onPress={() => {
+                                    if (isSelected) {
+                                      setHotMatchGeoRadiusKm(null);
+                                    } else {
+                                      setHotMatchGeoRadiusKm(km);
+                                    }
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    paddingVertical: 6,
+                                    paddingHorizontal: 8,
+                                    borderRadius: 8,
+                                    backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                    borderWidth: 1,
+                                    borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Text style={{ 
+                                    fontSize: 12, 
+                                    fontWeight: isSelected ? '800' : '700', 
+                                    color: isSelected ? '#ffffff' : '#111827' 
+                                  }}>
+                                    {km} km
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                        
+                        {(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) && (
+                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                            ✓ Filtre actif : {hotMatchGeoRadiusKm} km autour de {hotMatchGeoRefPoint.address || 'la position sélectionnée'}
+                          </Text>
+                        )}
+                      </View>
+                    )}
+                    
+                    <View style={{ padding: 20 }}>
+                      <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                        Aucun membre trouvé
+                        {hotMatchSearchQuery.trim() && ` pour "${hotMatchSearchQuery}"`}
+                        {hotMatchLevelFilter.length > 0 && ` avec les niveaux ${hotMatchLevelFilter.join(', ')}`}
+                        {hotMatchGeoRefPoint && hotMatchGeoRadiusKm && ` dans un rayon de ${hotMatchGeoRadiusKm} km autour de ${hotMatchGeoRefPoint.address || 'la position sélectionnée'}`}
+                      </Text>
+                    </View>
+                  </>
+                );
+              }
+              
+              return (
+                <>
+                  <TextInput
+                    placeholder="Rechercher un joueur (nom, email, niveau)..."
+                    placeholderTextColor="#9ca3af"
+                    value={hotMatchSearchQuery}
+                    onChangeText={setHotMatchSearchQuery}
+                    style={{
+                      backgroundColor: '#f9fafb',
+                      borderWidth: 1,
+                      borderColor: '#e5e7eb',
+                      borderRadius: 10,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      color: '#111827',
+                      marginBottom: 12,
+                      fontSize: 14,
+                    }}
+                    returnKeyType="search"
+                    autoCapitalize="none"
+                  />
+                  
+                  {/* Boutons de filtres */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                    <Pressable
+                      onPress={() => {
+                        if (!hotMatchLevelFilterVisible) {
+                          setHotMatchGeoFilterVisible(false);
+                        }
+                        setHotMatchLevelFilterVisible(!hotMatchLevelFilterVisible);
+                      }}
+                      style={{
+                        padding: 10,
+                        backgroundColor: 'transparent',
+                      }}
+                    >
+                      <Image 
+                        source={racketIcon}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          tintColor: hotMatchLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.3,
+                          shadowRadius: 3,
+                          elevation: 4,
+                        }}
+                        resizeMode="contain"
+                      />
+                    </Pressable>
+                    
+                    <Text style={{ 
+                      color: '#111827', 
+                      fontWeight: '700', 
+                      fontSize: 14 
+                    }}>
+                      Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                    </Text>
+                    
+                    <Pressable
+                      onPress={() => {
+                        if (!hotMatchGeoFilterVisible) {
+                          setHotMatchLevelFilterVisible(false);
+                        }
+                        setHotMatchGeoFilterVisible(!hotMatchGeoFilterVisible);
+                      }}
+                      style={{
+                        padding: 10,
+                        backgroundColor: 'transparent',
+                      }}
+                    >
+                      <Ionicons 
+                        name="location" 
+                        size={20} 
+                        color={(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#ff751d' : '#374151'}
+                        style={{
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.3,
+                          shadowRadius: 3,
+                          elevation: 4,
+                        }}
+                      />
+                    </Pressable>
+                  </View>
+                  
+                  {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
+                  {hotMatchLevelFilterVisible && (
+                    <View style={{ 
+                      backgroundColor: '#f3f4f6', 
+                      borderRadius: 12, 
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: hotMatchLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                      marginBottom: 12,
+                    }}>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                        Sélectionnez les niveaux à afficher
+                      </Text>
+                      
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                        {['1/2', '3/4', '5/6', '7/8'].map((range) => {
+                          const isSelected = hotMatchLevelFilter.includes(range);
+                          return (
+                            <Pressable
+                              key={range}
+                              onPress={() => {
+                                setHotMatchLevelFilter((prev) => {
+                                  if (prev.includes(range)) {
+                                    return prev.filter(r => r !== range);
+                                  } else {
+                                    return [...prev, range];
+                                  }
+                                });
+                              }}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 8,
+                                backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
+                                borderWidth: 1,
+                                borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                              }}
+                            >
+                              <Text style={{ 
+                                fontSize: 13, 
+                                fontWeight: isSelected ? '800' : '700', 
+                                color: isSelected ? '#000000' : '#111827' 
+                              }}>
+                                {range}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      
+                      {hotMatchLevelFilter.length > 0 && (
+                        <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                          ✓ Filtre actif : {hotMatchLevelFilter.length} plage{hotMatchLevelFilter.length > 1 ? 's' : ''} sélectionnée{hotMatchLevelFilter.length > 1 ? 's' : ''}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                  
+                  {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+                  {hotMatchGeoFilterVisible && (
+                    <View style={{ 
+                      backgroundColor: '#f3f4f6', 
+                      borderRadius: 12, 
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                      marginBottom: 12,
+                    }}>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                        Filtrer par distance
+                      </Text>
+                      
+                      {/* Sélection du type de position */}
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                          Position de référence
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {[
+                            { key: 'current', label: '📍 Position actuelle' },
+                            { key: 'home', label: '🏠 Domicile' },
+                            { key: 'work', label: '💼 Travail' },
+                            { key: 'city', label: '🏙️ Ville' },
+                          ].map(({ key, label }) => {
+                            const isSelected = hotMatchGeoLocationType === key;
+                            return (
+                              <Pressable
+                                key={key}
+                                onPress={() => {
+                                  if (isSelected) {
+                                    setHotMatchGeoRefPoint(null);
+                                    setHotMatchGeoCityQuery('');
+                                    setHotMatchGeoCitySuggestions([]);
+                                    setHotMatchGeoLocationType(null);
+                                    setHotMatchGeoRadiusKm(null);
+                                  } else {
+                                    setHotMatchGeoLocationType(key);
+                                    if (key === 'city') {
+                                      setHotMatchGeoRefPoint(null);
+                                      setHotMatchGeoCityQuery('');
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 8,
+                                  backgroundColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#ffffff',
+                                  borderWidth: 1,
+                                  borderColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                }}
+                              >
+                                <Text style={{ 
+                                  fontSize: 13, 
+                                  fontWeight: (isSelected && hotMatchGeoRefPoint) ? '800' : '700', 
+                                  color: (isSelected && hotMatchGeoRefPoint) ? '#ffffff' : '#111827' 
+                                }}>
+                                  {label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      
+                      {/* Recherche de ville si type = 'city' */}
+                      {hotMatchGeoLocationType === 'city' && (
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                            Rechercher une ville
+                          </Text>
+                          <TextInput
+                            placeholder="Tapez le nom d'une ville..."
+                            value={hotMatchGeoCityQuery}
+                            onChangeText={(text) => {
+                              setHotMatchGeoCityQuery(text);
+                              searchHotMatchGeoCity(text);
+                            }}
+                            style={{
+                              backgroundColor: '#ffffff',
+                              borderRadius: 8,
+                              padding: 12,
+                              borderWidth: 1,
+                              borderColor: '#d1d5db',
+                              fontSize: 14,
+                            }}
+                          />
+                          {hotMatchGeoCitySuggestions.length > 0 && (
+                            <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                              <ScrollView>
+                                {hotMatchGeoCitySuggestions.map((suggestion, idx) => (
+                                  <Pressable
+                                    key={idx}
+                                    onPress={() => {
+                                      setHotMatchGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                                      setHotMatchGeoCityQuery(suggestion.name);
+                                      setHotMatchGeoCitySuggestions([]);
+                                    }}
+                                    style={{
+                                      padding: 12,
+                                      borderBottomWidth: idx < hotMatchGeoCitySuggestions.length - 1 ? 1 : 0,
+                                      borderBottomColor: '#e5e7eb',
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                                  </Pressable>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                      
+                      {/* Sélection du rayon */}
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                          Rayon : {hotMatchGeoRadiusKm ? `${hotMatchGeoRadiusKm} km` : 'non sélectionné'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                          {[10, 20, 30, 40, 50].map((km) => {
+                            const isSelected = hotMatchGeoRadiusKm === km;
+                            return (
+                              <Pressable
+                                key={km}
+                                onPress={() => {
+                                  if (isSelected) {
+                                    setHotMatchGeoRadiusKm(null);
+                                  } else {
+                                    setHotMatchGeoRadiusKm(km);
+                                  }
+                                }}
+                                style={{
+                                  flex: 1,
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 8,
+                                  backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                  borderWidth: 1,
+                                  borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Text style={{ 
+                                  fontSize: 12, 
+                                  fontWeight: isSelected ? '800' : '700', 
+                                  color: isSelected ? '#ffffff' : '#111827' 
+                                }}>
+                                  {km} km
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      
+                      {(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) && (
+                        <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                          ✓ Filtre actif : {hotMatchGeoRadiusKm} km autour de {hotMatchGeoRefPoint.address || 'la position sélectionnée'}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                  
+                  <Text style={{ color: '#6b7280', fontSize: 12, marginBottom: 8, fontWeight: '700' }}>
+                    {filteredMembers.length} membre{filteredMembers.length > 1 ? 's' : ''} trouvé{filteredMembers.length > 1 ? 's' : ''}
+                    {(hotMatchSearchQuery.trim() || hotMatchLevelFilter.length > 0 || (hotMatchGeoRefPoint && hotMatchGeoRadiusKm)) && filteredMembers.length !== hotMatchMembers.length && ` sur ${hotMatchMembers.length}`}
+                  </Text>
+                  <ScrollView style={{ maxHeight: 400, minHeight: 200 }} showsVerticalScrollIndicator={true}>
+                    {filteredMembers.map((member) => (
                   <Pressable
                     key={member.id}
-                    onPress={() => {
-                      setSelectedPlayerForContacts(member);
-                      setPlayerContactsModalVisible(true);
+                    onPress={async () => {
+                      console.log('[HotMatch] Membre cliqué:', member.id, member.display_name);
+                      if (!selectedHotMatch || !groupId) {
+                        Alert.alert('Erreur', 'Informations du match manquantes');
+                        return;
+                      }
+                      
+                      const slot = selectedHotMatch.time_slots || {};
+                      if (!slot.starts_at || !slot.ends_at) {
+                        Alert.alert('Erreur', 'Créneau invalide');
+                        return;
+                      }
+                      
+                      try {
+                        // Créer une disponibilité pour le joueur sélectionné sur ce créneau
+                        // Utiliser la fonction RPC pour contourner les restrictions RLS
+                        console.log('[HotMatch] Création disponibilité pour:', member.id, 'sur créneau:', slot.starts_at, '-', slot.ends_at);
+                        const { error: availabilityError } = await supabase.rpc('set_availability_for_member', {
+                          p_target_user: member.id,
+                          p_group: groupId,
+                          p_start: slot.starts_at,
+                          p_end: slot.ends_at,
+                          p_status: 'available',
+                        });
+                        
+                        if (availabilityError) {
+                          console.error('[HotMatch] Erreur création disponibilité:', availabilityError);
+                          throw availabilityError;
+                        }
+                        
+                        // Envoyer une notification au joueur
+                        try {
+                          await supabase.from('notification_jobs').insert({
+                            kind: 'group_slot_hot_3',
+                            recipients: [member.id],
+                            group_id: groupId,
+                            payload: {
+                              title: 'Invitation à un match 🔥',
+                              message: `${profilesById[String(meId)]?.display_name || 'Un joueur'} vous invite à un match le ${formatRange(slot.starts_at, slot.ends_at)}`,
+                            },
+                            created_at: new Date().toISOString(),
+                          });
+                          console.log('[HotMatch] Notification envoyée à:', member.id);
+                        } catch (notifError) {
+                          console.warn('[HotMatch] Erreur envoi notification:', notifError);
+                          // Ne pas faire échouer l'opération si la notification échoue
+                        }
+                        
+                        // Vérifier si on atteint 4 joueurs et créer un match si nécessaire
+                        const availableUserIds = selectedHotMatch.available_user_ids || [];
+                        const newAvailableUserIds = [...new Set([...availableUserIds, member.id])];
+                        
+                        if (newAvailableUserIds.length >= 4) {
+                          console.log('[HotMatch] 4 joueurs disponibles, création du match...');
+                          // Récupérer ou créer le time_slot
+                          let timeSlotId = selectedHotMatch.time_slot_id;
+                          
+                          if (!timeSlotId || timeSlotId.startsWith('virtual-')) {
+                            const { data: existingTimeSlot } = await supabase
+                              .from('time_slots')
+                              .select('id')
+                              .eq('group_id', groupId)
+                              .eq('starts_at', slot.starts_at)
+                              .maybeSingle();
+                            
+                            if (existingTimeSlot?.id) {
+                              timeSlotId = existingTimeSlot.id;
+                            } else {
+                              const { data: newTimeSlot, error: timeSlotError } = await supabase
+                                .from('time_slots')
+                                .insert({
+                                  group_id: groupId,
+                                  starts_at: slot.starts_at,
+                                  ends_at: slot.ends_at,
+                                })
+                                .select('id')
+                                .single();
+                              
+                              if (timeSlotError) {
+                                if (timeSlotError.code === '23505' || 
+                                    String(timeSlotError.message || '').includes('duplicate key') || 
+                                    String(timeSlotError.message || '').includes('unique constraint') ||
+                                    String(timeSlotError.message || '').includes('uniq_time_slots')) {
+                                  const { data: existingTS } = await supabase
+                                    .from('time_slots')
+                                    .select('id')
+                                    .eq('group_id', groupId)
+                                    .eq('starts_at', slot.starts_at)
+                                    .maybeSingle();
+                                  if (existingTS?.id) {
+                                    timeSlotId = existingTS.id;
+                                  }
+                                } else {
+                                  throw timeSlotError;
+                                }
+                              } else {
+                                timeSlotId = newTimeSlot?.id;
+                              }
+                            }
+                          }
+                          
+                          // Créer le match si le time_slot existe
+                          if (timeSlotId && !timeSlotId.startsWith('virtual-')) {
+                            const { data: existingMatch } = await supabase
+                              .from('matches')
+                              .select('id')
+                              .eq('group_id', groupId)
+                              .eq('time_slot_id', timeSlotId)
+                              .maybeSingle();
+                            
+                            if (!existingMatch) {
+                              const { data: newMatch, error: matchError } = await supabase
+                                .from('matches')
+                                .insert({
+                                  group_id: groupId,
+                                  time_slot_id: timeSlotId,
+                                  status: 'pending',
+                                  created_by: meId,
+                                })
+                                .select('id')
+                                .single();
+                              
+                              if (matchError) {
+                                console.error('[HotMatch] Erreur création match:', matchError);
+                              } else if (newMatch?.id) {
+                                // Créer les RSVPs pour tous les joueurs disponibles
+                                const rsvpsToInsert = newAvailableUserIds.map(userId => ({
+                                  match_id: newMatch.id,
+                                  user_id: userId,
+                                  status: userId === meId ? 'accepted' : 'maybe',
+                                }));
+                                
+                                await supabase
+                                  .from('match_rsvps')
+                                  .upsert(rsvpsToInsert, { onConflict: 'match_id,user_id' });
+                                
+                                console.log('[HotMatch] Match créé avec', newAvailableUserIds.length, 'joueurs');
+                              }
+                            }
+                          }
+                        }
+                        
+                        Alert.alert('Invitation envoyée', `${member.display_name || member.email} a été invité au match.`);
+                        // Fermer la modale et recharger les données
+                        setInviteHotMatchModalVisible(false);
+                        fetchData();
+                      } catch (e) {
+                        console.error('[HotMatch] Erreur:', e);
+                        Alert.alert('Erreur', `Impossible d'inviter le joueur: ${e?.message || String(e)}`);
+                      }
                     }}
                     style={({ pressed }) => ({
                       paddingVertical: 12,
@@ -7695,34 +9532,25 @@ const HourSlotRow = ({ item }) => {
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <View style={{ marginRight: 12 }}>
-                      {member.avatar_url ? (
-                        <Image
-                          source={{ uri: member.avatar_url }}
-                          style={{ width: 48, height: 48, borderRadius: 24 }}
-                        />
-                      ) : (
-                        <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: '#156bc9', fontWeight: '800', fontSize: 18 }}>
-                            {(member.display_name || member.email || 'J').substring(0, 2).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
+                      <LevelAvatar
+                        profile={member}
+                        size={48}
+                        onPress={() => openProfile(member)}
+                        onLongPressProfile={openProfile}
+                      />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
                         {member.display_name || member.email || 'Joueur'}
                       </Text>
-                      {member.niveau && (
-                        <Text style={{ fontSize: 12, color: '#6b7280' }}>
-                          Niveau {member.niveau}
-                        </Text>
-                      )}
                     </View>
                     <Ionicons name="person-add" size={24} color="#15803d" />
                   </Pressable>
                 ))}
               </ScrollView>
-            )}
+              </>
+              );
+            })()}
           </View>
         </View>
       </Modal>
