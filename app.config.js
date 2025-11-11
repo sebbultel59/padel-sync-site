@@ -4,12 +4,12 @@ export default {
     slug: "padel-sync",
     entryPoint: "./index.js",
     scheme: "padelsync",
-    version: "1.3.2",
+    version: "2.0.2",
     icon: "./assets/icon.png", // chemin par défaut pour éviter les erreurs build iOS
     ios: {
       bundleIdentifier: "app.syncpadel.mobile",
       supportsTablet: false,
-      buildNumber: "16",
+      buildNumber: "22",
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
@@ -18,13 +18,13 @@ export default {
           "Nous utilisons votre position pour trouver les clubs de padel proches.",
         ITSAppUsesNonExemptEncryption: false,
         NSCameraUsageDescription: "Permet de scanner ou ajouter des photos de profil ou de club.",
-        NSPhotoLibraryAddUsageDescription: "Permet d’enregistrer des images liées aux matchs.",
-        NSCalendarsUsageDescription: "Permet d’ajouter des matchs à votre calendrier."
+        NSPhotoLibraryAddUsageDescription: "Permet d'enregistrer des images liées aux matchs.",
+        NSCalendarsUsageDescription: "Permet d'ajouter des matchs à votre calendrier."
       }
     },
     android: {
       package: "com.padelsync.app",
-      versionCode: 16,
+      versionCode: 22,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png", // chemin corrigé
         backgroundColor: "#001831"

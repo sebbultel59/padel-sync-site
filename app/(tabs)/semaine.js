@@ -9,10 +9,11 @@ import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useActiveGroup } from "../../lib/activeGroup";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
-import racketIcon from '../../assets/icons/racket.png';
+import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
 
 
 // Fallback alert helper (web/mobile)
@@ -94,6 +95,7 @@ export default function Semaine() {
   React.useEffect(() => () => { try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {} }, []);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   // ---- ÉTATS ----
   const [weekStart, setWeekStart] = useState(dayjs().startOf("isoWeek"));
   const [timeSlots, setTimeSlots] = useState([]); // time_slots (starts_at/ends_at/group_id)
@@ -267,6 +269,11 @@ export default function Semaine() {
     return out;
   }, []);
 
+  // Fonction centralisée pour normaliser une date de créneau (enlever secondes et millisecondes)
+  const normalizeSlotTime = useCallback((dateIso) => {
+    return dayjs(dateIso).second(0).millisecond(0).toISOString();
+  }, []);
+
   const keySlot = (d, hour, minute) =>
     dayjs(d).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
 
@@ -430,8 +437,15 @@ export default function Semaine() {
         mData = m ?? [];
       }
 
+      // Normaliser les dates des disponibilités pour garantir la cohérence
+      const normalizedAv = (av || []).map((item) => ({
+        ...item,
+        start: normalizeSlotTime(item.start),
+        end: item.end ? normalizeSlotTime(item.end) : normalizeSlotTime(dayjs(item.start).add(SLOT_MIN, 'minute').toISOString()),
+      }));
+
       const tsJson = JSON.stringify(ts ?? []);
-      const avJson = JSON.stringify(av ?? []);
+      const avJson = JSON.stringify(normalizedAv ?? []);
       const mJson  = JSON.stringify(mData ?? []);
 
       if (lastDataRef.current.ts !== tsJson) {
@@ -440,7 +454,7 @@ export default function Semaine() {
       }
       if (lastDataRef.current.av !== avJson) {
         lastDataRef.current.av = avJson;
-        setSlots(av ?? []);
+        setSlots(normalizedAv ?? []);
       }
       if (lastDataRef.current.m !== mJson) {
         lastDataRef.current.m = mJson;
@@ -452,7 +466,7 @@ export default function Semaine() {
     } finally {
       if (loading) setLoading(false);
     }
-  }, [weekStart, groupId, loading]);
+  }, [weekStart, groupId, loading, normalizeSlotTime]);
 
   useEffect(() => {
     fetchDataRef.current = fetchData;
@@ -582,18 +596,29 @@ export default function Semaine() {
     return map;
   }, [matches, timeSlots]);
 
-  // Statut de MA dispo par start
+  // Statut de MA dispo par start (clés normalisées pour garantir la cohérence)
   const myStatusByStart = useMemo(() => {
     const m = new Map();
     if (!meId) return m;
-    (slots || [])
+    // Dédupliquer en gardant la plus récente pour chaque créneau normalisé
+    const seen = new Map();
+    const sorted = [...(slots || [])]
       .filter((s) => s.user_id === meId && s.group_id === groupId)
-      .forEach((s) => {
-        const k = dayjs(s.start).toISOString();
-        m.set(k, s.status || "available");
+      .sort((a, b) => {
+        const ta = dayjs(a.updated_at || a.created_at || a.start).valueOf();
+        const tb = dayjs(b.updated_at || b.created_at || b.start).valueOf();
+        return tb - ta; // décroissant (plus récent en premier)
       });
+    
+    for (const s of sorted) {
+      const k = normalizeSlotTime(s.start);
+      if (!seen.has(k)) {
+        seen.set(k, true);
+        m.set(k, s.status || "available");
+      }
+    }
     return m;
-  }, [slots, meId, groupId]);
+  }, [slots, meId, groupId, normalizeSlotTime]);
 
   // Cycle 3 états (conservé si besoin ailleurs) : neutral -> available -> absent -> neutral
   function nextStatus3(current) {
@@ -602,46 +627,69 @@ export default function Semaine() {
     return "available";
   }
 
-  // Toggle dispo (optimistic UI)
+  // Toggle dispo (optimistic UI) - Version refactorisée avec normalisation systématique
   const toggleMyAvailability = useCallback(async (startIso) => {
     try {
       const gid = groupId ?? (await AsyncStorage.getItem("active_group_id"));
-      const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!gid) {
         return safeAlert(
           "Choisis un groupe",
-          "Active un groupe dans l’onglet Groupes avant d’enregistrer des dispos."
+          "Active un groupe dans l'onglet Groupes avant d'enregistrer des dispos."
         );
       }
       if (!user) return safeAlert("Connexion requise");
 
-      const mine = (slots || []).find(
-        (s) =>
-          s.user_id === user.id &&
-          s.group_id === gid &&
-          dayjs(s.start).toISOString() === startIso
-      );
+      // Normaliser systématiquement les dates pour garantir la cohérence
+      const normalizedStart = normalizeSlotTime(startIso);
+      const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, "minute").toISOString());
+
+      // Chercher toutes les entrées correspondantes avec normalisation
+      const allMatching = (slots || []).filter((s) => {
+        const sNormalized = normalizeSlotTime(s.start);
+        return s.user_id === user.id && 
+               s.group_id === gid && 
+               sNormalized === normalizedStart;
+      });
+
+      // Prendre la plus récente si plusieurs entrées (déduplication)
+      const mine = allMatching.length > 0 
+        ? allMatching.sort((a, b) => {
+            const ta = dayjs(a.updated_at || a.created_at || a.start).valueOf();
+            const tb = dayjs(b.updated_at || b.created_at || b.start).valueOf();
+            return tb - ta; // décroissant
+          })[0]
+        : null;
 
       if (!mine) {
+        // Ajouter une nouvelle disponibilité
         const optimistic = {
           user_id: user.id,
           group_id: gid,
-          start: startIso,
-          end: endIso,
+          start: normalizedStart,
+          end: normalizedEnd,
           status: "available",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        setSlots((prev) => [...prev, optimistic]);
+        
+        // Supprimer d'abord tous les doublons potentiels pour ce créneau normalisé
+        setSlots((prev) => {
+          const filtered = prev.filter((s) => {
+            const sNormalized = normalizeSlotTime(s.start);
+            return !(s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart);
+          });
+          return [...filtered, optimistic];
+        });
+        
         try { Haptics.selectionAsync(); } catch {}
 
         if (applyToAllGroups) {
           const { error } = await supabase.rpc("set_availability_global", {
             p_user: user.id,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: "available",
           });
           if (error) { await fetchData(); throw error; }
@@ -649,56 +697,82 @@ export default function Semaine() {
           const { error } = await supabase.rpc("set_availability_group", {
             p_user: user.id,
             p_group: gid,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: "available",
           });
           if (error) { await fetchData(); throw error; }
         }
         
-        // Notifier les autres pages (notamment matches) que la disponibilité a changé
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       } else if (mine.status === 'available') {
-        // passe à neutre → suppression
-        setSlots((prev) => prev.filter((s) => !(s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso)));
+        // Supprimer la disponibilité (toggle off)
+        setSlots((prev) => {
+          return prev.filter((s) => {
+            const sNormalized = normalizeSlotTime(s.start);
+            return !(s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart);
+          });
+        });
+        
         try { Haptics.selectionAsync(); } catch {}
         
         if (applyToAllGroups) {
-          // Supprimer de global (via RPC ou delete direct)
-          const { error } = await supabase
+          // Récupérer toutes les entrées et filtrer celles qui correspondent après normalisation
+          const { data: allEntries } = await supabase
             .from('availability_global')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('start', startIso)
-            .eq('end', endIso);
-          if (error) { await fetchData(); throw error; }
+            .select('id, start')
+            .eq('user_id', user.id);
+          if (allEntries) {
+            const idsToDelete = allEntries
+              .filter(row => normalizeSlotTime(row.start) === normalizedStart)
+              .map(row => row.id);
+            if (idsToDelete.length > 0) {
+              const { error } = await supabase
+                .from('availability_global')
+                .delete()
+                .in('id', idsToDelete);
+              if (error) { await fetchData(); throw error; }
+            }
+          }
         } else {
-          const { error } = await supabase
+          const { data: allEntries } = await supabase
             .from('availability')
-            .delete()
+            .select('id, start')
             .eq('user_id', user.id)
-            .eq('group_id', gid)
-            .eq('start', startIso)
-            .eq('end', endIso);
-          if (error) { await fetchData(); throw error; }
+            .eq('group_id', gid);
+          if (allEntries) {
+            const idsToDelete = allEntries
+              .filter(row => normalizeSlotTime(row.start) === normalizedStart)
+              .map(row => row.id);
+            if (idsToDelete.length > 0) {
+              const { error } = await supabase
+                .from('availability')
+                .delete()
+                .in('id', idsToDelete);
+              if (error) { await fetchData(); throw error; }
+            }
+          }
         }
         
-        // Notifier les autres pages (notamment matches) que la disponibilité a changé
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       } else {
-        // quel que soit l'état (absent/neutre), force à available
-        setSlots((prev) => prev.map((s) => (
-          s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso
-            ? { ...s, status: 'available', updated_at: new Date().toISOString() }
-            : s
-        )));
+        // Mettre à jour le statut à 'available' (quel que soit l'état actuel)
+        setSlots((prev) => {
+          return prev.map((s) => {
+            const sNormalized = normalizeSlotTime(s.start);
+            return s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart
+              ? { ...s, status: 'available', updated_at: new Date().toISOString() }
+              : s;
+          });
+        });
+        
         try { Haptics.selectionAsync(); } catch {}
         
         if (applyToAllGroups) {
           const { error } = await supabase.rpc("set_availability_global", {
             p_user: user.id,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: "available",
           });
           if (error) { await fetchData(); throw error; }
@@ -706,50 +780,75 @@ export default function Semaine() {
           const { error } = await supabase.rpc("set_availability_group", {
             p_user: user.id,
             p_group: gid,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: "available",
           });
           if (error) { await fetchData(); throw error; }
         }
         
-        // Notifier les autres pages (notamment matches) que la disponibilité a changé
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       }
 
       // Rafraîchir les données après un court délai pour synchroniser avec le serveur
-      // Mais pas trop court pour éviter les conflits avec les mises à jour optimistes
       scheduleRefresh(500);
     } catch (e) {
-      // En cas d'erreur, recharger immédiatement pour restaurer l'état correct
       await fetchData();
       safeAlert("Erreur", e?.message ?? String(e));
     }
-  }, [groupId, slots, applyToAllGroups, scheduleRefresh, fetchData]);
+  }, [groupId, slots, applyToAllGroups, scheduleRefresh, fetchData, normalizeSlotTime]);
 
-  // Fixe explicitement ma dispo sur un créneau (available|absent|neutral)
+  // Fixe explicitement ma dispo sur un créneau (available|absent|neutral) - Version refactorisée
   async function setMyAvailability(startIso, status) {
     try {
       const gid = groupId ?? (await AsyncStorage.getItem("active_group_id"));
-      const endIso = dayjs(startIso).add(SLOT_MIN, "minute").toISOString();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!gid) return;
-      if (!user) return;
+      if (!gid || !user) return;
 
-      const mine = (slots || []).find(
-        (s) => s.user_id === user.id && s.group_id === gid && dayjs(s.start).toISOString() === startIso
-      );
+      // Normaliser systématiquement les dates
+      const normalizedStart = normalizeSlotTime(startIso);
+      const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, "minute").toISOString());
+
+      // Chercher toutes les entrées correspondantes avec normalisation
+      const allMatching = (slots || []).filter((s) => {
+        const sNormalized = normalizeSlotTime(s.start);
+        return s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart;
+      });
+
+      // Prendre la plus récente si plusieurs entrées
+      const mine = allMatching.length > 0 
+        ? allMatching.sort((a, b) => {
+            const ta = dayjs(a.updated_at || a.created_at || a.start).valueOf();
+            const tb = dayjs(b.updated_at || b.created_at || b.start).valueOf();
+            return tb - ta;
+          })[0]
+        : null;
 
       if (!mine && status !== 'neutral') {
-        const optimistic = { user_id: user.id, group_id: gid, start: startIso, end: endIso, status };
-        setSlots((prev) => [...prev, optimistic]);
+        const optimistic = { 
+          user_id: user.id, 
+          group_id: gid, 
+          start: normalizedStart, 
+          end: normalizedEnd, 
+          status 
+        };
+        
+        // Supprimer d'abord tous les doublons potentiels
+        setSlots((prev) => {
+          const filtered = prev.filter((s) => {
+            const sNormalized = normalizeSlotTime(s.start);
+            return !(s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart);
+          });
+          return [...filtered, optimistic];
+        });
+        
         try { Haptics.selectionAsync(); } catch {}
         
         if (applyToAllGroups) {
           const { error } = await supabase.rpc("set_availability_global", {
             p_user: user.id,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: status,
           });
           if (error) { await fetchData(); throw error; }
@@ -757,49 +856,80 @@ export default function Semaine() {
           const { error } = await supabase.rpc("set_availability_group", {
             p_user: user.id,
             p_group: gid,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: status,
           });
           if (error) { await fetchData(); throw error; }
         }
       } else if (mine && mine.status !== status) {
         if (status === 'neutral') {
-          setSlots((prev) => prev.filter((s) => !(s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso)));
+          // Supprimer
+          setSlots((prev) => {
+            return prev.filter((s) => {
+              const sNormalized = normalizeSlotTime(s.start);
+              return !(s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart);
+            });
+          });
+          
           try { Haptics.selectionAsync(); } catch {}
           
           if (applyToAllGroups) {
-            const { error } = await supabase
+            const { data: allEntries } = await supabase
               .from('availability_global')
-              .delete()
-              .eq('user_id', user.id)
-              .eq('start', startIso)
-              .eq('end', endIso);
-            if (error) { await fetchData(); throw error; }
+              .select('id, start')
+              .eq('user_id', user.id);
+            if (allEntries) {
+              const idsToDelete = allEntries
+                .filter(row => normalizeSlotTime(row.start) === normalizedStart)
+                .map(row => row.id);
+              if (idsToDelete.length > 0) {
+                const { error } = await supabase
+                  .from('availability_global')
+                  .delete()
+                  .in('id', idsToDelete);
+                if (error) { await fetchData(); throw error; }
+              }
+            }
           } else {
-            const { error } = await supabase
+            const { data: allEntries } = await supabase
               .from('availability')
-              .delete()
+              .select('id, start')
               .eq('user_id', user.id)
-              .eq('group_id', gid)
-              .eq('start', startIso)
-              .eq('end', endIso);
-            if (error) { await fetchData(); throw error; }
+              .eq('group_id', gid);
+            if (allEntries) {
+              const idsToDelete = allEntries
+                .filter(row => normalizeSlotTime(row.start) === normalizedStart)
+                .map(row => row.id);
+              if (idsToDelete.length > 0) {
+                const { error } = await supabase
+                  .from('availability')
+                  .delete()
+                  .in('id', idsToDelete);
+                if (error) { await fetchData(); throw error; }
+              }
+            }
           }
           return;
         }
-        setSlots((prev) => prev.map((s) => (
-          s.user_id === mine.user_id && s.group_id === gid && dayjs(s.start).toISOString() === startIso
-            ? { ...s, status }
-            : s
-        )));
+        
+        // Mettre à jour le statut
+        setSlots((prev) => {
+          return prev.map((s) => {
+            const sNormalized = normalizeSlotTime(s.start);
+            return s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart
+              ? { ...s, status, updated_at: new Date().toISOString() }
+              : s;
+          });
+        });
+        
         try { Haptics.selectionAsync(); } catch {}
         
         if (applyToAllGroups) {
           const { error } = await supabase.rpc("set_availability_global", {
             p_user: user.id,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: status,
           });
           if (error) { await fetchData(); throw error; }
@@ -807,8 +937,8 @@ export default function Semaine() {
           const { error } = await supabase.rpc("set_availability_group", {
             p_user: user.id,
             p_group: gid,
-            p_start: startIso,
-            p_end: endIso,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
             p_status: status,
           });
           if (error) { await fetchData(); throw error; }
@@ -827,17 +957,50 @@ export default function Semaine() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!gid || !user) return;
 
-      // 1) Optimistic UI : ajoute/maj tous les créneaux localement
+      // 1) Optimistic UI : ajoute/maj tous les créneaux localement (avec normalisation)
       setSlots((prev) => {
-        const map = new Map(prev.map((s) => [dayjs(s.start).toISOString() + '|' + s.user_id, s]));
-        for (const startIso of startIsos) {
-          const endIso = dayjs(startIso).add(SLOT_MIN, 'minute').toISOString();
-          const key = startIso + '|' + user.id;
+        const map = new Map();
+        // Indexer les slots existants par clé normalisée (user_id + group_id + start normalisé)
+        for (const s of prev) {
+          const normalizedStart = normalizeSlotTime(s.start);
+          const key = `${s.user_id}|${s.group_id}|${normalizedStart}`;
+          // Garder la plus récente si plusieurs entrées pour la même clé
           const existing = map.get(key);
           if (!existing) {
-            map.set(key, { user_id: user.id, group_id: gid, start: startIso, end: endIso, status });
+            map.set(key, s);
+          } else {
+            const existingTime = dayjs(existing.updated_at || existing.created_at || existing.start).valueOf();
+            const newTime = dayjs(s.updated_at || s.created_at || s.start).valueOf();
+            if (newTime > existingTime) {
+              map.set(key, s);
+            }
+          }
+        }
+        
+        // Normaliser tous les créneaux à traiter
+        const normalizedStartIsos = startIsos.map(s => normalizeSlotTime(s));
+        
+        // Ajouter/mettre à jour les nouveaux slots avec normalisation
+        for (const normalizedStart of normalizedStartIsos) {
+          const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString());
+          const key = `${user.id}|${gid}|${normalizedStart}`;
+          const existing = map.get(key);
+          if (!existing) {
+            map.set(key, { 
+              user_id: user.id, 
+              group_id: gid, 
+              start: normalizedStart, 
+              end: normalizedEnd, 
+              status,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
           } else if (existing.status !== status) {
-            map.set(key, { ...existing, status });
+            map.set(key, { 
+              ...existing, 
+              status, 
+              updated_at: new Date().toISOString() 
+            });
           }
         }
         return Array.from(map.values());
@@ -845,26 +1008,32 @@ export default function Semaine() {
 
       try { Haptics.selectionAsync(); } catch {}
 
-      // 2) Persistance : upsert en une seule requête (selon toggle)
+      // 2) Persistance : upsert en une seule requête (selon toggle) avec normalisation
       if (applyToAllGroups) {
-        const rows = startIsos.map((startIso) => ({
-          user_id: user.id,
-          start: startIso,
-          end: dayjs(startIso).add(SLOT_MIN, 'minute').toISOString(),
-          status,
-        }));
+        const rows = startIsos.map((startIso) => {
+          const normalizedStart = normalizeSlotTime(startIso);
+          return {
+            user_id: user.id,
+            start: normalizedStart,
+            end: normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString()),
+            status,
+          };
+        });
         const { error } = await supabase
           .from('availability_global')
           .upsert(rows, { onConflict: 'user_id,start,end' });
         if (error) throw error;
       } else {
-        const rows = startIsos.map((startIso) => ({
-          user_id: user.id,
-          group_id: gid,
-          start: startIso,
-          end: dayjs(startIso).add(SLOT_MIN, 'minute').toISOString(),
-          status,
-        }));
+        const rows = startIsos.map((startIso) => {
+          const normalizedStart = normalizeSlotTime(startIso);
+          return {
+            user_id: user.id,
+            group_id: gid,
+            start: normalizedStart,
+            end: normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString()),
+            status,
+          };
+        });
         const { error } = await supabase
           .from('availability')
           .upsert(rows, { onConflict: 'user_id,group_id,start,end' });
@@ -874,8 +1043,9 @@ export default function Semaine() {
       // Notifier les autres pages (notamment matches) que la disponibilité a changé
       DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       
-      // Optionnel : resync silencieux
-      scheduleRefresh(200);
+      // Rafraîchir après un délai plus long pour éviter les conflits avec les mises à jour optimistes
+      // Le délai plus long permet de s'assurer que toutes les mises à jour sont bien synchronisées
+      scheduleRefresh(800);
     } catch (e) {
       console.warn('[bulkAvailability] error:', e);
       safeAlert('Erreur', e?.message ?? String(e));
@@ -890,35 +1060,63 @@ export default function Semaine() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!gid || !user) return;
 
-      // Optimistic: enlever localement toutes mes lignes correspondantes
-      setSlots((prev) => prev.filter((s) => {
-        const key = dayjs(s.start).toISOString();
-        return !(s.user_id === user.id && s.group_id === gid && startIsos.includes(key));
-      }));
+      // Optimistic: enlever localement toutes mes lignes correspondantes (avec normalisation)
+      setSlots((prev) => {
+        const normalizedStartIsos = new Set(startIsos.map(s => normalizeSlotTime(s)));
+        return prev.filter((s) => {
+          const sNormalized = normalizeSlotTime(s.start);
+          // Filtrer uniquement les slots de cet utilisateur, ce groupe, et ces créneaux normalisés
+          return !(s.user_id === user.id && s.group_id === gid && normalizedStartIsos.has(sNormalized));
+        });
+      });
       try { Haptics.selectionAsync(); } catch {}
 
-      // Delete en une requête par lot (selon toggle)
+      // Delete en une requête par lot (selon toggle) - avec normalisation
+      // Récupérer toutes les entrées et filtrer celles qui correspondent après normalisation
+      const normalizedStartIsos = startIsos.map(s => normalizeSlotTime(s));
+      
       if (applyToAllGroups) {
-        const { error } = await supabase
+        const { data: allEntries } = await supabase
           .from('availability_global')
-          .delete()
-          .eq('user_id', user.id)
-          .in('start', startIsos);
-        if (error) throw error;
+          .select('id, start')
+          .eq('user_id', user.id);
+        if (allEntries) {
+          const idsToDelete = allEntries
+            .filter(row => normalizedStartIsos.includes(normalizeSlotTime(row.start)))
+            .map(row => row.id);
+          if (idsToDelete.length > 0) {
+            const { error } = await supabase
+              .from('availability_global')
+              .delete()
+              .in('id', idsToDelete);
+            if (error) throw error;
+          }
+        }
       } else {
-        const { error } = await supabase
+        const { data: allEntries } = await supabase
           .from('availability')
-          .delete()
+          .select('id, start')
           .eq('user_id', user.id)
-          .eq('group_id', gid)
-          .in('start', startIsos);
-        if (error) throw error;
+          .eq('group_id', gid);
+        if (allEntries) {
+          const idsToDelete = allEntries
+            .filter(row => normalizedStartIsos.includes(normalizeSlotTime(row.start)))
+            .map(row => row.id);
+          if (idsToDelete.length > 0) {
+            const { error } = await supabase
+              .from('availability')
+              .delete()
+              .in('id', idsToDelete);
+            if (error) throw error;
+          }
+        }
       }
 
       // Notifier les autres pages (notamment matches) que la disponibilité a changé
       DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       
-      scheduleRefresh(200);
+      // Rafraîchir après un délai plus long pour éviter les conflits avec les mises à jour optimistes
+      scheduleRefresh(800);
     } catch (e) {
       console.warn('[setMyNeutralBulk] error:', e);
       safeAlert('Erreur', e?.message ?? String(e));
@@ -1008,7 +1206,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 const availableCount = people.length;
                 const match = mapMatches.get(startIso);
 
-                const myStatus = myStatusByStart.get(startIso);
+                // Normaliser startIso pour la recherche dans myStatusByStart
+                const normalizedStartIsoForLookup = normalizeSlotTime(startIso);
+                const myStatus = myStatusByStart.get(normalizedStartIsoForLookup);
                 let cellBg = '#f7f9fd';
                 let cellBorder = '#1f2937';
                 let textColor = '#0b2240';
@@ -1099,7 +1299,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       // Ensure startIso is defined (already is above)
                       if (rangeStartIdx == null) {
                         // Décide l'intention de plage d'après le statut du premier créneau
-                        const my = myStatusByStart.get(startIso);
+                        const normalizedStartIsoForLookup = normalizeSlotTime(startIso);
+                        const my = myStatusByStart.get(normalizedStartIsoForLookup);
                         const intent = my === 'available' ? 'neutral' : 'available';
                         setRangeIntent(intent);
                         setRangeStartIdx(idx);
@@ -1213,46 +1414,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           borderBottomWidth: 0,
         }}
       >
-        {/* Ligne 1 : navigation semaine + libellé */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: isPortrait ? 16 : 8,
-            width: '100%'
-          }}
-        >
-          <Pressable
-            onPress={() => setWeekStart((w) => w.subtract(1, 'week'))}
-            accessibilityRole="button"
-            accessibilityLabel="Semaine précédente"
-            hitSlop={10}
-            style={{ padding: isPortrait ? 8 : 4, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Ionicons name="caret-back" size={isPortrait ? 32 : 24} color="#156BC9" />
-          </Pressable>
-
-          <Text style={{ fontWeight: '900', color: '#ffffff', fontSize: isPortrait ? 16 : 14 }}>
-            {formatWeekRangeLabel(weekStart.toDate(), weekStart.add(6, 'day').toDate())}
-          </Text>
-
-          <Pressable
-            onPress={() => setWeekStart((w) => w.add(1, 'week'))}
-            accessibilityRole="button"
-            accessibilityLabel="Semaine suivante"
-            hitSlop={10}
-            style={{ padding: isPortrait ? 8 : 4, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Ionicons name="caret-forward" size={isPortrait ? 32 : 24} color="#156BC9" />
-          </Pressable>
-        </View>
-
-        {/* Ligne: nom du groupe sélectionné + toggle global (sous la navigation) */}
-        {activeGroup?.name ? (
+        {/* Toggle "Appliquer à tous les groupes" - Reste en haut */}
+        {activeGroup?.name && (
           <View
             style={{
-              flexDirection: 'column',
+              flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
               paddingLeft: Math.max(12, insets.left + 8),
@@ -1260,21 +1426,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               marginTop: isPortrait ? 4 : 2,
               marginBottom: isPortrait ? 6 : 4,
               width: '100%',
-              gap: isPortrait ? 8 : 6,
             }}
           >
-            <Pressable
-              onPress={() => { setGroupSelectorOpen(true); loadMyGroups(); }}
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }}
-            >
-              <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-              <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 16 }}>
-                {activeGroup.name}
-              </Text>
-              <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 6 }} />
-            </Pressable>
-            
-            {/* Toggle "Appliquer à tous les groupes" */}
             <Pressable
               onPress={() => setApplyToAllGroups((prev) => !prev)}
               style={{
@@ -1290,18 +1443,20 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
               }}
             >
-              <Ionicons
-                name={applyToAllGroups ? 'checkmark-circle' : 'close-circle'}
-                size={16}
-                color="#ffffff"
-                style={{ marginRight: 6 }}
-              />
+              {applyToAllGroups && (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={16}
+                  color="#ffffff"
+                  style={{ marginRight: 6 }}
+                />
+              )}
               <Text style={{ fontWeight: '700', color: '#ffffff', fontSize: 12 }}>
                 {applyToAllGroups ? 'Appliquer à tous mes groupes' : 'Appliquer au groupe actuel uniquement'}
               </Text>
             </Pressable>
           </View>
-        ) : null}
+        )}
 
       </View>
 
@@ -1434,7 +1589,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           // Récupérer le nombre pré-calculé depuis le cache (beaucoup plus rapide)
           const availableCount = cellCountByStartIso.get(startIso) ?? 0;
           const match = mapMatches.get(startIso);
-          const myStatus = myStatusByStart.get(startIso);
+          // Normaliser startIso pour la recherche dans myStatusByStart
+          const normalizedStartIsoForLookup = normalizeSlotTime(startIso);
+          const myStatus = myStatusByStart.get(normalizedStartIsoForLookup);
 
           // Couleurs selon la disponibilité du joueur
           let cellBg = '#f7f9fd'; // par défaut
@@ -1489,7 +1646,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               onLongPress={() => {
                 if (!rangeStart) {
                   // Démarre une plage sur ce jour : intention d'après mon statut initial
-                  const my = myStatusByStart.get(startIso);
+                  const normalizedStartIsoForLookup = normalizeSlotTime(startIso);
+                  const my = myStatusByStart.get(normalizedStartIsoForLookup);
                   const intent = my === 'available' ? 'neutral' : 'available';
                   setRangeIntent(intent);
                   setRangeStart({ dayIndex: di, slotIdx: idx });
@@ -1535,7 +1693,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 opacity: pressed ? 0.92 : 1,
               })}
             >
-              {/* Affichage pour les admins : nombre en haut à droite + raquette blanche au centre si disponible */}
+              {/* Affichage pour les admins : nombre en haut à droite + balle de padel au centre si disponible */}
               {isAdmin ? (
                 <>
                   {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
@@ -1560,7 +1718,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       </Text>
                     </View>
                   )}
-                  {/* Raquette blanche au centre si l'admin est disponible */}
+                  {/* Balle de padel au centre si l'admin est disponible */}
                   {myStatus === 'available' && (
                     <View style={{
                       position: 'absolute',
@@ -1571,16 +1729,10 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                       justifyContent: 'center',
                     }}>
                       <Image
-                        source={racketIcon}
+                        source={ballIcon}
                         style={{
                           width: 24,
                           height: 24,
-                          tintColor: '#ffffff',
-                          shadowColor: '#ffffff',
-                          shadowOffset: { width: 0, height: 0 },
-                          shadowOpacity: 1,
-                          shadowRadius: 2,
-                          elevation: 2,
                         }}
                         resizeMode="contain"
                       />
@@ -1588,35 +1740,44 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   )}
                 </>
               ) : (
-                /* Affichage pour les joueurs : icône raquette sur fond transparent si disponible */
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  {myStatus === 'available' ? (
+                /* Affichage pour les joueurs : nombre en haut à droite + balle de padel au centre si disponible */
+                <>
+                  {/* Nombre de joueurs disponibles dans le coin supérieur droit */}
+                  {availableCount > 0 && (
                     <View style={{
-                      backgroundColor: 'transparent',
-                      borderRadius: 6,
-                      padding: 4,
+                      position: 'absolute',
+                      top: 2,
+                      right: 2,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: 30,
-                      height: 30,
                     }}>
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          lineHeight: 11,
+                          fontWeight: '900',
+                          color: myStatus === 'available' ? '#ffffff' : '#0b2240',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {availableCount}
+                      </Text>
+                    </View>
+                  )}
+                  {/* Balle de padel au centre si le joueur est disponible */}
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    {myStatus === 'available' ? (
                       <Image
-                        source={racketIcon}
+                        source={ballIcon}
                         style={{
                           width: 22,
                           height: 22,
-                          tintColor: '#ffffff',
-                          shadowColor: '#ffffff',
-                          shadowOffset: { width: 0, height: 0 },
-                          shadowOpacity: 1,
-                          shadowRadius: 2,
-                          elevation: 2,
                         }}
                         resizeMode="contain"
                       />
-                    </View>
-                  ) : null}
-                </View>
+                    ) : null}
+                  </View>
+                </>
               )}
             </Pressable>
           );
@@ -1727,6 +1888,79 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           </View>
         </View>
       </Modal>
+
+      {/* Week navigator - Positionné en bas, collé au sélecteur de groupe */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 28,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          zIndex: 999,
+          elevation: 9,
+          marginBottom: 0,
+        }}
+      >
+        <Pressable
+          onPress={() => setWeekStart((w) => w.subtract(1, 'week'))}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine précédente"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-back" size={32} color="#156BC9" />
+        </Pressable>
+
+        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
+          {formatWeekRangeLabel(weekStart.toDate(), weekStart.add(6, 'day').toDate())}
+        </Text>
+
+        <Pressable
+          onPress={() => setWeekStart((w) => w.add(1, 'week'))}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine suivante"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-forward" size={32} color="#156BC9" />
+        </Pressable>
+      </View>
+
+      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
+      {activeGroup?.name && (
+        <Pressable
+          onPress={() => { setGroupSelectorOpen(true); loadMyGroups(); }}
+          style={{
+            position: 'absolute',
+            bottom: (tabBarHeight || 0),
+            left: 0,
+            right: 0,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 8,
+            paddingHorizontal: 16,
+            backgroundColor: '#001831',
+            zIndex: 998,
+            elevation: 8,
+            marginTop: 0,
+            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+          }}
+        >
+          <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+          <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+            {activeGroup.name || 'Sélectionner un groupe'}
+          </Text>
+          <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+        </Pressable>
+      )}
     </View>
   );
 }

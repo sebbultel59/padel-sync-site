@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -25,6 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
+import { Step, useCopilot } from '../../../components/AppCopilot';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
@@ -146,6 +147,25 @@ export default function MatchesScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { start } = useCopilot();
+  const startRef = useRef(null);
+  
+  // Stocker start dans une ref
+  if (start) {
+    startRef.current = start;
+  }
+
+  // 🔔 Écouter l'événement pour démarrer le tutoriel
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('padelsync:startTour', () => {
+      if (startRef.current && typeof startRef.current === 'function') {
+        setTimeout(() => {
+          startRef.current();
+        }, 300);
+      }
+    });
+    return () => sub?.remove?.();
+  }, []);
   
   // Fonction pour ouvrir le profil d'un joueur
   const openProfile = useCallback((profile) => {
@@ -160,6 +180,7 @@ export default function MatchesScreen() {
   // États principaux
   const [meId, setMeId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingWeek, setLoadingWeek] = useState(false); // Chargement spécifique pour le changement de semaine
   const [tab, setTab] = useState('proposes');
   const [mode, setMode] = useState('long');
   const [rsvpMode, setRsvpMode] = useState('long');
@@ -182,6 +203,8 @@ export default function MatchesScreen() {
   // Bandeau réseau
   const [networkNotice, setNetworkNotice] = useState(null);
   const retryRef = React.useRef(0);
+  const previousGroupIdRef = React.useRef(null); // Pour détecter les changements de groupe vs semaine
+  const previousWeekOffsetRef = React.useRef(0); // Pour détecter les changements de semaine
   
   // Group selector states
   const [myGroups, setMyGroups] = useState([]);
@@ -1168,7 +1191,7 @@ async function seedMaybeRsvps({ matchId, groupId, startsAt, endsAt, excludeUserI
 
 const cardStyle = {
   backgroundColor: '#ffffff',
-  padding: 16,
+  padding: 10,
   borderRadius: 12,
   marginBottom: 12,
   shadowColor: '#000',
@@ -1316,13 +1339,17 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     );
   }, [rsvpsByMatch]);
 
-  // Fonction pour charger les données
-  const fetchData = useCallback(async () => {
+  // Fonction pour charger les données (avec option pour ne pas masquer l'UI)
+  const fetchData = useCallback(async (skipLoadingState = false) => {
     if (!groupId) return;
-    setLoading(true);
+    if (!skipLoadingState) {
+      setLoading(true);
+    } else {
+      setLoadingWeek(true);
+    }
     try {
       setNetworkNotice(null);
-      console.log('[Matches] fetchData called for group:', groupId);
+      console.log('[Matches] fetchData called for group:', groupId, 'skipLoadingState:', skipLoadingState);
       // Compute week bounds for limiting virtual slot generation to the visible week
       const { ws: wsBound, we: weBound } = weekBoundsFromOffset(weekOffset);
       const weekStartMs = new Date(wsBound).setHours(0,0,0,0);
@@ -1935,7 +1962,11 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         }
       }
     } finally {
-      setLoading(false);
+      if (!skipLoadingState) {
+        setLoading(false);
+      } else {
+        setLoadingWeek(false);
+      }
     }
   }, [groupId, weekOffset]);
 
@@ -1943,11 +1974,22 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   useEffect(() => {
     console.log('[Matches] useEffect called, groupId:', groupId, 'weekOffset:', weekOffset);
     if (groupId) {
-      fetchData();
+      // Détecter si c'est un changement de groupe ou juste de semaine
+      const isGroupChange = previousGroupIdRef.current !== groupId;
+      const isWeekChange = !isGroupChange && previousGroupIdRef.current === groupId && previousWeekOffsetRef.current !== weekOffset;
+      
+      // Mettre à jour les références
+      previousGroupIdRef.current = groupId;
+      previousWeekOffsetRef.current = weekOffset;
+      
+      // Si c'est juste un changement de semaine, utiliser loadingWeek au lieu de loading
+      fetchData(isWeekChange); // Passer true si c'est juste un changement de semaine
     } else {
       setLoading(false);
+      previousGroupIdRef.current = null;
+      previousWeekOffsetRef.current = 0;
     }
-  }, [groupId, weekOffset]); // ✅ relance aussi quand la semaine visible change
+  }, [groupId, weekOffset, fetchData]); // ✅ relance aussi quand la semaine visible change
 
   // Mettre à jour explicitement les données affichées quand les données calculées changent
   // Utiliser useLayoutEffect pour une mise à jour synchrone avant le rendu
@@ -3920,7 +3962,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         <View style={{ marginBottom: 8 }}>
           <Badge tone='amber' text={`${type === 'ready' ? '🎾' : '🔥'} ${userIds.length} joueurs`} />
         </View>
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
           {userIds.map((uid) => {
             const p = profileOf(profilesById, uid);
             const isSelected = selectedIds.includes(String(uid));
@@ -3937,7 +3979,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             );
           })}
         </View>
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
           {type === "ready" ? (
             <Pressable
               disabled={!canCreate}
@@ -3995,7 +4037,7 @@ const LongSlotRow = ({ item }) => {
         {formatRange(item.starts_at, item.ends_at)}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
         {userIds.map((uid) => {
           const p = profilesById[String(uid)] || {};
           console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
@@ -4012,8 +4054,7 @@ const LongSlotRow = ({ item }) => {
         })}
       </View>
 
-      <Divider m={8} />
-      <View style={{ flexDirection: "row", gap: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
         <Pressable
           disabled={!canCreate}
           accessibilityState={{ disabled: !canCreate }}
@@ -4068,7 +4109,7 @@ const HourSlotRow = ({ item }) => {
         {formatRange(item.starts_at, item.ends_at)}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
         {userIds.map((uid) => {
           const p = profilesById[String(uid)] || {};
           console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
@@ -4085,8 +4126,7 @@ const HourSlotRow = ({ item }) => {
         })}
       </View>
 
-      <Divider m={8} />
-      <View style={{ flexDirection: "row", gap: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
         <Pressable
           disabled={!canCreate}
           accessibilityState={{ disabled: !canCreate }}
@@ -4954,82 +4994,33 @@ const HourSlotRow = ({ item }) => {
   }
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: '#001831' }}>
+    <View style={{ flex: 1, padding: 16, backgroundColor: '#001831', overflow: 'visible' }}>
       {networkNotice && (
         <View style={{ backgroundColor: '#f59e0b', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, marginBottom: 8 }}>
           <Text style={{ color: '#111827', fontWeight: '800', textAlign: 'center' }}>{networkNotice}</Text>
         </View>
       )}
-      {/* Week navigator */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-          marginBottom: 5,  // réduit l'espace sous la ligne
-          marginTop: -10,    // réduit l'espace au-dessus (entre le header et cette ligne)
-        }}
-      >
-        <Pressable
-          onPress={() => setWeekOffset((x) => x - 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Semaine précédente"
-          hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="caret-back" size={32} color={COLORS.primary} />
-        </Pressable>
 
-        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
-          {formatWeekRangeLabel(currentWs, currentWe)}
-        </Text>
-
-        <Pressable
-          onPress={() => setWeekOffset((x) => x + 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Semaine suivante"
-          hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
-        </Pressable>
-      </View>
-
-      {/* Sélecteur de groupe (sous la navigation) */}
-      <Pressable
-        onPress={() => setGroupSelectorOpen(true)}
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginTop: 4,
-          marginBottom: 6,
-          paddingVertical: 4,
-          paddingHorizontal: 8,
-          borderRadius: 8,
-          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-        }}
-      >
-        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-          {activeGroup?.name || 'Sélectionner un groupe'}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-      </Pressable>
       
       {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
       {tab === 'proposes' && (
         <>
-          {/* Icônes filtres pour afficher/masquer les configurations */}
+          {/* Icônes filtres pour afficher/masquer les configurations - Positionnées en bas, au-dessus du sélecteur de semaine */}
           <View style={{ 
+            position: 'absolute',
+            bottom: (tabBarHeight || 0) + 76,
+            left: 16,
+            right: 16,
             flexDirection: 'row', 
             flexWrap: 'nowrap',
             alignItems: 'center', 
-            justifyContent: 'space-between', 
+            justifyContent: 'center', 
             gap: 4,
-            marginBottom: (filterConfigVisible || filterGeoVisible) ? 8 : 0,
-            marginTop: 4,
+            paddingVertical: 8,
+            paddingHorizontal: 16,
+            backgroundColor: '#001831',
+            zIndex: 1000,
+            elevation: 10,
           }}>
             <Pressable
               onPress={() => {
@@ -5130,16 +5121,21 @@ const HourSlotRow = ({ item }) => {
             </Pressable>
           </View>
           
-          {/* Zone de configuration du filtre (masquée par défaut) */}
+          {/* Zone de configuration du filtre (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
           {filterConfigVisible && (
             <View style={{ 
-              marginBottom: 12, 
-              marginTop: 0, 
+              position: 'absolute',
+              bottom: (tabBarHeight || 0) + 116,
+              left: 16,
+              right: 16,
               backgroundColor: '#f3f4f6', 
               borderRadius: 12, 
               padding: 12,
               borderWidth: 1,
               borderColor: filterByLevel ? '#15803d' : '#d1d5db',
+              zIndex: 1002,
+              elevation: 11,
+              maxHeight: 300,
             }}>
               <Text style={{ fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
                 Sélectionnez les niveaux à afficher
@@ -5193,16 +5189,21 @@ const HourSlotRow = ({ item }) => {
             </View>
           )}
           
-          {/* Zone de configuration du filtre géographique (masquée par défaut) */}
+          {/* Zone de configuration du filtre géographique (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
           {filterGeoVisible && (
             <View style={{ 
-              marginBottom: 12, 
-              marginTop: 0, 
+              position: 'absolute',
+              bottom: (tabBarHeight || 0) + 116,
+              left: 16,
+              right: 16,
               backgroundColor: '#f3f4f6', 
               borderRadius: 12, 
               padding: 12,
               borderWidth: 1,
               borderColor: filterByGeo ? '#15803d' : '#d1d5db',
+              zIndex: 1002,
+              elevation: 11,
+              maxHeight: 400,
             }}>
               {/* Sélection du type de position */}
               <View style={{ marginBottom: 12 }}>
@@ -5355,8 +5356,10 @@ const HourSlotRow = ({ item }) => {
       )}
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0 }}>
-  <View style={{ flexDirection: 'row', gap: 8 }}>
+<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: 0, zIndex: 1002, elevation: 12 }}>
+  {/* 3 — Matchs (zone liste/onglets) */}
+  <Step order={3} name="matchs" text="En appuyant ici, retrouve les matchs possibles selon les dispos du groupe.">
+    <View style={{ flexDirection: 'row', gap: 8 }}>
 {/* Matchs possibles */}
   <Pressable
     onPress={() => {
@@ -5457,14 +5460,33 @@ const HourSlotRow = ({ item }) => {
         </Text>
       </View>
     </Pressable>
-  </View>
+    </View>
+  </Step>
   </View>
 
   {tab === 'proposes' && (
   <>
     {console.log('[Matches] Rendering proposes tab, longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length)}
+    {/* Indicateur de chargement pour le changement de semaine */}
+    {loadingWeek && (
+      <View style={{ 
+        position: 'absolute', 
+        top: 0, 
+        left: 0, 
+        right: 0, 
+        bottom: 0, 
+        backgroundColor: 'rgba(0, 24, 49, 0.7)', 
+        zIndex: 9999, 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        borderRadius: 12,
+      }}>
+        <ActivityIndicator size="large" color="#e0ff00" />
+        <Text style={{ color: '#e0ff00', marginTop: 12, fontWeight: '700' }}>Chargement de la semaine...</Text>
+      </View>
+    )}
     {/* Sélecteur 1h / 1h30 */}
-    <View style={{ marginBottom: 12, marginTop: 0, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+    <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
       <Pressable
         onPress={() => setMode('long')}
@@ -5520,9 +5542,9 @@ const HourSlotRow = ({ item }) => {
                     ItemSeparatorComponent={() => null}
                     SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
                     renderItem={({ item }) => <LongSlotRow item={item} />}
-                    contentContainerStyle={{ paddingBottom: bottomPad }}
-                    scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
                     extraData={{ profilesById, displayLongSections, dataVersion }}
                     removeClippedSubviews={false}
                   />
@@ -5538,9 +5560,9 @@ const HourSlotRow = ({ item }) => {
                     data={displayHourReady}
                     keyExtractor={(x) => x.time_slot_id + '-hour'}
                     renderItem={({ item }) => <HourSlotRow item={item} />}
-                    contentContainerStyle={{ paddingBottom: bottomPad }}
-                    scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
                     extraData={{ profilesById, displayHourReady, dataVersion }}
                     removeClippedSubviews={false}
                   />
@@ -5553,7 +5575,7 @@ const HourSlotRow = ({ item }) => {
       {tab === 'rsvp' && (
         <>
           {/* Sélecteur 1h / 1h30 pour RSVP */}
-          <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable
                 onPress={() => setRsvpMode('long')}
@@ -5603,10 +5625,10 @@ const HourSlotRow = ({ item }) => {
             <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
                   )}
           extraData={rsvpsVersion}
-                  contentContainerStyle={{ paddingBottom: bottomPad }}
-                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                  ListFooterComponent={() => <View style={{ height: bottomPad }} />}
-                />
+                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+                  />
               )
             ) : (
               (pendingLongWeek?.length || 0) === 0 ? (
@@ -5619,9 +5641,9 @@ const HourSlotRow = ({ item }) => {
             <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
                   )}
           extraData={rsvpsVersion}
-                  contentContainerStyle={{ paddingBottom: bottomPad }}
-                  scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                  contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                  scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+          ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
         />
               )
             )}
@@ -5631,7 +5653,7 @@ const HourSlotRow = ({ item }) => {
       {tab === 'valides' && (
         <>
           {/* Sélecteur 1h / 1h30 pour Validés */}
-          <View style={{ marginBottom: 12, marginTop: -10, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10, zIndex: 998, elevation: 8 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Pressable
                 onPress={() => setConfirmedMode('long')}
@@ -5691,9 +5713,9 @@ const HourSlotRow = ({ item }) => {
                 renderItem={({ item: m }) => (
                   <MatchCardConfirmed m={m} />
                 )}
-                contentContainerStyle={{ paddingBottom: bottomPad }}
-                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+          ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
         />
             )
           ) : (
@@ -5713,9 +5735,9 @@ const HourSlotRow = ({ item }) => {
                 renderItem={({ item: m }) => (
                   <MatchCardConfirmed m={m} />
                 )}
-                contentContainerStyle={{ paddingBottom: bottomPad }}
-                scrollIndicatorInsets={{ bottom: bottomPad / 2 }}
-                ListFooterComponent={() => <View style={{ height: bottomPad }} />}
+                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
               />
             )
           )}
@@ -5748,29 +5770,31 @@ const HourSlotRow = ({ item }) => {
       </Pressable>
       )}
 
-      {/* Icône flottante pour créer un match éclair (à droite) */}
-      <Pressable
-        onPress={() => openFlashMatchDateModal()}
-        style={{
-          position: 'absolute',
-          bottom: (tabBarHeight || 0) + 20,
-          right: 20,
-          width: 64,
-          height: 64,
-          borderRadius: 32,
-          backgroundColor: '#e0ff00',
-          alignItems: 'center',
-          justifyContent: 'center',
-          elevation: 8,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 4,
-          zIndex: 1000,
-        }}
-      >
-        <Ionicons name="flash" size={32} color="#000000" />
-      </Pressable>
+      {/* 5 — Match éclair */}
+      <Step order={4} name="flash" text="Pressé ? Propose un match maintenant en 3 clics.">
+        <Pressable
+          onPress={() => openFlashMatchDateModal()}
+          style={{
+            position: 'absolute',
+            bottom: (tabBarHeight || 0) + 140,
+            right: 3,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: '#e0ff00',
+            alignItems: 'center',
+            justifyContent: 'center',
+            elevation: 8,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 4,
+            zIndex: 1000,
+          }}
+        >
+          <Ionicons name="flash" size={24} color="#000000" />
+        </Pressable>
+      </Step>
 
       {/* Modale de choix date/heure/durée */}
       <Modal
@@ -6186,7 +6210,7 @@ const HourSlotRow = ({ item }) => {
 
                 {/* Avatars sélectionnés (bandeau) */}
                 {flashSelected.length > 0 && (
-                  <View style={{ marginBottom: 16 }}>
+                  <View style={{ marginBottom: 0, borderTopWidth: 0, borderBottomWidth: 0 }}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4 }}>
                       {flashMembers
                         .filter(m => flashSelected.includes(String(m.id)))
@@ -7839,6 +7863,77 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Week navigator - Positionné en bas */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 28,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          zIndex: 999,
+          elevation: 9,
+          marginBottom: 0,
+        }}
+      >
+        <Pressable
+          onPress={() => setWeekOffset((x) => x - 1)}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine précédente"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-back" size={32} color={COLORS.primary} />
+        </Pressable>
+
+        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
+          {formatWeekRangeLabel(currentWs, currentWe)}
+        </Text>
+
+        <Pressable
+          onPress={() => setWeekOffset((x) => x + 1)}
+          accessibilityRole="button"
+          accessibilityLabel="Semaine suivante"
+          hitSlop={10}
+          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
+        </Pressable>
+      </View>
+
+      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
+      <Pressable
+        onPress={() => setGroupSelectorOpen(true)}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0),
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: '#001831',
+          zIndex: 998,
+          elevation: 8,
+          marginTop: 0,
+          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+        }}
+      >
+        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
+        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
+          {activeGroup?.name || 'Sélectionner un groupe'}
+        </Text>
+        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+      </Pressable>
     </View>
   );
 }

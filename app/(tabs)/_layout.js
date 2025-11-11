@@ -2,9 +2,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
-import { router, Tabs } from 'expo-router';
+import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, DeviceEventEmitter, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import 'react-native-gesture-handler';
 import { supabase } from '../../lib/supabase';
 
@@ -21,6 +21,7 @@ export default function TabsLayout() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   async function loadNotifications() {
     try {
@@ -200,15 +201,15 @@ export default function TabsLayout() {
           },
           headerLeft: () => (
             <Pressable
-              onPress={() => router.push('/profil')}
+              onPress={() => setHelpModalOpen(true)}
               style={({ pressed }) => [
                 { paddingHorizontal: 6, paddingVertical: 6, marginLeft: 0 },
                 pressed ? { opacity: 0.8 } : null
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Ouvrir le profil"
+              accessibilityLabel="Aide"
             >
-              <Ionicons name="person-circle-outline" size={40} color="#ffffff" />
+              <Ionicons name="help-circle-outline" size={40} color="#ffffff" />
             </Pressable>
           ),
           headerRight: () => (
@@ -359,6 +360,56 @@ export default function TabsLayout() {
                 )}
               />
             )}
+          </View>
+        </View>
+      </Modal>
+      {/* Popup d'aide */}
+      <Modal
+        visible={helpModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHelpModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Aide</Text>
+              <Pressable
+                onPress={() => setHelpModalOpen(false)}
+                style={{ padding: 8 }}
+              >
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+            
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 14, color: '#374151', lineHeight: 20, marginBottom: 12 }}>
+                Besoin d'aide ? Lance le tutoriel interactif pour découvrir toutes les fonctionnalités de l'app !
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>
+                Le tutoriel te guidera étape par étape avec des spotlights sur les éléments importants.
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={() => {
+                setHelpModalOpen(false);
+                // Émettre l'événement pour démarrer le tutoriel
+                DeviceEventEmitter.emit('padelsync:startTour');
+              }}
+              style={{
+                backgroundColor: '#156bc9',
+                borderRadius: 10,
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                alignItems: 'center',
+                marginTop: 8,
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 15 }}>
+                Lancer le tutoriel
+              </Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
