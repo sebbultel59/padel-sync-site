@@ -53,4 +53,4 @@ export default {
       }
     }
   }
-};// Force rebuild Tue Nov 11 18:58:51 CET 2025
+};
