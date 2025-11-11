@@ -2314,31 +2314,67 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   }, [groupId, fetchData]);
 
   // --- Flash Match helpers ---
-  async function loadGroupMembersForFlash() {
-    if (!groupId) return [];
+  async function loadGroupMembersForFlash(targetGroupId = null) {
+    const idToUse = targetGroupId || groupId;
+    
+    if (!idToUse) {
+      console.warn('[FlashMatch] loadGroupMembersForFlash: groupId is null or undefined');
+      return [];
+    }
+    
+    console.log('[FlashMatch] loadGroupMembersForFlash: groupId =', idToUse);
+    
     try {
       // Essai 1 : récupérer les membres avec jointure profiles si relation existante
       let { data, error } = await supabase
         .from('group_members')
         .select('user_id, profiles!inner(id, display_name, name, niveau)')
-        .eq('group_id', groupId);
+        .eq('group_id', idToUse);
+
+      console.log('[FlashMatch] Essai 1 - jointure profiles:', { dataLength: data?.length, error: error?.message });
 
       // Si la jointure échoue (data vide ou erreur), fallback manuel
       if (error || !Array.isArray(data) || data.length === 0) {
-        console.warn('[FlashMatch] fallback: pas de jointure profiles détectée');
-        const { data: gm } = await supabase
+        console.warn('[FlashMatch] fallback: pas de jointure profiles détectée, erreur:', error?.message);
+        
+        // Fallback : récupérer d'abord les user_id
+        const { data: gm, error: gmError } = await supabase
           .from('group_members')
           .select('user_id')
-          .eq('group_id', groupId);
+          .eq('group_id', idToUse);
+
+        console.log('[FlashMatch] Fallback - group_members:', { gmLength: gm?.length, error: gmError?.message });
+
+        if (gmError) {
+          console.error('[FlashMatch] Erreur récupération group_members:', gmError);
+          return [];
+        }
 
         const ids = gm?.map(r => r.user_id).filter(Boolean) || [];
+        console.log('[FlashMatch] IDs récupérés:', ids.length);
 
-        if (ids.length === 0) return [];
+        if (ids.length === 0) {
+          console.warn('[FlashMatch] Aucun user_id trouvé dans group_members pour le groupe', idToUse);
+          return [];
+        }
 
-        const { data: profs } = await supabase
+        // Récupérer les profils
+        const { data: profs, error: profsError } = await supabase
           .from('profiles')
           .select('id, display_name, name, niveau')
           .in('id', ids);
+
+        console.log('[FlashMatch] Fallback - profiles:', { profsLength: profs?.length, error: profsError?.message });
+
+        if (profsError) {
+          console.error('[FlashMatch] Erreur récupération profiles:', profsError);
+          return [];
+        }
+
+        if (!profs || profs.length === 0) {
+          console.warn('[FlashMatch] Aucun profil trouvé pour les IDs:', ids);
+          return [];
+        }
 
         data = profs.map(p => ({
           user_id: p.id,
@@ -2355,10 +2391,10 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         }))
         .filter(x => !!x.id);
 
-      console.log(`[FlashMatch] ${members.length} membres chargés pour le groupe ${groupId}`);
+      console.log(`[FlashMatch] ${members.length} membres chargés pour le groupe ${idToUse}`);
       return members;
     } catch (e) {
-      console.warn('[FlashMatch] load members failed:', e?.message || e);
+      console.error('[FlashMatch] load members failed:', e?.message || e, e);
       return [];
     }
   }
@@ -2399,6 +2435,43 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     try {
       setFlashLoading(true);
 
+      console.log('[FlashMatch] openFlashMatchPlayersModal - groupId:', groupId, 'activeGroup:', activeGroup, 'myGroups.length:', myGroups.length);
+
+      // Si groupId n'est pas défini, essayer de récupérer depuis activeGroup ou myGroups
+      let currentGroupId = groupId;
+      if (!currentGroupId) {
+        // Essayer de récupérer depuis activeGroup
+        if (activeGroup?.id) {
+          currentGroupId = activeGroup.id;
+          console.log('[FlashMatch] Utilisation activeGroup.id:', currentGroupId);
+        } else if (myGroups.length > 0) {
+          // Utiliser le premier groupe de myGroups comme fallback
+          currentGroupId = myGroups[0]?.id;
+          console.log('[FlashMatch] Utilisation premier groupe de myGroups:', currentGroupId);
+        } else {
+          // Essayer de récupérer depuis AsyncStorage
+          try {
+            const savedId = await AsyncStorage.getItem("active_group_id");
+            if (savedId) {
+              currentGroupId = savedId;
+              console.log('[FlashMatch] Utilisation groupe depuis AsyncStorage:', currentGroupId);
+            }
+          } catch (e) {
+            console.warn('[FlashMatch] Erreur récupération AsyncStorage:', e);
+          }
+        }
+      }
+
+      if (!currentGroupId) {
+        console.error('[FlashMatch] Aucun groupId trouvé');
+        Alert.alert('Erreur', 'Aucun groupe sélectionné. Veuillez sélectionner un groupe d\'abord.');
+        setFlashLoading(false);
+        return;
+      }
+
+      // Utiliser currentGroupId pour charger les membres
+      console.log('[FlashMatch] Utilisation groupId:', currentGroupId, 'pour charger les membres');
+
       // Assure-toi d'avoir mon UID même si meId n'est pas encore peuplé
       let uid = meId;
       if (!uid) {
@@ -2409,7 +2482,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       }
 
       // Charger TOUS les membres du groupe, peu importe leur disponibilité
-      const allMembers = await loadGroupMembersForFlash();
+      const allMembers = await loadGroupMembersForFlash(currentGroupId);
       
       console.log('[FlashMatch] Tous les membres du groupe:', allMembers.length);
       
@@ -2417,6 +2490,15 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         setFlashMembers([]);
         setFlashSelected([]);
         setFlashQuery("");
+        // Réinitialiser tous les filtres
+        setFlashLevelFilter([]);
+        setFlashLevelFilterVisible(false);
+        setFlashGeoRefPoint(null);
+        setFlashGeoRadiusKm(null);
+        setFlashGeoLocationType(null);
+        setFlashGeoCityQuery("");
+        setFlashGeoCitySuggestions([]);
+        setFlashGeoFilterVisible(false);
         setFlashPickerOpen(true);
         Alert.alert('Aucun membre', 'Aucun membre dans ce groupe.');
         return;
@@ -2452,6 +2534,15 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setFlashMembers(ms);
       setFlashSelected([]);
       setFlashQuery("");
+      // Réinitialiser tous les filtres
+      setFlashLevelFilter([]);
+      setFlashLevelFilterVisible(false);
+      setFlashGeoRefPoint(null);
+      setFlashGeoRadiusKm(null);
+      setFlashGeoLocationType(null);
+      setFlashGeoCityQuery("");
+      setFlashGeoCitySuggestions([]);
+      setFlashGeoFilterVisible(false);
       setFlashPickerOpen(true);
     } catch (e) {
       console.error('[FlashMatch] Erreur ouverture modal joueurs:', e);
