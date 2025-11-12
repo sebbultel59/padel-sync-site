@@ -4,11 +4,12 @@ import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, DeviceEventEmitter, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, AppState, DeviceEventEmitter, FlatList, Linking, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import 'react-native-gesture-handler';
 import { supabase } from '../../lib/supabase';
+import { HelpModal } from '../../components/HelpModal';
 
 
 export default function TabsLayout() {
@@ -25,6 +26,19 @@ export default function TabsLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
+  const [notifPermissionStatus, setNotifPermissionStatus] = useState(null);
+  const [notificationPreferences, setNotificationPreferences] = useState({
+    match_created: true,
+    match_confirmed: true,
+    match_validated: true,
+    match_canceled: true,
+    rsvp_accepted: true,
+    rsvp_declined: true,
+    rsvp_removed: true,
+    group_member_joined: true,
+    group_member_left: true,
+  });
 
   async function loadNotifications() {
     try {
@@ -164,6 +178,122 @@ export default function TabsLayout() {
     }
   }
 
+  async function loadNotificationPermissionStatus() {
+    try {
+      const settings = await Notifications.getPermissionsAsync();
+      setNotifPermissionStatus(settings);
+    } catch (e) {
+      console.warn('[notifications] loadPermissionStatus error', e);
+    }
+  }
+
+  async function requestNotificationPermission() {
+    try {
+      // Si on ne peut plus demander les permissions, ouvrir les paramètres système
+      if (notifPermissionStatus?.canAskAgain === false) {
+        await Linking.openSettings();
+        // Recharger le statut après un court délai
+        setTimeout(() => {
+          loadNotificationPermissionStatus();
+        }, 500);
+        return null;
+      }
+      
+      const result = await Notifications.requestPermissionsAsync();
+      setNotifPermissionStatus(result);
+      if (result.granted) {
+        // Enregistrer le token push si les permissions sont accordées
+        const { registerPushToken } = await import('../../lib/notifications');
+        await registerPushToken();
+      }
+      return result;
+    } catch (e) {
+      console.warn('[notifications] requestPermission error', e);
+      return null;
+    }
+  }
+
+  async function loadNotificationPreferences() {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) {
+        console.log('[notifications] No user ID, using defaults');
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('notification_preferences')
+        .eq('id', uid)
+        .single();
+
+      // Si la colonne n'existe pas encore ou erreur, utiliser les valeurs par défaut
+      if (error) {
+        console.log('[notifications] Error loading preferences:', error.message);
+        // Ne pas bloquer, utiliser les valeurs par défaut déjà définies dans l'état
+        return;
+      }
+
+      if (profile?.notification_preferences && typeof profile.notification_preferences === 'object') {
+        // Fusionner avec les valeurs par défaut pour s'assurer que tous les types sont présents
+        const defaults = {
+          match_created: true,
+          match_confirmed: true,
+          match_validated: true,
+          match_canceled: true,
+          rsvp_accepted: true,
+          rsvp_declined: true,
+          rsvp_removed: true,
+          group_member_joined: true,
+          group_member_left: true,
+        };
+        setNotificationPreferences({ ...defaults, ...profile.notification_preferences });
+      }
+    } catch (e) {
+      console.warn('[notifications] loadPreferences error', e);
+      // Ne pas bloquer, les valeurs par défaut sont déjà dans l'état
+    }
+  }
+
+  async function saveNotificationPreferences(prefs) {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ notification_preferences: prefs })
+        .eq('id', uid);
+
+      if (error) {
+        // Si la colonne n'existe pas, on ne peut pas sauvegarder mais on met à jour l'état local
+        if (error.code === 'PGRST116' || error.message?.includes('column') || error.message?.includes('notification_preferences')) {
+          console.warn('[notifications] Column notification_preferences does not exist yet. Please run migration.');
+          setNotificationPreferences(prefs);
+          return;
+        }
+        throw error;
+      }
+      setNotificationPreferences(prefs);
+    } catch (e) {
+      console.warn('[notifications] savePreferences error', e);
+      // Mettre à jour l'état local même en cas d'erreur
+      setNotificationPreferences(prefs);
+    }
+  }
+
+  function toggleNotificationType(type) {
+    const currentValue = notificationPreferences[type] !== false; // true par défaut
+    const newPrefs = {
+      ...notificationPreferences,
+      [type]: !currentValue,
+    };
+    setNotificationPreferences(newPrefs); // Mettre à jour immédiatement pour l'UI
+    saveNotificationPreferences(newPrefs).catch(e => console.warn('[notifications] Error saving preferences:', e));
+  }
+
   useEffect(() => { 
     loadNotifications(); 
     
@@ -187,6 +317,31 @@ export default function TabsLayout() {
     };
   }, []);
 
+  // Recharger le statut des permissions et les préférences quand la modale de paramètres s'ouvre
+  useEffect(() => {
+    if (notifSettingsOpen) {
+      // Charger de manière asynchrone sans bloquer
+      loadNotificationPermissionStatus().catch(e => console.warn('[notifications] Error loading permission status:', e));
+      loadNotificationPreferences().catch(e => console.warn('[notifications] Error loading preferences:', e));
+    }
+  }, [notifSettingsOpen]);
+
+  // Recharger le statut des permissions quand l'app revient au premier plan
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && notifSettingsOpen) {
+        // Recharger le statut après un court délai pour laisser le temps aux paramètres de se mettre à jour
+        setTimeout(() => {
+          loadNotificationPermissionStatus();
+        }, 300);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [notifSettingsOpen]);
+
   if (!fontsLoaded) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -205,10 +360,10 @@ export default function TabsLayout() {
           headerStyle: {
             backgroundColor: '#011932',
             height: isLandscape ? 48 + insets.top : 60 + insets.top,
-            paddingTop: insets.top,
             elevation: 0,
             shadowOpacity: 0,
           },
+          headerStatusBarHeight: insets.top,
           headerTransparent: false,
           headerTitleAlign: 'center',
           headerTintColor: '#fff',
@@ -349,13 +504,35 @@ export default function TabsLayout() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'flex-start', padding: 16 }}>
           <View style={{ width: '96%', maxWidth: 460, marginTop: 60, backgroundColor: '#ffffff', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e5e7eb', maxHeight: '70%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontWeight: '900', fontSize: 16, color: '#0b2240' }}>Notifications</Text>
-              <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Pressable 
+                  onPress={async () => { 
+                    // Fermer d'abord la modale notifications
+                    setNotifsOpen(false);
+                    // Attendre un court instant pour que la modale se ferme
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    // Ouvrir la modale paramètres
+                    setNotifSettingsOpen(true);
+                    // Charger les données de manière asynchrone sans bloquer
+                    loadNotificationPermissionStatus().catch(e => console.warn('[notifications] Error loading permission status:', e));
+                    loadNotificationPreferences().catch(e => console.warn('[notifications] Error loading preferences:', e));
+                  }} 
+                  style={({ pressed }) => [ 
+                    { padding: 6, borderRadius: 8, alignSelf: 'flex-start' }, 
+                    pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null 
+                  ]}
+                >
+                  <Ionicons name="settings-outline" size={20} color="#156BC9" />
+                </Pressable>
+              </View>
+              <View style={{ flex: 1, alignItems: 'center' }}>
                 <Pressable onPress={markAllNotificationsRead} style={({ pressed }) => [ { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8 }, pressed ? { opacity: 0.8 } : null ]}>
                   <Text style={{ color: '#156BC9', fontWeight: '800', fontSize: 13 }}>Tout marquer lu</Text>
                 </Pressable>
-                <Pressable onPress={async () => { setNotifsOpen(false); try { await Notifications.setBadgeCountAsync(0); } catch {} }} style={({ pressed }) => [ { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8 }, pressed ? { opacity: 0.8 } : null ]}>
-                  <Text style={{ color: '#374151', fontWeight: '800', fontSize: 13 }}>Fermer</Text>
+              </View>
+              <View style={{ flex: 1, alignItems: 'flex-start' }}>
+                <Pressable onPress={async () => { setNotifsOpen(false); try { await Notifications.setBadgeCountAsync(0); } catch {} }} style={({ pressed }) => [ { padding: 6, borderRadius: 8 }, pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null ]}>
+                  <Ionicons name="close" size={20} color="#374151" />
                 </Pressable>
               </View>
             </View>
@@ -394,53 +571,148 @@ export default function TabsLayout() {
           </View>
         </View>
       </Modal>
-      {/* Popup d'aide */}
+      {/* Modal d'aide */}
+      <HelpModal 
+        visible={helpModalOpen} 
+        onClose={() => setHelpModalOpen(false)}
+      />
+      {/* Modal Paramètres Notifications */}
       <Modal
-        visible={helpModalOpen}
+        visible={notifSettingsOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setHelpModalOpen(false)}
+        onRequestClose={() => {
+          setNotifSettingsOpen(false);
+          // S'assurer que la modale notifications reste fermée
+          setNotifsOpen(false);
+        }}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '90%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Aide</Text>
-              <Pressable
-                onPress={() => setHelpModalOpen(false)}
-                style={{ padding: 8 }}
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '96%', maxWidth: 460, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e5e7eb', maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Paramètres de notifications</Text>
+              <Pressable 
+                onPress={() => {
+                  setNotifSettingsOpen(false);
+                  // S'assurer que la modale notifications reste fermée
+                  setNotifsOpen(false);
+                }} 
+                style={({ pressed }) => [ 
+                  { padding: 8, borderRadius: 8 }, 
+                  pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null 
+                ]}
               >
                 <Ionicons name="close" size={24} color="#111827" />
               </Pressable>
             </View>
-            
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 14, color: '#374151', lineHeight: 20, marginBottom: 12 }}>
-                Besoin d'aide ? Lance le tutoriel interactif pour découvrir toutes les fonctionnalités de l'app !
+
+            {/* Section Permissions Push */}
+            <View style={{ marginBottom: 24, paddingBottom: 20, borderBottomWidth: 1, borderColor: '#e5e7eb' }}>
+              <Text style={{ fontWeight: '800', fontSize: 14, color: '#0b2240', marginBottom: 8 }}>
+                Notifications push
               </Text>
-              <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>
-                Le tutoriel te guidera étape par étape avec des spotlights sur les éléments importants.
+              <Text style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
+                {notifPermissionStatus?.granted 
+                  ? 'Les notifications push sont activées.'
+                  : notifPermissionStatus?.canAskAgain === false
+                  ? 'Les notifications push sont désactivées. Activez-les dans les paramètres de votre appareil.'
+                  : 'Activez les notifications push pour recevoir des alertes en temps réel.'}
               </Text>
+              
+              {!notifPermissionStatus?.granted && (
+                <Pressable
+                  onPress={requestNotificationPermission}
+                  style={({ pressed }) => [
+                    {
+                      paddingVertical: 12,
+                      paddingHorizontal: 20,
+                      backgroundColor: '#156BC9',
+                      borderRadius: 10,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    pressed ? { opacity: 0.8 } : null,
+                  ]}
+                >
+                  <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                    {notifPermissionStatus?.canAskAgain === false 
+                      ? 'Ouvrir les paramètres' 
+                      : 'Activer les notifications push'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
 
-            <Pressable
-              onPress={() => {
-                setHelpModalOpen(false);
-                // Émettre l'événement pour démarrer le tutoriel
-                DeviceEventEmitter.emit('padelsync:startTour');
-              }}
-              style={{
-                backgroundColor: '#156bc9',
-                borderRadius: 10,
-                paddingVertical: 12,
-                paddingHorizontal: 20,
-                alignItems: 'center',
-                marginTop: 8,
-              }}
-            >
-              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 15 }}>
-                Lancer le tutoriel
-              </Text>
-            </Pressable>
+            {/* Section Types de Notifications */}
+            {notifPermissionStatus?.granted && (
+              <View style={{ maxHeight: '60%' }}>
+                <Text style={{ fontWeight: '800', fontSize: 14, color: '#0b2240', marginBottom: 16 }}>
+                  Types de notifications
+                </Text>
+                <FlatList
+                  data={[
+                    { key: 'match_created', label: 'Nouveau match créé', icon: 'tennisball-outline' },
+                    { key: 'match_confirmed', label: 'Match confirmé', icon: 'checkmark-circle-outline' },
+                    { key: 'match_validated', label: 'Match validé', icon: 'checkmark-done-outline' },
+                    { key: 'match_canceled', label: 'Match annulé', icon: 'close-circle-outline' },
+                    { key: 'rsvp_accepted', label: 'Joueur confirmé', icon: 'person-add-outline' },
+                    { key: 'rsvp_declined', label: 'Joueur a refusé', icon: 'person-remove-outline' },
+                    { key: 'rsvp_removed', label: 'Joueur retiré', icon: 'person-outline' },
+                    { key: 'group_member_joined', label: 'Nouveau membre dans le groupe', icon: 'people-outline' },
+                    { key: 'group_member_left', label: 'Membre a quitté le groupe', icon: 'log-out-outline' },
+                  ]}
+                  keyExtractor={(item) => item.key}
+                  renderItem={({ item }) => {
+                    const isEnabled = notificationPreferences[item.key] !== false;
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f3f4f6' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                          <Ionicons name={item.icon} size={20} color="#156BC9" />
+                          <Text style={{ fontSize: 14, color: '#0b2240', flex: 1 }}>{item.label}</Text>
+                        </View>
+                        <Pressable
+                          onPress={() => toggleNotificationType(item.key)}
+                          style={({ pressed }) => [
+                            {
+                              width: 50,
+                              height: 30,
+                              borderRadius: 15,
+                              backgroundColor: isEnabled ? '#156BC9' : '#d1d5db',
+                              justifyContent: 'center',
+                              paddingHorizontal: 2,
+                            },
+                            pressed ? { opacity: 0.8 } : null,
+                          ]}
+                        >
+                          <View
+                            style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: 13,
+                              backgroundColor: '#ffffff',
+                              alignSelf: isEnabled ? 'flex-end' : 'flex-start',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.2,
+                              shadowRadius: 2,
+                              elevation: 2,
+                            }}
+                          />
+                        </Pressable>
+                      </View>
+                    );
+                  }}
+                />
+              </View>
+            )}
+
+            {!notifPermissionStatus?.granted && (
+              <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                <Text style={{ color: '#6b7280', fontSize: 13, textAlign: 'center' }}>
+                  Activez d'abord les notifications push pour gérer les types de notifications
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </Modal>

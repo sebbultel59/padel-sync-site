@@ -918,7 +918,7 @@ const hotMatches = React.useMemo(
     }
     
     // Exclure les créneaux où l'utilisateur a déjà un RSVP (match accepté ou en attente)
-    // ET les créneaux où un match existe déjà (même sans RSVP pour l'utilisateur)
+    // Mais INCLURE les matchs existants avec 3 joueurs acceptés où l'utilisateur n'a pas encore de RSVP
     if (meId) {
       finalFiltered = finalFiltered.filter(slot => {
         // Vérifier si l'utilisateur a un RSVP pour un match sur ce créneau
@@ -941,12 +941,105 @@ const hotMatches = React.useMemo(
             // L'utilisateur a déjà un RSVP sur ce créneau, exclure ce match en feu
             return false;
           }
-          // Si un match existe déjà sur ce créneau (même sans RSVP pour l'utilisateur),
-          // exclure ce match en feu car le créneau est déjà pris
+          // Si un match existe déjà mais l'utilisateur n'a pas de RSVP,
+          // on l'exclut de finalFiltered car on l'ajoutera plus tard dans la liste des matchs existants
           return false;
         }
         
         return true;
+      });
+      
+      // Ajouter les matchs existants avec exactement 3 joueurs acceptés où l'utilisateur n'a pas de RSVP
+      const allMatches = [...(matchesPending || []), ...(matchesConfirmed || [])];
+      const existingHotMatches = allMatches.filter(m => {
+        // Vérifier que le match est dans la semaine courante
+        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return false;
+        const matchStart = new Date(m.time_slots.starts_at);
+        const matchEnd = new Date(m.time_slots.ends_at);
+        if (matchEnd <= now || !isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)) {
+          return false;
+        }
+        
+        // Vérifier que l'utilisateur n'a pas de RSVP
+        const rsvps = rsvpsByMatch[m.id] || [];
+        const myRsvp = rsvps.find(r => String(r.user_id) === String(meId));
+        if (myRsvp && (myRsvp.status === 'accepted' || myRsvp.status === 'maybe')) {
+          return false;
+        }
+        
+        // Vérifier qu'il y a exactement 3 joueurs acceptés
+        const acceptedRsvps = rsvps.filter(r => r.status === 'accepted');
+        if (acceptedRsvps.length !== 3) {
+          return false;
+        }
+        
+        // Appliquer les filtres de niveau si activés
+        if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
+          const allowedLevels = new Set();
+          filterLevelRanges.forEach(range => {
+            const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+            if (parts.length === 2) {
+              const [min, max] = parts.sort((a, b) => a - b);
+              for (let level = min; level <= max; level++) {
+                allowedLevels.add(level);
+              }
+            }
+          });
+          
+          if (allowedLevels.size > 0) {
+            const acceptedUserIds = acceptedRsvps.map(r => r.user_id);
+            const allMatchLevel = acceptedUserIds.every(uid => {
+              const profile = profilesById[String(uid)];
+              if (!profile?.niveau) return false;
+              const playerLevel = Number(profile.niveau);
+              if (!Number.isFinite(playerLevel)) return false;
+              return allowedLevels.has(playerLevel);
+            });
+            if (!allMatchLevel) return false;
+          }
+        }
+        
+        // Appliquer les filtres géographiques si activés
+        if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
+          const acceptedUserIds = acceptedRsvps.map(r => r.user_id);
+          const allInRange = acceptedUserIds.every(uid => {
+            const profile = profilesById[String(uid)];
+            if (!profile) return false;
+            
+            let playerLat = null;
+            let playerLng = null;
+            if (profile.address_home?.lat && profile.address_home?.lng) {
+              playerLat = profile.address_home.lat;
+              playerLng = profile.address_home.lng;
+            } else if (profile.address_work?.lat && profile.address_work?.lng) {
+              playerLat = profile.address_work.lat;
+              playerLng = profile.address_work.lng;
+            }
+            
+            if (!playerLat || !playerLng) return false;
+            
+            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
+            return distanceKm <= filterGeoRadiusKm;
+          });
+          if (!allInRange) return false;
+        }
+        
+        return true;
+      });
+      
+      // Convertir les matchs existants en format slot pour les ajouter à finalFiltered
+      existingHotMatches.forEach(m => {
+        const acceptedRsvps = (rsvpsByMatch[m.id] || []).filter(r => r.status === 'accepted');
+        const acceptedUserIds = acceptedRsvps.map(r => r.user_id);
+        
+        finalFiltered.push({
+          time_slot_id: m.time_slot_id,
+          starts_at: m.time_slots?.starts_at,
+          ends_at: m.time_slots?.ends_at,
+          ready_user_ids: acceptedUserIds,
+          is_existing_match: true,
+          match_id: m.id,
+        });
       });
     }
     
@@ -973,8 +1066,10 @@ const hotMatches = React.useMemo(
     
     // Convertir les créneaux en format "match" pour l'affichage
     return uniqueSlots.map(slot => ({
-      id: slot.time_slot_id || `hot-${slot.starts_at}`,
+      id: slot.match_id || slot.time_slot_id || `hot-${slot.starts_at}`,
       time_slot_id: slot.time_slot_id,
+      match_id: slot.match_id, // Pour les matchs existants
+      is_existing_match: slot.is_existing_match || false,
       time_slots: {
         starts_at: slot.starts_at,
         ends_at: slot.ends_at,
@@ -4875,6 +4970,49 @@ const HourSlotRow = ({ item }) => {
           </Pressable>
         </View>
 
+        {/* Bouton supprimer le match */}
+        <Pressable
+          onPress={() => {
+            Alert.alert(
+              'Supprimer le match',
+              'Êtes-vous sûr de vouloir supprimer ce match ? Cette action est irréversible.',
+              [
+                {
+                  text: 'Annuler',
+                  style: 'cancel',
+                },
+                {
+                  text: 'Supprimer',
+                  style: 'destructive',
+                  onPress: () => onCancelMatch(m.id),
+                },
+              ]
+            );
+          }}
+          style={{
+            marginTop: 8,
+            backgroundColor: '#991b1b',
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Ionicons name="trash-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text
+            style={{
+              color: '#ffffff',
+              fontWeight: '800',
+              fontSize: 14,
+              textAlign: 'center',
+            }}
+          >
+            Supprimer le match
+          </Text>
+        </Pressable>
+
         {/* Modal de sélection de clubs */}
         <Modal visible={clubModalOpen} transparent animationType="fade" onRequestClose={() => setClubModalOpen(false)}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -8516,7 +8654,29 @@ const HourSlotRow = ({ item }) => {
                               return;
                             }
                             try {
-                              // Créer une disponibilité pour l'utilisateur sur ce créneau
+                              // Si c'est un match existant, créer directement un RSVP 'accepted' pour l'utilisateur
+                              if (m.match_id && m.is_existing_match) {
+                                console.log('[HotMatch] Match existant trouvé, création RSVP pour l\'utilisateur:', m.match_id);
+                                const { error: rsvpError } = await supabase
+                                  .from('match_rsvps')
+                                  .upsert(
+                                    { match_id: m.match_id, user_id: meId, status: 'accepted' },
+                                    { onConflict: 'match_id,user_id' }
+                                  );
+                                
+                                if (rsvpError) {
+                                  console.error('[HotMatch] Erreur création RSVP pour match existant:', rsvpError);
+                                  throw rsvpError;
+                                }
+                                
+                                Alert.alert('Succès', 'Vous avez été ajouté au match !');
+                                setHotMatchesModalVisible(false);
+                                // Rafraîchir les données
+                                fetchData();
+                                return;
+                              }
+                              
+                              // Créer une disponibilité pour l'utilisateur sur ce créneau (seulement pour les créneaux virtuels)
                               const { error: availabilityError } = await supabase
                                 .from('availability')
                                 .upsert({

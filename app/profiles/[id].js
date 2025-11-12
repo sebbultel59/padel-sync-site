@@ -70,8 +70,14 @@ export default function ProfileScreen() {
   return (
     <ScrollView contentContainerStyle={s.container}>
       {/* Bouton retour */}
-      <Pressable onPress={() => router.replace("/groupes")} style={s.backBtn}>
-        <Text style={s.backTxt}>← Retour aux groupes</Text>
+      <Pressable onPress={() => {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace("/groupes");
+        }
+      }} style={s.backBtn}>
+        <Text style={s.backTxt}>← Retour</Text>
       </Pressable>
 
       {/* Avatar + Nom */}

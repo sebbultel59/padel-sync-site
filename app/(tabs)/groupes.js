@@ -312,6 +312,13 @@ export default function GroupesScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
 
+  // États pour l'édition inline du groupe
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  const [editingGroupVisibility, setEditingGroupVisibility] = useState("private");
+  const [editingGroupJoinPolicy, setEditingGroupJoinPolicy] = useState("invite");
+  const [savingGroup, setSavingGroup] = useState(false);
+
   const openContactForProfile = useCallback((p) => {
     console.log('[openContactForProfile] Called with profile:', p?.name, p?.phone, p?.email);
     setContactProfile(p || null);
@@ -772,6 +779,83 @@ Padel Sync — Ton match en 3 clics 🎾`;
     }
   }, [activeGroup?.id, isAdmin, groups, loadGroups, setActiveGroup]);
 
+  // Fonction pour mettre à jour le groupe (nom et statut)
+  const onUpdateGroup = useCallback(async (groupId) => {
+    if (!groupId || !isAdmin) {
+      Alert.alert("Erreur", "Vous n'avez pas les droits pour modifier ce groupe.");
+      return;
+    }
+
+    // Validation du nom
+    const trimmedName = editingGroupName.trim();
+    if (!trimmedName || trimmedName.length < 3) {
+      Alert.alert("Erreur", "Le nom du groupe doit contenir au moins 3 caractères.");
+      return;
+    }
+
+    // Validation des restrictions selon les droits
+    if (editingGroupVisibility === 'public' && editingGroupJoinPolicy === 'open') {
+      // Public ouvert : uniquement super admin
+      if (!isSuperAdmin) {
+        Alert.alert('Restriction', 'Seuls les super admins peuvent créer un groupe public ouvert.');
+        return;
+      }
+    } else if (editingGroupVisibility === 'public' && editingGroupJoinPolicy === 'request') {
+      // Public sur demande : super admin ou admin
+      if (!isSuperAdmin && !isGlobalAdmin) {
+        Alert.alert('Restriction', 'Seuls les admins et super admins peuvent créer un groupe public sur demande.');
+        return;
+      }
+    } else if (editingGroupVisibility === 'private') {
+      // Privé : toujours autorisé
+      // join_policy sera 'invite' pour les groupes privés
+    }
+
+    setSavingGroup(true);
+    try {
+      const updateData = {
+        name: trimmedName,
+        visibility: editingGroupVisibility,
+        join_policy: editingGroupVisibility === 'private' ? 'invite' : editingGroupJoinPolicy,
+      };
+
+      const { error: updateError } = await supabase
+        .from("groups")
+        .update(updateData)
+        .eq("id", groupId);
+
+      if (updateError) throw updateError;
+
+      // Rafraîchir la liste des groupes
+      await loadGroups();
+      
+      // Mettre à jour le groupe actif avec les nouvelles valeurs
+      if (activeGroup?.id === groupId) {
+        setActiveGroup({
+          ...activeGroup,
+          name: trimmedName,
+          visibility: editingGroupVisibility,
+          join_policy: updateData.join_policy,
+        });
+      }
+
+      Alert.alert("Succès", "Le groupe a été mis à jour.");
+      
+      // Sortir du mode édition seulement en cas de succès
+      setShowEditGroup(false);
+      setEditingGroupId(null);
+      setEditingGroupName("");
+      setEditingGroupVisibility("private");
+      setEditingGroupJoinPolicy("invite");
+    } catch (e) {
+      console.error('[onUpdateGroup] Erreur:', e);
+      Alert.alert("Erreur", e?.message ?? "Impossible de mettre à jour le groupe.");
+      // En cas d'erreur, on garde la modale ouverte
+    } finally {
+      setSavingGroup(false);
+    }
+  }, [isAdmin, isSuperAdmin, isGlobalAdmin, editingGroupName, editingGroupVisibility, editingGroupJoinPolicy, loadGroups, activeGroup, setActiveGroup]);
+
   const onJoinPublic = useCallback(
     async (groupId) => {
       try {
@@ -1080,6 +1164,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
   // --- Création de groupe ---
   const [showCreate, setShowCreate] = useState(false);
+  const [showEditGroup, setShowEditGroup] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createVisibility, setCreateVisibility] = useState("private");
   const [createJoinPolicy, setCreateJoinPolicy] = useState("invite");
@@ -1503,9 +1588,30 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     </View>
                   )}
                 </View>
-                <Text style={{ color: "#5b89b8", marginTop: 2 }}>
-                  {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                  <Text style={{ color: "#5b89b8" }}>
+                    {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
+                  </Text>
+                  {isAdmin && (
+                    <Pressable
+                      onPress={() => {
+                        setEditingGroupId(activeRecord.id);
+                        setEditingGroupName(activeRecord.name || "");
+                        setEditingGroupVisibility(activeRecord.visibility || "private");
+                        setEditingGroupJoinPolicy(activeRecord.join_policy || "invite");
+                        setShowEditGroup(true);
+                      }}
+                      style={{
+                        padding: 8,
+                        marginLeft: 8,
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Modifier le groupe"
+                    >
+                      <Ionicons name="create" size={22} color="#007cfd" />
+                    </Pressable>
+                  )}
+                </View>
               </View>
             </View>
 
@@ -1643,32 +1749,62 @@ Padel Sync — Ton match en 3 clics 🎾`;
           </View>
         ) : (
           <View style={{ gap: 8 }}>
-            {(groups.mine ?? []).map((g) => (
-              <Pressable
-                key={g.id}
-                onPress={press("activate-group", () => onActivate(g))}
-                style={[s.rowCard, Platform.OS === 'web' && { cursor: 'pointer' }]}
-                accessibilityRole="button"
-                accessibilityLabel={`Activer le groupe ${g.name}`}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                  <Avatar url={g.avatar_url} fallback={g.name} size={40} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
-                    <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
-                      {g.visibility === 'public'
-                        ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}`
-                        : 'Privé'}
-                    </Text>
+            {(groups.mine ?? []).map((g) => {
+              const isActive = activeGroup?.id === g.id;
+              
+              // Initialiser les valeurs d'édition et ouvrir la modale
+              const startEditing = () => {
+                setEditingGroupId(g.id);
+                setEditingGroupName(g.name || "");
+                setEditingGroupVisibility(g.visibility || "private");
+                setEditingGroupJoinPolicy(g.join_policy || "invite");
+                setShowEditGroup(true);
+              };
+
+              return (
+                <Pressable
+                  key={g.id}
+                  onPress={press("activate-group", () => onActivate(g))}
+                  style={[s.rowCard, Platform.OS === 'web' && { cursor: 'pointer' }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Activer le groupe ${g.name}`}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                    <Avatar url={g.avatar_url} fallback={g.name} size={40} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
+                      <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
+                        {g.visibility === 'public'
+                          ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}`
+                          : 'Privé'}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-                {activeGroup?.id === g.id ? (
-                  <View style={[s.btnTiny, { backgroundColor: "#d1d5db" }]}>
-                    <Text style={{ color: "#111827", fontWeight: "800", fontSize: 12 }}>Actif</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    {isActive && isAdmin && (
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          startEditing();
+                        }}
+                        style={{
+                          padding: 10,
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Modifier le groupe"
+                      >
+                        <Ionicons name="create" size={22} color="#e0ff00" />
+                      </Pressable>
+                    )}
+                    {isActive && (
+                      <View style={[s.btnTiny, { backgroundColor: "#d1d5db" }]}>
+                        <Text style={{ color: "#111827", fontWeight: "800", fontSize: 12 }}>Actif</Text>
+                      </View>
+                    )}
                   </View>
-                ) : null}
-              </Pressable>
-            ))}
+                </Pressable>
+              );
+            })}
           </View>
         )}
 
@@ -1707,12 +1843,126 @@ Padel Sync — Ton match en 3 clics 🎾`;
         onPress={press("fab-create-group", onCreateGroup)} 
         style={[
           s.fab, 
-          { bottom: Math.max(22, insets.bottom + 80) },
+          { bottom: Math.max(22, insets.bottom + 100) },
           Platform.OS === "web" && { cursor: "pointer" }
         ]} 
       >
         <Ionicons name="add" size={32} color="#ffffff" />
       </Pressable>
+
+      {/* Modal édition groupe */}
+      <Modal visible={showEditGroup} transparent animationType="fade" onRequestClose={() => setShowEditGroup(false)}>
+        <KeyboardAvoidingView style={s.qrWrap} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled">
+            <View style={[s.qrCard, { width: 320, alignSelf: "center", alignItems: "stretch" }]}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <Text style={{ fontWeight: "800", fontSize: 18 }}>Modifier le groupe</Text>
+                <Pressable 
+                  onPress={() => {
+                    setShowEditGroup(false);
+                    setEditingGroupId(null);
+                    setEditingGroupName("");
+                    setEditingGroupVisibility("private");
+                    setEditingGroupJoinPolicy("invite");
+                  }} 
+                  style={[{ padding: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+                >
+                  <Ionicons name="close" size={24} color="#dc2626" />
+                </Pressable>
+              </View>
+              
+              <TextInput
+                placeholder="Nom du groupe"
+                value={editingGroupName}
+                onChangeText={setEditingGroupName}
+                style={s.input}
+                autoFocus
+                returnKeyType="done"
+                blurOnSubmit
+              />
+
+              <Text style={{ marginTop: 12, marginBottom: 8, fontWeight: "700", color: "#111827" }}>Type de groupe</Text>
+
+              {/* Privé - toujours disponible */}
+              <TouchableOpacity
+                onPress={() => {
+                  setEditingGroupVisibility("private");
+                  setEditingGroupJoinPolicy("invite");
+                }}
+                style={[s.choice, editingGroupVisibility === "private" ? s.choiceActive : null]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Ionicons name="lock-closed-outline" size={16} color={editingGroupVisibility === "private" ? BRAND : "#374151"} />
+                  <Text style={[s.choiceTxt, editingGroupVisibility === "private" ? s.choiceTxtActive : null]}>Privé</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Public (sur demande) - pour super admin ou admin */}
+              {(isSuperAdmin || isGlobalAdmin) && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setEditingGroupVisibility("public");
+                    setEditingGroupJoinPolicy("request");
+                  }}
+                  style={[s.choice, editingGroupVisibility === "public" && editingGroupJoinPolicy === "request" ? s.choiceActive : null]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="people-outline" size={16} color={editingGroupVisibility === "public" && editingGroupJoinPolicy === "request" ? BRAND : "#374151"} />
+                    <Text style={[s.choiceTxt, editingGroupVisibility === "public" && editingGroupJoinPolicy === "request" ? s.choiceTxtActive : null]}>Public (sur demande)</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Public (ouvert) - uniquement pour super admin */}
+              {isSuperAdmin && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setEditingGroupVisibility("public");
+                    setEditingGroupJoinPolicy("open");
+                  }}
+                  style={[s.choice, editingGroupVisibility === "public" && editingGroupJoinPolicy === "open" ? s.choiceActive : null]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="earth-outline" size={16} color={editingGroupVisibility === "public" && editingGroupJoinPolicy === "open" ? BRAND : "#374151"} />
+                    <Text style={[s.choiceTxt, editingGroupVisibility === "public" && editingGroupJoinPolicy === "open" ? s.choiceTxtActive : null]}>Public (ouvert)</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
+                <Pressable
+                  onPress={() => {
+                    setShowEditGroup(false);
+                    setEditingGroupId(null);
+                    setEditingGroupName("");
+                    setEditingGroupVisibility("private");
+                    setEditingGroupJoinPolicy("invite");
+                  }}
+                  disabled={savingGroup}
+                  style={[s.btn, { backgroundColor: "#6b7280", flex: 1 }, savingGroup && { opacity: 0.5 }, Platform.OS === "web" && { cursor: savingGroup ? "not-allowed" : "pointer" }]}
+                >
+                  <Text style={[s.btnTxt, { color: "#ffffff" }]}>Annuler</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    if (editingGroupId) {
+                      onUpdateGroup(editingGroupId);
+                    }
+                  }}
+                  disabled={savingGroup}
+                  style={[s.btn, { backgroundColor: BRAND, flex: 1 }, savingGroup && { opacity: 0.5 }, Platform.OS === "web" && { cursor: savingGroup ? "not-allowed" : "pointer" }]}
+                >
+                  {savingGroup ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={[s.btnTxt, { color: "#ffffff" }]}>Sauvegarder</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Modal création */}
       <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => setShowCreate(false)}>
@@ -2013,7 +2263,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   sectionHeader: { marginTop: 2, marginBottom: 2 },
-  sectionTitle: { color: "#ffffff", fontWeight: "800" },
+  sectionTitle: { 
+    color: "#e0ff00", 
+    fontWeight: "800", 
+    fontSize: 20,
+    textShadowColor: "#000000",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
   card: { backgroundColor: "#001831", borderWidth: 0.5, borderColor: "#808080", borderRadius: 12, padding: 12, gap: 8 },
   activeCard: { backgroundColor: "#ffffff", borderColor: "gold" },
   rowCard: { backgroundColor: "#001831", borderWidth: 0.5, borderColor: "#808080", borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 },
@@ -2026,6 +2283,60 @@ const s = StyleSheet.create({
   choiceTxtActive: { color: BRAND },
   badgePublic: { borderWidth: 1, borderColor: BRAND, backgroundColor: "#eaf2ff", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
   badgePublicTxt: { color: BRAND, fontWeight: "800", fontSize: 10 },
+  editInput: {
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#111827",
+    fontSize: 16,
+    fontWeight: "700",
+    textTransform: 'uppercase',
+  },
+  editChoice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#ffffff",
+  },
+  editChoiceActive: {
+    borderColor: BRAND,
+    backgroundColor: "#eaf2ff",
+  },
+  editChoiceTxt: {
+    color: "#374151",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  editChoiceTxtActive: {
+    color: BRAND,
+  },
+  editBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editBtnCancel: {
+    backgroundColor: "#6b7280",
+  },
+  editBtnSave: {
+    backgroundColor: BRAND,
+  },
+  editBtnTxt: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 14,
+  },
   qrWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
   qrCard: { width: 300, borderRadius: 12, backgroundColor: "white", padding: 16, alignItems: "center" },
   fab: {

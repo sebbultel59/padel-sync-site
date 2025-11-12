@@ -1,7 +1,8 @@
 // components/AppCopilot.js
 import React from 'react';
 import { CopilotProvider, CopilotStep, useCopilot, walkthroughable } from 'react-native-copilot';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { Image, View, Text, StyleSheet, Pressable } from 'react-native';
+import { getTutorialImage } from '../lib/helpImages';
 
 export const WalkthroughableView = walkthroughable(View);
 
@@ -57,9 +58,26 @@ function CustomTooltip(props = {}) {
     props: props,
   });
 
+  // Récupérer l'image pour cette étape si disponible
+  const stepImage = currentStep?.name ? getTutorialImage(currentStep.name) : null;
+
   return (
     <View style={styles.tooltipContainer} pointerEvents="box-none">
       <View style={styles.tooltip} pointerEvents="auto">
+        {/* Afficher l'image si disponible */}
+        {stepImage && (
+          <Image
+            source={stepImage}
+            style={{
+              width: '100%',
+              maxHeight: 150,
+              borderRadius: 8,
+              marginBottom: 12,
+              resizeMode: 'contain',
+              backgroundColor: '#f9fafb',
+            }}
+          />
+        )}
         <Text style={styles.tooltipText}>
           {currentStep?.text || ''}
         </Text>
@@ -181,7 +199,10 @@ const styles = StyleSheet.create({
 
 export { CopilotProvider, useCopilot };
 
-export function Step({ order, name, text, children }) {
+export function Step({ order, name, text, children, image }) {
+  // Le composant Step accepte maintenant une prop image optionnelle
+  // L'image sera récupérée automatiquement dans CustomTooltip via getTutorialImage(name)
+  // mais on peut aussi la passer directement si nécessaire
   return (
     <CopilotStep order={order} name={name} text={text}>
       <WalkthroughableView>{children}</WalkthroughableView>
