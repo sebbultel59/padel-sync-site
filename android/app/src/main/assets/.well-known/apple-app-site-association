@@ -1,0 +1,10 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.com.padelsync.app"],
+        "paths": ["/invite/*", "/*"]
+      }
+    ]
+  }
+}

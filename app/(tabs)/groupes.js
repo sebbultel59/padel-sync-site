@@ -813,29 +813,44 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
     setSavingGroup(true);
     try {
+      // Normaliser les valeurs en minuscules pour éviter les problèmes de contrainte
+      const normalizedVisibility = String(editingGroupVisibility || 'private').toLowerCase().trim();
+      const normalizedJoinPolicy = editingGroupVisibility === 'private' 
+        ? 'invite' 
+        : String(editingGroupJoinPolicy || 'invite').toLowerCase().trim();
+      
       const updateData = {
         name: trimmedName,
-        visibility: editingGroupVisibility,
-        join_policy: editingGroupVisibility === 'private' ? 'invite' : editingGroupJoinPolicy,
+        visibility: normalizedVisibility,
+        join_policy: normalizedJoinPolicy,
       };
 
-      const { error: updateError } = await supabase
-        .from("groups")
-        .update(updateData)
-        .eq("id", groupId);
+      console.log('[onUpdateGroup] Updating group with:', updateData);
 
-      if (updateError) throw updateError;
+      // Utiliser la fonction RPC pour mettre à jour le groupe (contourne les contraintes CHECK)
+      const { data: updatedGroupId, error: updateError } = await supabase.rpc('rpc_update_group', {
+        p_group_id: groupId,
+        p_name: trimmedName,
+        p_visibility: normalizedVisibility,
+        p_join_policy: normalizedJoinPolicy,
+      });
+
+      if (updateError) {
+        console.error('[onUpdateGroup] Supabase error:', updateError);
+        console.error('[onUpdateGroup] Update data:', updateData);
+        throw updateError;
+      }
 
       // Rafraîchir la liste des groupes
       await loadGroups();
       
-      // Mettre à jour le groupe actif avec les nouvelles valeurs
+      // Mettre à jour le groupe actif avec les nouvelles valeurs normalisées
       if (activeGroup?.id === groupId) {
         setActiveGroup({
           ...activeGroup,
           name: trimmedName,
-          visibility: editingGroupVisibility,
-          join_policy: updateData.join_policy,
+          visibility: normalizedVisibility,
+          join_policy: normalizedJoinPolicy,
         });
       }
 
@@ -1546,17 +1561,20 @@ Padel Sync — Ton match en 3 clics 🎾`;
       </Modal>
 
       <ScrollView
+        scrollEnabled={true}
+        nestedScrollEnabled={Platform.OS === 'android'}
+        showsVerticalScrollIndicator={true}
         contentContainerStyle={{ 
           padding: Platform.OS === 'ios' ? 4 : 12, 
           paddingHorizontal: Math.max(16, Math.max(insets.left, insets.right) + 8),
           gap: 10, 
           paddingBottom: Math.max(24, insets.bottom + 140),
-          paddingTop: Platform.OS === 'ios' ? 4 : Math.max(4, insets.top + 2)
+          paddingTop: Platform.OS === 'ios' ? 4 : Math.max(4, insets.top + 2),
+          flexGrow: 1
         }}
         contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'automatic' : undefined}
         scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 70) }}
         keyboardShouldPersistTaps="handled"
-        {...(Platform.OS === "web" ? {} : { pointerEvents: "box-none" })}
       >
         {/* Groupe actif */}
         {activeRecord ? (
@@ -1574,43 +1592,42 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
                   </Text>
                   {isAdmin && (
-                    <View style={{
-                      backgroundColor: '#ef4444',
-                      borderWidth: 1,
-                      borderColor: '#ef4444',
-                      borderRadius: 4,
-                      paddingHorizontal: 6,
-                      paddingVertical: 2,
-                    }}>
-                      <Text style={{ color: '#ffffff', fontWeight: "700", fontSize: 12 }}>
-                        Admin
-                      </Text>
-                    </View>
+                    <>
+                      <View style={{
+                        backgroundColor: '#ef4444',
+                        borderWidth: 1,
+                        borderColor: '#ef4444',
+                        borderRadius: 4,
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                      }}>
+                        <Text style={{ color: '#ffffff', fontWeight: "700", fontSize: 12 }}>
+                          Admin
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => {
+                          setEditingGroupId(activeRecord.id);
+                          setEditingGroupName(activeRecord.name || "");
+                          setEditingGroupVisibility(activeRecord.visibility || "private");
+                          setEditingGroupJoinPolicy(activeRecord.join_policy || "invite");
+                          setShowEditGroup(true);
+                        }}
+                        style={{
+                          padding: 4,
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Modifier le groupe"
+                      >
+                        <Ionicons name="create" size={20} color="#007cfd" />
+                      </Pressable>
+                    </>
                   )}
                 </View>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
                   <Text style={{ color: "#5b89b8" }}>
                     {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
                   </Text>
-                  {isAdmin && (
-                    <Pressable
-                      onPress={() => {
-                        setEditingGroupId(activeRecord.id);
-                        setEditingGroupName(activeRecord.name || "");
-                        setEditingGroupVisibility(activeRecord.visibility || "private");
-                        setEditingGroupJoinPolicy(activeRecord.join_policy || "invite");
-                        setShowEditGroup(true);
-                      }}
-                      style={{
-                        padding: 8,
-                        marginLeft: 8,
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Modifier le groupe"
-                    >
-                      <Ionicons name="create" size={22} color="#007cfd" />
-                    </Pressable>
-                  )}
                 </View>
               </View>
             </View>
@@ -1728,14 +1745,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
             style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
           >
             <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
-            <Text style={[s.btnTxt, { fontSize: 13 }]}>Rejoindre un groupe</Text>
+            <Text style={[s.btnTxt, { fontSize: 13 }]}>Rejoindre</Text>
           </Pressable>
           <Pressable 
             onPress={press("create-group", onCreateGroup)} 
             style={[s.btn, { backgroundColor: "#001831", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#e0ff00" }, Platform.OS === "web" && { cursor: "pointer" }]}
           >
             <Text style={{ fontSize: 16 }}>👑</Text>
-            <Text style={[s.btnTxt, { fontSize: 13, color: "#e0ff00" }]}>Créer un groupe</Text>
+            <Text style={[s.btnTxt, { fontSize: 13, color: "#e0ff00" }]}>Créer</Text>
           </Pressable>
         </View>
 
@@ -2065,7 +2082,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
             >
               <Ionicons name="close" size={28} color="#dc2626" />
             </Pressable>
-            <Text style={{ fontWeight: "800", fontSize: 20, marginBottom: 12, paddingRight: 20 }}>Rejoindre un groupe</Text>
+            <Text style={{ fontWeight: "800", fontSize: 20, marginBottom: 12, paddingRight: 20 }}>
+              {Platform.OS === "android" ? "Rejoindre" : "Rejoindre un groupe"}
+            </Text>
             <Text style={{ fontSize: 14, color: "#666", marginBottom: 16 }}>
               Entre un code d'invitation ou colle un lien d'invitation
             </Text>

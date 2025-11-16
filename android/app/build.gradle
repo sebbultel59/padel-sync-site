@@ -92,8 +92,18 @@ android {
         applicationId 'com.padelsync.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 23
-        versionName "2.0.3"
+        versionCode 24
+        versionName "2.0.4"
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    
+    kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs += ["-Xskip-metadata-version-check"]
     }
     signingConfigs {
         debug {

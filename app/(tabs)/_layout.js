@@ -1,15 +1,14 @@
 // app/(tabs)/_layout.js
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
-import * as Notifications from 'expo-notifications';
 import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, DeviceEventEmitter, FlatList, Linking, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, DeviceEventEmitter, FlatList, Linking, Modal, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import 'react-native-gesture-handler';
 import { supabase } from '../../lib/supabase';
 import { HelpModal } from '../../components/HelpModal';
+import { isNotificationsSupported, withNotifications } from '../../lib/notifications-wrapper';
 
 
 export default function TabsLayout() {
@@ -172,45 +171,70 @@ export default function TabsLayout() {
       }
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnreadCount(0);
-      try { await Notifications.setBadgeCountAsync(0); } catch {}
+      if (isNotificationsSupported) {
+        await withNotifications(async (Notifications) => {
+          try { 
+            await Notifications.setBadgeCountAsync(0); 
+          } catch (e) {
+            console.warn('[notifications] Erreur setBadgeCount:', e);
+          }
+        });
+      }
     } catch (e) {
       console.warn('[notifications] markAll error', e);
     }
   }
 
   async function loadNotificationPermissionStatus() {
-    try {
-      const settings = await Notifications.getPermissionsAsync();
-      setNotifPermissionStatus(settings);
-    } catch (e) {
-      console.warn('[notifications] loadPermissionStatus error', e);
+    if (!isNotificationsSupported) {
+      setNotifPermissionStatus({ granted: false, canAskAgain: false });
+      return;
     }
+    await withNotifications(async (Notifications) => {
+      try {
+        const settings = await Notifications.getPermissionsAsync();
+        setNotifPermissionStatus(settings);
+      } catch (e) {
+        console.warn('[notifications] loadPermissionStatus error', e);
+        setNotifPermissionStatus({ granted: false, canAskAgain: false });
+      }
+    });
   }
 
   async function requestNotificationPermission() {
-    try {
-      // Si on ne peut plus demander les permissions, ouvrir les paramètres système
-      if (notifPermissionStatus?.canAskAgain === false) {
-        await Linking.openSettings();
-        // Recharger le statut après un court délai
-        setTimeout(() => {
-          loadNotificationPermissionStatus();
-        }, 500);
-        return null;
-      }
-      
-      const result = await Notifications.requestPermissionsAsync();
-      setNotifPermissionStatus(result);
-      if (result.granted) {
-        // Enregistrer le token push si les permissions sont accordées
-        const { registerPushToken } = await import('../../lib/notifications');
-        await registerPushToken();
-      }
-      return result;
-    } catch (e) {
-      console.warn('[notifications] requestPermission error', e);
+    if (!isNotificationsSupported) {
+      Alert.alert(
+        'Notifications non disponibles',
+        'Les notifications push ne sont pas disponibles dans Expo Go sur Android. Utilisez un development build pour tester cette fonctionnalité.'
+      );
       return null;
     }
+    
+    return await withNotifications(async (Notifications) => {
+      try {
+        // Si on ne peut plus demander les permissions, ouvrir les paramètres système
+        if (notifPermissionStatus?.canAskAgain === false) {
+          await Linking.openSettings();
+          // Recharger le statut après un court délai
+          setTimeout(() => {
+            loadNotificationPermissionStatus();
+          }, 500);
+          return null;
+        }
+        
+        const result = await Notifications.requestPermissionsAsync();
+        setNotifPermissionStatus(result);
+        if (result.granted) {
+          // Enregistrer le token push si les permissions sont accordées
+          const { registerPushToken } = await import('../../lib/notifications');
+          await registerPushToken();
+        }
+        return result;
+      } catch (e) {
+        console.warn('[notifications] requestPermission error', e);
+        return null;
+      }
+    });
   }
 
   async function loadNotificationPreferences() {
@@ -297,23 +321,50 @@ export default function TabsLayout() {
   useEffect(() => { 
     loadNotifications(); 
     
-    // Écouter les notifications reçues (push notifications)
-    const subscription = Notifications.addNotificationReceivedListener(notification => {
-      console.log('[Layout] Notification push reçue:', notification);
-      // Recharger les notifications quand une nouvelle arrive
-      loadNotifications();
-    });
+    if (!isNotificationsSupported) {
+      return;
+    }
     
-    // Écouter les notifications ouvertes (quand l'utilisateur clique dessus)
-    const responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('[Layout] Notification ouverte:', response);
-      // Recharger les notifications
-      loadNotifications();
-    });
+    // Écouter les notifications reçues (push notifications)
+    let subscription = null;
+    let responseSubscription = null;
+    
+    (async () => {
+      await withNotifications(async (Notifications) => {
+        try {
+          subscription = Notifications.addNotificationReceivedListener(notification => {
+            console.log('[Layout] Notification push reçue:', notification);
+            // Recharger les notifications quand une nouvelle arrive
+            loadNotifications();
+          });
+          
+          // Écouter les notifications ouvertes (quand l'utilisateur clique dessus)
+          responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
+            console.log('[Layout] Notification ouverte:', response);
+            // Recharger les notifications
+            loadNotifications();
+          });
+        } catch (e) {
+          console.warn('[Layout] Erreur lors de l\'écoute des notifications:', e);
+        }
+      });
+    })();
     
     return () => {
-      subscription.remove();
-      responseSubscription.remove();
+      if (subscription) {
+        try {
+          subscription.remove();
+        } catch (e) {
+          console.warn('[Layout] Erreur lors de la suppression du listener:', e);
+        }
+      }
+      if (responseSubscription) {
+        try {
+          responseSubscription.remove();
+        } catch (e) {
+          console.warn('[Layout] Erreur lors de la suppression du listener de réponse:', e);
+        }
+      }
     };
   }, []);
 
@@ -368,7 +419,7 @@ export default function TabsLayout() {
           headerTitleAlign: 'center',
           headerTintColor: '#fff',
           headerTitleStyle: {
-            fontFamily: 'CaptureSmallzClean',
+            fontFamily: Platform.OS === 'android' && !fontsLoaded ? 'sans-serif-medium' : 'CaptureSmallzClean',
             fontWeight: '800',
             fontSize: isLandscape ? 34 : 42,
             textTransform: 'uppercase',
@@ -438,8 +489,8 @@ export default function TabsLayout() {
             borderTopWidth: 0,
             elevation: 0,
             shadowOpacity: 0,
-            height: 90 + insets.bottom,
-            paddingBottom: 12 + insets.bottom,
+            height: 60 + insets.bottom,
+            paddingBottom: 2 + insets.bottom,
             paddingTop: 6,
             paddingLeft: Math.max(0, insets.left),
             paddingRight: Math.max(0, insets.right),
@@ -531,7 +582,18 @@ export default function TabsLayout() {
                 </Pressable>
               </View>
               <View style={{ flex: 1, alignItems: 'flex-start' }}>
-                <Pressable onPress={async () => { setNotifsOpen(false); try { await Notifications.setBadgeCountAsync(0); } catch {} }} style={({ pressed }) => [ { padding: 6, borderRadius: 8 }, pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null ]}>
+                <Pressable onPress={async () => { 
+                  setNotifsOpen(false); 
+                  if (isNotificationsSupported) {
+                    await withNotifications(async (Notifications) => {
+                      try { 
+                        await Notifications.setBadgeCountAsync(0); 
+                      } catch (e) {
+                        console.warn('[notifications] Erreur setBadgeCount:', e);
+                      }
+                    });
+                  }
+                }} style={({ pressed }) => [ { padding: 6, borderRadius: 8 }, pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null ]}>
                   <Ionicons name="close" size={20} color="#374151" />
                 </Pressable>
               </View>
@@ -611,6 +673,11 @@ export default function TabsLayout() {
               <Text style={{ fontWeight: '800', fontSize: 14, color: '#0b2240', marginBottom: 8 }}>
                 Notifications push
               </Text>
+              {!isNotificationsSupported && (
+                <Text style={{ color: '#dc2626', fontSize: 13, marginBottom: 16 }}>
+                  ⚠️ Les notifications push ne sont pas disponibles dans Expo Go sur Android. Utilisez un development build pour tester cette fonctionnalité.
+                </Text>
+              )}
               <Text style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
                 {notifPermissionStatus?.granted 
                   ? 'Les notifications push sont activées.'
@@ -619,7 +686,7 @@ export default function TabsLayout() {
                   : 'Activez les notifications push pour recevoir des alertes en temps réel.'}
               </Text>
               
-              {!notifPermissionStatus?.granted && (
+              {!notifPermissionStatus?.granted && isNotificationsSupported && (
                 <Pressable
                   onPress={requestNotificationPermission}
                   style={({ pressed }) => [
@@ -644,7 +711,7 @@ export default function TabsLayout() {
             </View>
 
             {/* Section Types de Notifications */}
-            {notifPermissionStatus?.granted && (
+            {notifPermissionStatus?.granted && isNotificationsSupported && (
               <View style={{ maxHeight: '60%' }}>
                 <Text style={{ fontWeight: '800', fontSize: 14, color: '#0b2240', marginBottom: 16 }}>
                   Types de notifications
@@ -706,10 +773,12 @@ export default function TabsLayout() {
               </View>
             )}
 
-            {!notifPermissionStatus?.granted && (
+            {(!notifPermissionStatus?.granted || !isNotificationsSupported) && (
               <View style={{ paddingVertical: 20, alignItems: 'center' }}>
                 <Text style={{ color: '#6b7280', fontSize: 13, textAlign: 'center' }}>
-                  Activez d'abord les notifications push pour gérer les types de notifications
+                  {!isNotificationsSupported 
+                    ? 'Les notifications push ne sont pas disponibles dans Expo Go sur Android.'
+                    : 'Activez d\'abord les notifications push pour gérer les types de notifications'}
                 </Text>
               </View>
             )}

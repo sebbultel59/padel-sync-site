@@ -1,6 +1,7 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
+  ext.kotlinVersion = '2.1.20'
   repositories {
     google()
     mavenCentral()
@@ -8,7 +9,7 @@ buildscript {
   dependencies {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
   }
 }
 
@@ -30,6 +31,34 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+  }
+  
+  // Force Kotlin version for all subprojects including plugins
+  afterEvaluate { project ->
+    if (project.hasProperty('android')) {
+      project.android {
+        compileOptions {
+          sourceCompatibility JavaVersion.VERSION_17
+          targetCompatibility JavaVersion.VERSION_17
+        }
+      }
+    }
+    // Force Kotlin compiler options for all Kotlin projects
+    project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+      kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs += ["-Xskip-metadata-version-check"]
+      }
+    }
+    // Also configure for Kotlin JVM projects
+    if (project.plugins.hasPlugin('org.jetbrains.kotlin.jvm')) {
+      project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+          jvmTarget = "17"
+          freeCompilerArgs += ["-Xskip-metadata-version-check"]
+        }
+      }
+    }
   }
 }
 

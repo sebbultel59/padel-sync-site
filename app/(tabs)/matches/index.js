@@ -20,6 +20,7 @@ import {
     SectionList,
     Text,
     TextInput,
+    useWindowDimensions,
     View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -147,6 +148,7 @@ export default function MatchesScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const { start } = useCopilot();
   const startRef = useRef(null);
   
@@ -154,6 +156,18 @@ export default function MatchesScreen() {
   if (start) {
     startRef.current = start;
   }
+  
+  // Calculer l'espacement dynamique entre header et boutons selon la taille d'écran (Android uniquement)
+  const dynamicHeaderSpacing = Platform.OS === 'android' 
+    ? (height < 700 ? -20 : height < 900 ? -16 : height < 1100 ? -12 : -8)
+    : -8;
+  
+  // Debug: vérifier les valeurs sur Android
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      console.log('[Matches Android] Height:', height, 'Spacing:', dynamicHeaderSpacing);
+    }
+  }, [height, dynamicHeaderSpacing]);
 
   // 🔔 Écouter l'événement pour démarrer le tutoriel
   useEffect(() => {
@@ -5830,7 +5844,11 @@ const HourSlotRow = ({ item }) => {
       )}
       
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={{ backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, marginTop: -8, zIndex: 1002, elevation: 12 }}>
+<View style={[
+  { backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, zIndex: 1002, elevation: 12 },
+  Platform.OS === 'android' && { marginTop: dynamicHeaderSpacing },
+  Platform.OS !== 'android' && { marginTop: -8 }
+]}>
   {/* 3 — Matchs (zone liste/onglets) */}
   <Step order={3} name="matchs" text="En appuyant ici, retrouve les matchs possibles selon les dispos du groupe.">
     <View style={{ flexDirection: 'row', gap: 8 }}>

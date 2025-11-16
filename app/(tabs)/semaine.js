@@ -1530,7 +1530,19 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               minHeight: 26,
             }}
           >
-            <Text style={{ fontWeight: '800', color: '#ffffff', fontSize: 11, lineHeight: 14 }}>
+            <Text 
+              style={[
+                { 
+                  fontWeight: '800', 
+                  color: '#ffffff', 
+                  textAlign: 'center'
+                },
+                Platform.OS === 'android' ? { fontSize: 8, lineHeight: 10 } : { fontSize: 11, lineHeight: 14 }
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit={Platform.OS === 'android'}
+              minimumFontScale={Platform.OS === 'android' ? 0.7 : 1}
+            >
               {day.format('dd').toUpperCase()} {day.format('D')}
             </Text>
           </View>

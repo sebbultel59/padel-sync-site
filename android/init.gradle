@@ -1,0 +1,12 @@
+// init.gradle - Applied to all projects including included builds
+allprojects {
+  afterEvaluate { project ->
+    project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+      kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs += ["-Xskip-metadata-version-check"]
+      }
+    }
+  }
+}
+
