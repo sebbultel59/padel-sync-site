@@ -1,7 +1,7 @@
 // app/_layout.js
-import 'react-native-gesture-handler';
 import { Slot } from 'expo-router';
 import React, { useEffect } from 'react';
+import 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CopilotProvider } from '../components/AppCopilot';
 import { AuthProvider } from '../context/auth';

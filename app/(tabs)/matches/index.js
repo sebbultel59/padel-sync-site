@@ -23,10 +23,12 @@ import {
     useWindowDimensions,
     View
 } from "react-native";
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
 import { Step, useCopilot } from '../../../components/AppCopilot';
+import { OnboardingModal } from '../../../components/OnboardingModal';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
@@ -214,6 +216,8 @@ export default function MatchesScreen() {
   // États pour les données affichées (mis à jour explicitement)
   const [displayLongSections, setDisplayLongSections] = useState([]);
   const [displayHourReady, setDisplayHourReady] = useState([]);
+  // État pour la popup "choisis un groupe"
+  const [noGroupModalVisible, setNoGroupModalVisible] = useState(false);
   // Bandeau réseau
   const [networkNotice, setNetworkNotice] = useState(null);
   const retryRef = React.useRef(0);
@@ -736,14 +740,29 @@ const pendingWeek = React.useMemo(
   
 const confirmedWeek = React.useMemo(
     () => {
-      const filtered = (matchesConfirmed || []).filter(isNotPast);
+      const filtered = (matchesConfirmed || []).filter(m => {
+        // Filtrer les matches passés
+        if (!isNotPast(m)) return false;
+        
+        // Ne garder que les matches où l'utilisateur est un joueur accepté
+        if (!meId) return false;
+        const rsvps = rsvpsByMatch[m.id] || [];
+        const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+        const isUserInAccepted = accepted.some(r => String(r.user_id) === String(meId));
+        
+        if (!isUserInAccepted) {
+          console.log('[Matches] ConfirmedWeek: Match exclu car utilisateur non accepté:', m.id, 'meId:', meId, 'accepted:', accepted.map(r => r.user_id));
+        }
+        
+        return isUserInAccepted;
+      });
       console.log('[Matches] ConfirmedWeek:', filtered.length, 'matches');
       if (filtered.length > 0) {
         console.log('[Matches] First confirmedWeek match:', filtered[0].id, 'time_slots exists:', !!filtered[0].time_slots, 'time_slots data:', filtered[0].time_slots);
       }
       return filtered;
     },
-    [matchesConfirmed]
+    [matchesConfirmed, meId, rsvpsByMatch]
   );
   
 const pendingHourWeek = React.useMemo(
@@ -2200,6 +2219,20 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setMeId(data?.user?.id ?? null);
     })();
   }, [groupId]);
+
+  // Vérifier si un groupe est sélectionné au focus
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        if (mounted && !activeGroup?.id) {
+          // Pas de groupe sélectionné, afficher popup
+          setNoGroupModalVisible(true);
+        }
+      })();
+      return () => { mounted = false; };
+    }, [activeGroup?.id])
+  );
 
   // Charger les groupes de l'utilisateur
   const loadMyGroups = useCallback(async () => {
@@ -4188,28 +4221,32 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
   const onCancelMatch = useCallback(async (match_id) => {
     if (!match_id) return;
     try {
-      // 1) Essayer une RPC si disponible côté DB
-      try {
-        const { error: eRpc } = await supabase.rpc('cancel_match', { p_match: match_id });
-        if (!eRpc) {
-          await fetchData();
-          if (Platform.OS === 'web') window.alert('Match annulé — le créneau revient dans les propositions.');
-          else Alert.alert('Match annulé', 'Le créneau revient dans les propositions.');
-          return;
+      // 1) Essayer la RPC d'abord (méthode recommandée avec vérifications de sécurité)
+      const { error: eRpc } = await supabase.rpc('cancel_match', { p_match: match_id });
+      if (eRpc) {
+        // Si la RPC échoue, essayer le fallback
+        console.warn('[onCancelMatch] RPC failed, trying fallback:', eRpc.message || eRpc);
+        
+        // 2) Fallback: supprimer RSVPs puis le match
+        const { error: eR } = await supabase.from('match_rsvps').delete().eq('match_id', match_id);
+        if (eR) {
+          console.error('[onCancelMatch] delete RSVPs error:', eR.message || eR);
+          throw new Error('Impossible de supprimer les RSVPs: ' + (eR.message || String(eR)));
         }
-      } catch {}
 
-      // 2) Fallback: supprimer RSVPs puis le match
-      const { error: eR } = await supabase.from('match_rsvps').delete().eq('match_id', match_id);
-      if (eR) console.warn('[onCancelMatch] delete RSVPs error:', eR.message || eR);
+        const { error: eM } = await supabase.from('matches').delete().eq('id', match_id);
+        if (eM) {
+          console.error('[onCancelMatch] delete match error:', eM.message || eM);
+          throw new Error('Impossible de supprimer le match: ' + (eM.message || String(eM)));
+        }
+      }
 
-      const { error: eM } = await supabase.from('matches').delete().eq('id', match_id);
-      if (eM) throw eM;
-
+      // Recharger les données après suppression réussie
       await fetchData();
       if (Platform.OS === 'web') window.alert('Match annulé — le créneau revient dans les propositions.');
       else Alert.alert('Match annulé', 'Le créneau revient dans les propositions.');
     } catch (e) {
+      console.error('[onCancelMatch] Error:', e);
       if (Platform.OS === 'web') window.alert('Impossible d\'annuler le match\n' + (e.message ?? String(e)));
       else Alert.alert('Erreur', e.message ?? String(e));
     }
@@ -4675,6 +4712,24 @@ const HourSlotRow = ({ item }) => {
     const [loadingClubs, setLoadingClubs] = React.useState(false);
     const [userLocation, setUserLocation] = React.useState(null);
     
+    // États pour le modal de remplacement
+    const [replacementModalOpen, setReplacementModalOpen] = React.useState(false);
+    const [replacementMembers, setReplacementMembers] = React.useState([]);
+    const [replacementLoading, setReplacementLoading] = React.useState(false);
+    const [replacementQuery, setReplacementQuery] = React.useState('');
+    const [replacementLevelFilter, setReplacementLevelFilter] = React.useState([]);
+    const [replacementLevelFilterVisible, setReplacementLevelFilterVisible] = React.useState(false);
+    const [replacementGeoLocationType, setReplacementGeoLocationType] = React.useState(null);
+    const [replacementGeoRefPoint, setReplacementGeoRefPoint] = React.useState(null);
+    const [replacementGeoCityQuery, setReplacementGeoCityQuery] = React.useState('');
+    const [replacementGeoCitySuggestions, setReplacementGeoCitySuggestions] = React.useState([]);
+    const [replacementGeoRadiusKm, setReplacementGeoRadiusKm] = React.useState(null);
+    const [replacementGeoFilterVisible, setReplacementGeoFilterVisible] = React.useState(false);
+    
+    // États pour la popup de confirmation
+    const [replacementConfirmVisible, setReplacementConfirmVisible] = React.useState(false);
+    const [pendingReplacement, setPendingReplacement] = React.useState(null);
+    
     // Charger le time_slot si manquant
     React.useEffect(() => {
       console.log('[MatchCardConfirmed] Render for match:', m?.id, 'slot_id:', m?.time_slot_id);
@@ -4704,6 +4759,25 @@ const HourSlotRow = ({ item }) => {
     const rsvps = rsvpsByMatch[m.id] || [];
     const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
     const acceptedCount = accepted.length;
+    // Vérifier si l'utilisateur actuel est dans les joueurs confirmés
+    // Vérifier aussi avec différentes variantes de comparaison pour être sûr
+    const isUserInAccepted = React.useMemo(() => {
+      if (!meId || !accepted.length) return false;
+      const meIdStr = String(meId);
+      const found = accepted.some(r => {
+        const rUserId = String(r.user_id || r.userId || '');
+        return rUserId === meIdStr;
+      });
+      console.log('[MatchCardConfirmed] isUserInAccepted check:', {
+        matchId: m?.id,
+        meId: meIdStr,
+        acceptedUserIds: accepted.map(r => String(r.user_id || r.userId || '')),
+        found,
+        acceptedCount: accepted.length,
+        rsvpsCount: rsvps.length
+      });
+      return found;
+    }, [meId, accepted, m?.id]);
     const reserverName =
       profilesById?.[String(m?.court_reserved_by)]?.display_name ||
       profilesById?.[String(m?.court_reserved_by)]?.name ||
@@ -4851,6 +4925,261 @@ const HourSlotRow = ({ item }) => {
       }
     }, [reserved, savingReserved, m?.id]);
 
+    // Fonction pour charger les membres du groupe pour le remplacement
+    const loadReplacementMembers = React.useCallback(async () => {
+      if (!groupId) {
+        Alert.alert('Erreur', 'Aucun groupe sélectionné.');
+        return;
+      }
+      
+      // Récupérer le créneau du match
+      const matchStart = slot?.starts_at;
+      const matchEnd = slot?.ends_at;
+      
+      if (!matchStart || !matchEnd) {
+        Alert.alert('Erreur', 'Impossible de récupérer le créneau du match.');
+        return;
+      }
+      
+      setReplacementLoading(true);
+      try {
+        // Charger les membres du groupe (similaire à loadGroupMembersForFlash)
+        const members = await loadGroupMembersForFlash(groupId);
+        
+        // Exclure les joueurs déjà dans le match (4 confirmés)
+        const acceptedUserIds = new Set(accepted.map(r => String(r.user_id)));
+        // Exclure l'utilisateur actuel
+        const filteredMembers = members.filter(member => {
+          const memberId = String(member.id);
+          return !acceptedUserIds.has(memberId) && memberId !== String(meId);
+        });
+        
+        // Vérifier la disponibilité de chaque membre sur le créneau du match
+        const availableMembers = [];
+        for (const member of filteredMembers) {
+          try {
+            // Utiliser get_availability_effective pour vérifier la disponibilité sur le créneau
+            const { data: availabilityData, error: availError } = await supabase.rpc('get_availability_effective', {
+              p_group: groupId,
+              p_user: member.id,
+              p_low: new Date(matchStart).toISOString(),
+              p_high: new Date(matchEnd).toISOString(),
+            });
+            
+            if (!availError && availabilityData && Array.isArray(availabilityData)) {
+              // Vérifier si le membre a une disponibilité 'available' qui chevauche le créneau du match
+              const isAvailable = availabilityData.some(av => {
+                const avStart = new Date(av.start);
+                const avEnd = new Date(av.end);
+                const matchStartDate = new Date(matchStart);
+                const matchEndDate = new Date(matchEnd);
+                
+                // Vérifier que le statut est 'available'
+                if (String(av.status || '').toLowerCase() !== 'available') {
+                  return false;
+                }
+                
+                // Vérifier que la disponibilité chevauche le créneau du match
+                // La disponibilité doit commencer avant ou au moment où le match se termine
+                // et se terminer après ou au moment où le match commence
+                return avStart <= matchEndDate && avEnd >= matchStartDate;
+              });
+              
+              if (isAvailable) {
+                availableMembers.push(member);
+              }
+            }
+          } catch (e) {
+            console.warn(`[Replacement] Erreur vérification disponibilité pour ${member.id}:`, e);
+            // En cas d'erreur, ne pas inclure le membre pour être sûr
+          }
+        }
+        
+        // Charger les profils complets avec adresses pour le filtre géo
+        const memberIds = availableMembers.map(m => m.id);
+        if (memberIds.length > 0) {
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, display_name, name, niveau, phone, address_home, address_work, avatar_url')
+            .in('id', memberIds);
+          
+          if (!profilesError && profilesData) {
+            const enrichedMembers = availableMembers.map(member => {
+              const profile = profilesData.find(p => String(p.id) === String(member.id));
+              return {
+                ...member,
+                display_name: profile?.display_name || member.name,
+                phone: profile?.phone,
+                address_home: profile?.address_home,
+                address_work: profile?.address_work,
+                avatar_url: profile?.avatar_url,
+              };
+            });
+            setReplacementMembers(enrichedMembers);
+          } else {
+            setReplacementMembers(availableMembers);
+          }
+        } else {
+          setReplacementMembers([]);
+        }
+      } catch (e) {
+        console.error('[Replacement] Erreur chargement membres:', e);
+        Alert.alert('Erreur', `Impossible de charger les membres: ${e?.message || String(e)}`);
+        setReplacementMembers([]);
+      } finally {
+        setReplacementLoading(false);
+      }
+    }, [groupId, accepted, meId, slot?.starts_at, slot?.ends_at]);
+
+    // Fonction pour rechercher une ville (géolocalisation)
+    const searchReplacementGeoCity = React.useCallback(async (query) => {
+      if (!query || query.length < 3) {
+        setReplacementGeoCitySuggestions([]);
+        return;
+      }
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const suggestions = (data || []).map(item => ({
+          name: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon),
+        }));
+        setReplacementGeoCitySuggestions(suggestions);
+      } catch (e) {
+        console.warn('[ReplacementGeo] city search error:', e);
+        setReplacementGeoCitySuggestions([]);
+      }
+    }, []);
+
+    // Gérer le changement de type de localisation géographique
+    React.useEffect(() => {
+      if (replacementGeoLocationType === 'current' && userLocation) {
+        setReplacementGeoRefPoint({ lat: userLocation.lat, lng: userLocation.lng, address: 'Position actuelle' });
+      } else if (replacementGeoLocationType === 'home') {
+        // Récupérer l'adresse du domicile de l'utilisateur
+        const myProfile = profilesById?.[String(meId)];
+        if (myProfile?.address_home?.lat && myProfile?.address_home?.lng) {
+          setReplacementGeoRefPoint({
+            lat: myProfile.address_home.lat,
+            lng: myProfile.address_home.lng,
+            address: myProfile.address_home.address || 'Domicile'
+          });
+        }
+      } else if (replacementGeoLocationType === 'work') {
+        // Récupérer l'adresse du travail de l'utilisateur
+        const myProfile = profilesById?.[String(meId)];
+        if (myProfile?.address_work?.lat && myProfile?.address_work?.lng) {
+          setReplacementGeoRefPoint({
+            lat: myProfile.address_work.lat,
+            lng: myProfile.address_work.lng,
+            address: myProfile.address_work.address || 'Travail'
+          });
+        }
+      } else if (replacementGeoLocationType !== 'city') {
+        setReplacementGeoRefPoint(null);
+        setReplacementGeoRadiusKm(null);
+      }
+    }, [replacementGeoLocationType, userLocation, meId, profilesById]);
+
+    // Fonction pour remplacer un joueur
+    const onReplacePlayer = React.useCallback(async (matchId, currentUserId, newUserId, newUserName) => {
+      try {
+        // Utiliser la fonction RPC pour remplacer le joueur (contourne les problèmes RLS)
+        const { error: rpcError } = await supabase.rpc('replace_match_player', {
+          p_match_id: matchId,
+          p_current_user_id: currentUserId,
+          p_new_user_id: newUserId,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        // Mettre à jour l'UI optimiste
+        setRsvpsByMatch((prev) => {
+          const next = { ...prev };
+          const arr = Array.isArray(next[matchId]) ? [...next[matchId]] : [];
+          // Supprimer l'ancien RSVP
+          const filtered = arr.filter(r => String(r.user_id) !== String(currentUserId));
+          // Ajouter le nouveau RSVP
+          filtered.push({ user_id: newUserId, status: 'accepted' });
+          next[matchId] = filtered;
+          return next;
+        });
+
+        // Rafraîchir les données
+        DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId, userId: currentUserId });
+        
+        // Fermer les modals
+        setReplacementModalOpen(false);
+        setReplacementConfirmVisible(false);
+        setPendingReplacement(null);
+        
+        // Message de succès
+        Alert.alert('Succès', `${newUserName || 'Le remplaçant'} a été ajouté au match.`);
+      } catch (e) {
+        console.error('[Replacement] Erreur:', e);
+        Alert.alert('Erreur', `Impossible de remplacer le joueur: ${e?.message || String(e)}`);
+      }
+    }, [groupId]);
+
+    // Calculer les membres filtrés pour le remplacement
+    const filteredReplacementMembers = React.useMemo(() => {
+      const base = replacementMembers || [];
+      const q = (replacementQuery || '').trim().toLowerCase();
+      
+      let filtered = base.filter(member => {
+        // Filtre par recherche textuelle
+        if (q) {
+          const name = (member.display_name || member.name || '').toLowerCase();
+          const email = (member.email || '').toLowerCase();
+          const niveau = String(member.niveau || '').toLowerCase();
+          if (!name.includes(q) && !email.includes(q) && !niveau.includes(q)) {
+            return false;
+          }
+        }
+        
+        // Filtre par niveau
+        if (replacementLevelFilter.length > 0) {
+          const memberLevel = Number(member.niveau);
+          if (!Number.isFinite(memberLevel)) return false;
+          
+          const isInRange = replacementLevelFilter.some(range => {
+            const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+            if (parts.length !== 2) return false;
+            const [min, max] = parts.sort((a, b) => a - b);
+            return memberLevel >= min && memberLevel <= max;
+          });
+          
+          if (!isInRange) return false;
+        }
+        
+        // Filtre géographique
+        if (replacementGeoRefPoint && replacementGeoRefPoint.lat != null && replacementGeoRefPoint.lng != null && replacementGeoRadiusKm != null) {
+          let playerLat = null;
+          let playerLng = null;
+          if (member.address_home?.lat && member.address_home?.lng) {
+            playerLat = member.address_home.lat;
+            playerLng = member.address_home.lng;
+          } else if (member.address_work?.lat && member.address_work?.lng) {
+            playerLat = member.address_work.lat;
+            playerLng = member.address_work.lng;
+          }
+          
+          if (!playerLat || !playerLng) return false;
+          
+          const distanceKm = haversineKm(replacementGeoRefPoint, { lat: playerLat, lng: playerLng });
+          if (distanceKm > replacementGeoRadiusKm) return false;
+        }
+        
+        return true;
+      });
+      
+      return filtered;
+    }, [replacementMembers, replacementQuery, replacementLevelFilter, replacementGeoRefPoint, replacementGeoRadiusKm]);
+
     // Récupérer la date du créneau
     const slotDate = (slot.starts_at && slot.ends_at) ? formatRange(slot.starts_at, slot.ends_at) : '';
     console.log('[MatchCardConfirmed] slotDate:', slotDate, 'slot.starts_at:', slot.starts_at, 'slot.ends_at:', slot.ends_at, 'm:', m.id, 'm.time_slot_id:', m?.time_slot_id);
@@ -4983,6 +5312,38 @@ const HourSlotRow = ({ item }) => {
             </Text>
           </Pressable>
         </View>
+
+        {/* Bouton "Me faire remplacer" - visible uniquement si l'utilisateur est dans les 4 confirmés */}
+        {isUserInAccepted && (
+          <Pressable
+            onPress={() => {
+              setReplacementModalOpen(true);
+              loadReplacementMembers();
+            }}
+            style={{
+              marginTop: 8,
+              backgroundColor: '#ff8c00',
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="person-remove-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+            <Text
+              style={{
+                color: '#ffffff',
+                fontWeight: '800',
+                fontSize: 14,
+                textAlign: 'center',
+              }}
+            >
+              Me faire remplacer
+            </Text>
+          </Pressable>
+        )}
 
         {/* Bouton supprimer le match */}
         <Pressable
@@ -5160,6 +5521,676 @@ const HourSlotRow = ({ item }) => {
                   )}
                 </>
               )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Modal de sélection de remplaçant */}
+        <Modal
+          visible={replacementModalOpen}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => {
+            setReplacementModalOpen(false);
+            setReplacementQuery('');
+            setReplacementLevelFilter([]);
+            setReplacementLevelFilterVisible(false);
+            setReplacementGeoLocationType(null);
+            setReplacementGeoRefPoint(null);
+            setReplacementGeoCityQuery('');
+            setReplacementGeoCitySuggestions([]);
+            setReplacementGeoRadiusKm(null);
+            setReplacementGeoFilterVisible(false);
+          }}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#0b2240' }}>Choisir un remplaçant</Text>
+                <Pressable
+                  onPress={() => {
+                    setReplacementModalOpen(false);
+                    setReplacementQuery('');
+                    setReplacementLevelFilter([]);
+                    setReplacementLevelFilterVisible(false);
+                    setReplacementGeoLocationType(null);
+                    setReplacementGeoRefPoint(null);
+                    setReplacementGeoCityQuery('');
+                    setReplacementGeoCitySuggestions([]);
+                    setReplacementGeoRadiusKm(null);
+                    setReplacementGeoFilterVisible(false);
+                  }}
+                  style={{ padding: 8 }}
+                >
+                  <Ionicons name="close" size={24} color="#111827" />
+                </Pressable>
+              </View>
+
+              {replacementLoading ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color="#156bc9" />
+                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
+                </View>
+              ) : (
+                <>
+                  {replacementMembers.length === 0 ? (
+                    <View style={{ padding: 20 }}>
+                      <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                        Aucun membre disponible pour le remplacement.
+                      </Text>
+                    </View>
+                  ) : filteredReplacementMembers.length === 0 ? (
+                    <>
+                      <TextInput
+                        placeholder="Rechercher un joueur (nom, email, niveau)..."
+                        placeholderTextColor="#9ca3af"
+                        value={replacementQuery}
+                        onChangeText={setReplacementQuery}
+                        style={{
+                          backgroundColor: '#f9fafb',
+                          borderWidth: 1,
+                          borderColor: '#e5e7eb',
+                          borderRadius: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          color: '#111827',
+                          marginBottom: 12,
+                          fontSize: 14,
+                        }}
+                        returnKeyType="search"
+                        autoCapitalize="none"
+                      />
+                      
+                      {/* Boutons de filtres */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                        <Pressable
+                          onPress={() => {
+                            if (!replacementLevelFilterVisible) {
+                              setReplacementGeoFilterVisible(false);
+                            }
+                            setReplacementLevelFilterVisible(!replacementLevelFilterVisible);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Image 
+                            source={racketIcon}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              tintColor: replacementLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                            resizeMode="contain"
+                          />
+                        </Pressable>
+                        
+                        <Text style={{ 
+                          color: '#111827', 
+                          fontWeight: '700', 
+                          fontSize: 14 
+                        }}>
+                          Filtres
+                        </Text>
+                        
+                        <Pressable
+                          onPress={() => {
+                            if (!replacementGeoFilterVisible) {
+                              setReplacementLevelFilterVisible(false);
+                            }
+                            setReplacementGeoFilterVisible(!replacementGeoFilterVisible);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Ionicons 
+                            name="location" 
+                            size={20} 
+                            color={(replacementGeoRefPoint && replacementGeoRadiusKm) ? '#ff751d' : '#374151'}
+                            style={{
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                          />
+                        </Pressable>
+                      </View>
+                      
+                      <View style={{ padding: 20 }}>
+                        <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 8 }}>
+                          Aucun membre trouvé
+                          {replacementQuery.trim() && ` pour "${replacementQuery}"`}
+                          {replacementLevelFilter.length > 0 && ` avec les niveaux ${replacementLevelFilter.join(', ')}`}
+                          {replacementGeoRefPoint && replacementGeoRadiusKm && ` dans un rayon de ${replacementGeoRadiusKm} km autour de ${replacementGeoRefPoint.address || 'la position sélectionnée'}`}
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <TextInput
+                        placeholder="Rechercher un joueur (nom, email, niveau)..."
+                        placeholderTextColor="#9ca3af"
+                        value={replacementQuery}
+                        onChangeText={setReplacementQuery}
+                        style={{
+                          backgroundColor: '#f9fafb',
+                          borderWidth: 1,
+                          borderColor: '#e5e7eb',
+                          borderRadius: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          color: '#111827',
+                          marginBottom: 12,
+                          fontSize: 14,
+                        }}
+                        returnKeyType="search"
+                        autoCapitalize="none"
+                      />
+                      
+                      {/* Boutons de filtres */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                        <Pressable
+                          onPress={() => {
+                            if (!replacementLevelFilterVisible) {
+                              setReplacementGeoFilterVisible(false);
+                            }
+                            setReplacementLevelFilterVisible(!replacementLevelFilterVisible);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Image 
+                            source={racketIcon}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              tintColor: replacementLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                            resizeMode="contain"
+                          />
+                        </Pressable>
+                        
+                        <Text style={{ 
+                          color: '#111827', 
+                          fontWeight: '700', 
+                          fontSize: 14 
+                        }}>
+                          Filtres {filteredReplacementMembers.length > 0 && `(${filteredReplacementMembers.length})`}
+                        </Text>
+                        
+                        <Pressable
+                          onPress={() => {
+                            if (!replacementGeoFilterVisible) {
+                              setReplacementLevelFilterVisible(false);
+                            }
+                            setReplacementGeoFilterVisible(!replacementGeoFilterVisible);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Ionicons 
+                            name="location" 
+                            size={20} 
+                            color={(replacementGeoRefPoint && replacementGeoRadiusKm) ? '#ff751d' : '#374151'}
+                            style={{
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                          />
+                        </Pressable>
+                      </View>
+                      
+                      {/* Zone de configuration du filtre par niveau */}
+                      {replacementLevelFilterVisible && (
+                        <View style={{ 
+                          backgroundColor: '#f3f4f6', 
+                          borderRadius: 12, 
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: replacementLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                          marginBottom: 12,
+                        }}>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                            Sélectionnez les niveaux à afficher
+                          </Text>
+                          
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {['1/2', '3/4', '5/6', '7/8'].map((range) => {
+                              const isSelected = replacementLevelFilter.includes(range);
+                              return (
+                                <Pressable
+                                  key={range}
+                                  onPress={() => {
+                                    setReplacementLevelFilter((prev) => {
+                                      if (prev.includes(range)) {
+                                        return prev.filter(r => r !== range);
+                                      } else {
+                                        return [...prev, range];
+                                      }
+                                    });
+                                  }}
+                                  style={{
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
+                                    borderWidth: 1,
+                                    borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                  }}
+                                >
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    fontWeight: isSelected ? '800' : '700', 
+                                    color: isSelected ? '#000000' : '#111827' 
+                                  }}>
+                                    {range}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                          
+                          {replacementLevelFilter.length > 0 && (
+                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                              ✓ Filtre actif : {replacementLevelFilter.length} plage{replacementLevelFilter.length > 1 ? 's' : ''} sélectionnée{replacementLevelFilter.length > 1 ? 's' : ''}
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                      
+                      {/* Zone de configuration du filtre géographique */}
+                      {replacementGeoFilterVisible && (
+                        <View style={{ 
+                          backgroundColor: '#f3f4f6', 
+                          borderRadius: 12, 
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: (replacementGeoRefPoint && replacementGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                          marginBottom: 12,
+                        }}>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                            Filtrer par distance
+                          </Text>
+                          
+                          {/* Sélection du type de position */}
+                          <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              Position de référence
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                              {[
+                                { key: 'current', label: '📍 Position actuelle' },
+                                { key: 'home', label: '🏠 Domicile' },
+                                { key: 'work', label: '💼 Travail' },
+                                { key: 'city', label: '🏙️ Ville' },
+                              ].map(({ key, label }) => {
+                                const isSelected = replacementGeoLocationType === key;
+                                return (
+                                  <Pressable
+                                    key={key}
+                                    onPress={() => {
+                                      if (isSelected) {
+                                        setReplacementGeoRefPoint(null);
+                                        setReplacementGeoCityQuery('');
+                                        setReplacementGeoCitySuggestions([]);
+                                        setReplacementGeoLocationType(null);
+                                        setReplacementGeoRadiusKm(null);
+                                      } else {
+                                        setReplacementGeoLocationType(key);
+                                        if (key === 'city') {
+                                          setReplacementGeoRefPoint(null);
+                                          setReplacementGeoCityQuery('');
+                                        }
+                                      }
+                                    }}
+                                    style={{
+                                      paddingVertical: 8,
+                                      paddingHorizontal: 12,
+                                      borderRadius: 8,
+                                      backgroundColor: (isSelected && replacementGeoRefPoint) ? '#15803d' : '#ffffff',
+                                      borderWidth: 1,
+                                      borderColor: (isSelected && replacementGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                    }}
+                                  >
+                                    <Text style={{ 
+                                      fontSize: 13, 
+                                      fontWeight: (isSelected && replacementGeoRefPoint) ? '800' : '700', 
+                                      color: (isSelected && replacementGeoRefPoint) ? '#ffffff' : '#111827' 
+                                    }}>
+                                      {label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                          
+                          {/* Recherche de ville si type = 'city' */}
+                          {replacementGeoLocationType === 'city' && (
+                            <View style={{ marginBottom: 12 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                                Rechercher une ville
+                              </Text>
+                              <TextInput
+                                placeholder="Tapez le nom d'une ville..."
+                                value={replacementGeoCityQuery}
+                                onChangeText={(text) => {
+                                  setReplacementGeoCityQuery(text);
+                                  searchReplacementGeoCity(text);
+                                }}
+                                style={{
+                                  backgroundColor: '#ffffff',
+                                  borderRadius: 8,
+                                  padding: 12,
+                                  borderWidth: 1,
+                                  borderColor: '#d1d5db',
+                                  fontSize: 14,
+                                }}
+                              />
+                              {replacementGeoCitySuggestions.length > 0 && (
+                                <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                                  <ScrollView>
+                                    {replacementGeoCitySuggestions.map((suggestion, idx) => (
+                                      <Pressable
+                                        key={idx}
+                                        onPress={() => {
+                                          setReplacementGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                                          setReplacementGeoCityQuery(suggestion.name);
+                                          setReplacementGeoCitySuggestions([]);
+                                        }}
+                                        style={{
+                                          padding: 12,
+                                          borderBottomWidth: idx < replacementGeoCitySuggestions.length - 1 ? 1 : 0,
+                                          borderBottomColor: '#e5e7eb',
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                                      </Pressable>
+                                    ))}
+                                  </ScrollView>
+                                </View>
+                              )}
+                            </View>
+                          )}
+                          
+                          {/* Sélection du rayon */}
+                          <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              Rayon : {replacementGeoRadiusKm ? `${replacementGeoRadiusKm} km` : 'non sélectionné'}
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                              {[10, 20, 30, 40, 50].map((km) => {
+                                const isSelected = replacementGeoRadiusKm === km;
+                                return (
+                                  <Pressable
+                                    key={km}
+                                    onPress={() => {
+                                      if (isSelected) {
+                                        setReplacementGeoRadiusKm(null);
+                                      } else {
+                                        setReplacementGeoRadiusKm(km);
+                                      }
+                                    }}
+                                    style={{
+                                      flex: 1,
+                                      paddingVertical: 6,
+                                      paddingHorizontal: 8,
+                                      borderRadius: 8,
+                                      backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                      borderWidth: 1,
+                                      borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Text style={{ 
+                                      fontSize: 12, 
+                                      fontWeight: isSelected ? '800' : '700', 
+                                      color: isSelected ? '#ffffff' : '#111827' 
+                                    }}>
+                                      {km} km
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                          
+                          {(replacementGeoRefPoint && replacementGeoRadiusKm) && (
+                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                              ✓ Filtre actif : {replacementGeoRadiusKm} km autour de {replacementGeoRefPoint.address || 'la position sélectionnée'}
+                            </Text>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Liste des membres */}
+                      <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+                        {filteredReplacementMembers.map((member) => {
+                          // Calculer la distance si filtre géo actif
+                          let distanceKm = null;
+                          if (replacementGeoRefPoint && replacementGeoRadiusKm) {
+                            let playerLat = null;
+                            let playerLng = null;
+                            if (member.address_home?.lat && member.address_home?.lng) {
+                              playerLat = member.address_home.lat;
+                              playerLng = member.address_home.lng;
+                            } else if (member.address_work?.lat && member.address_work?.lng) {
+                              playerLat = member.address_work.lat;
+                              playerLng = member.address_work.lng;
+                            }
+                            if (playerLat && playerLng) {
+                              distanceKm = haversineKm(replacementGeoRefPoint, { lat: playerLat, lng: playerLng });
+                            }
+                          }
+                          
+                          return (
+                            <View
+                              key={String(member.id)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                padding: 10,
+                                backgroundColor: '#f9fafb',
+                                borderRadius: 8,
+                                marginBottom: 6,
+                                borderWidth: 1,
+                                borderColor: '#e5e7eb',
+                              }}
+                            >
+                              <Avatar
+                                uri={member.avatar_url}
+                                size={40}
+                                fallback={member.display_name || member.name}
+                              />
+                              <View style={{ flex: 1, marginLeft: 10 }}>
+                                <Text style={{ fontWeight: '700', color: '#111827', fontSize: 13, marginBottom: 2 }}>
+                                  {member.display_name || member.name}
+                                </Text>
+                                {member.niveau != null && (
+                                  <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 1 }}>
+                                    Niveau {member.niveau}
+                                  </Text>
+                                )}
+                                {distanceKm != null && (
+                                  <Text style={{ fontSize: 11, color: '#156bc9', fontWeight: '600' }}>
+                                    📍 {distanceKm.toFixed(1)} km
+                                  </Text>
+                                )}
+                              </View>
+                              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                <Pressable
+                                  onPress={() => {
+                                    if (member.phone) {
+                                      Linking.openURL(`tel:${member.phone}`);
+                                    } else {
+                                      Alert.alert('Information', 'Ce membre n\'a pas de numéro de téléphone renseigné.');
+                                    }
+                                  }}
+                                  style={{
+                                    padding: 6,
+                                    borderRadius: 6,
+                                    backgroundColor: member.phone ? '#15803d' : '#d1d5db',
+                                  }}
+                                  disabled={!member.phone}
+                                >
+                                  <Ionicons name="call" size={18} color={member.phone ? "#ffffff" : "#9ca3af"} />
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => {
+                                    // Fermer la modale de liste des membres
+                                    setReplacementModalOpen(false);
+                                    // Réinitialiser les filtres
+                                    setReplacementQuery('');
+                                    setReplacementLevelFilter([]);
+                                    setReplacementLevelFilterVisible(false);
+                                    setReplacementGeoLocationType(null);
+                                    setReplacementGeoRefPoint(null);
+                                    setReplacementGeoCityQuery('');
+                                    setReplacementGeoCitySuggestions([]);
+                                    setReplacementGeoRadiusKm(null);
+                                    setReplacementGeoFilterVisible(false);
+                                    // Ouvrir la popup de confirmation
+                                    setPendingReplacement({
+                                      matchId: m.id,
+                                      currentUserId: meId,
+                                      newUserId: member.id,
+                                      newUserName: member.display_name || member.name,
+                                    });
+                                    // Petit délai pour que la modale se ferme avant d'ouvrir la popup
+                                    setTimeout(() => {
+                                      setReplacementConfirmVisible(true);
+                                    }, 300);
+                                  }}
+                                  style={{
+                                    padding: 6,
+                                    borderRadius: 6,
+                                    backgroundColor: '#2fc249',
+                                  }}
+                                >
+                                  <Ionicons name="person-add" size={18} color="#ffffff" />
+                                </Pressable>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </ScrollView>
+                    </>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Popup de confirmation de remplacement */}
+        <Modal
+          visible={replacementConfirmVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => {
+            setReplacementConfirmVisible(false);
+            setPendingReplacement(null);
+          }}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400 }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0b2240', marginBottom: 16, textAlign: 'center' }}>
+                Confirmer le remplacement
+              </Text>
+              
+              <Text style={{ 
+                fontSize: 14, 
+                color: '#dc2626', 
+                fontWeight: '700', 
+                marginBottom: 12,
+                textAlign: 'center',
+                lineHeight: 20,
+              }}>
+                Attention tu vas être remplacé sur ce match. Assure toi de la disponibilité de ton remplaçant avant de poursuivre
+              </Text>
+              
+              {pendingReplacement?.newUserName && (
+                <Text style={{ 
+                  fontSize: 14, 
+                  color: '#111827', 
+                  marginBottom: 20,
+                  textAlign: 'center',
+                  fontWeight: '600',
+                }}>
+                  Remplaçant : {pendingReplacement.newUserName}
+                </Text>
+              )}
+              
+              <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'center' }}>
+                <Pressable
+                  onPress={() => {
+                    setReplacementConfirmVisible(false);
+                    setPendingReplacement(null);
+                  }}
+                  style={{
+                    flex: 0.33,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                    backgroundColor: '#6b7280',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14, textAlign: 'center' }}>
+                    Annuler
+                  </Text>
+                </Pressable>
+                
+                <Pressable
+                  onPress={() => {
+                    if (pendingReplacement) {
+                      onReplacePlayer(
+                        pendingReplacement.matchId,
+                        pendingReplacement.currentUserId,
+                        pendingReplacement.newUserId,
+                        pendingReplacement.newUserName
+                      );
+                    }
+                  }}
+                  style={{
+                    flex: 0.66,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                    backgroundColor: '#15803d',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 12, textAlign: 'center' }}>
+                    Confirmer mon remplacement
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </Modal>
@@ -10031,6 +11062,17 @@ const HourSlotRow = ({ item }) => {
         </Text>
         <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
       </Pressable>
+
+      {/* Popup pas de groupe sélectionné */}
+      <OnboardingModal
+        visible={noGroupModalVisible}
+        message="choisis un groupe"
+        onClose={() => {
+          setNoGroupModalVisible(false);
+          // Rediriger vers groupes après fermeture
+          router.replace("/(tabs)/groupes");
+        }}
+      />
     </View>
   );
 }

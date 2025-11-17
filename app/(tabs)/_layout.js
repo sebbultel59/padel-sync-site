@@ -489,9 +489,9 @@ export default function TabsLayout() {
             borderTopWidth: 0,
             elevation: 0,
             shadowOpacity: 0,
-            height: 60 + insets.bottom,
-            paddingBottom: 2 + insets.bottom,
-            paddingTop: 6,
+            height: Platform.OS === 'android' ? 64 + insets.bottom : 60 + insets.bottom,
+            paddingBottom: Platform.OS === 'android' ? 4 + insets.bottom : 2 + insets.bottom,
+            paddingTop: Platform.OS === 'android' ? 8 : 6,
             paddingLeft: Math.max(0, insets.left),
             paddingRight: Math.max(0, insets.right),
             position: 'absolute',
@@ -504,7 +504,11 @@ export default function TabsLayout() {
           tabBarLabelStyle: {
             fontWeight: '700',
             fontSize: 12,
-            marginTop: 8, // adds space between icon and text
+            marginTop: Platform.OS === 'android' ? 4 : 8, // adds space between icon and text
+            marginBottom: Platform.OS === 'android' ? 2 : 0,
+          },
+          tabBarItemStyle: {
+            paddingVertical: Platform.OS === 'android' ? 4 : 0,
           },
           tabBarIcon: ({ focused, color, size }) => {
             let name = 'ellipse';
@@ -540,10 +544,34 @@ export default function TabsLayout() {
           },
         })}
       >
-        <Tabs.Screen name="matches" options={{ tabBarLabel: 'Matches' }} />
-        <Tabs.Screen name="semaine" options={{ tabBarLabel: 'Dispos' }} />
-        <Tabs.Screen name="groupes" options={{ tabBarLabel: 'Groupes' }} />
-        <Tabs.Screen name="profil" options={{ tabBarLabel: 'Profil' }} />
+        <Tabs.Screen 
+          name="matches" 
+          options={{ 
+            tabBarLabel: 'Matches',
+            tabBarAccessibilityLabel: 'Matches',
+          }} 
+        />
+        <Tabs.Screen 
+          name="semaine" 
+          options={{ 
+            tabBarLabel: 'Dispos',
+            tabBarAccessibilityLabel: 'Disponibilités',
+          }} 
+        />
+        <Tabs.Screen 
+          name="groupes" 
+          options={{ 
+            tabBarLabel: 'Groupes',
+            tabBarAccessibilityLabel: 'Groupes',
+          }} 
+        />
+        <Tabs.Screen 
+          name="profil" 
+          options={{ 
+            tabBarLabel: 'Profil',
+            tabBarAccessibilityLabel: 'Profil',
+          }} 
+        />
       </Tabs>
       {/* Notifications Popup */}
      <Modal

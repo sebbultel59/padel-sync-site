@@ -5,12 +5,16 @@ import dayjs from "dayjs";
 import "dayjs/locale/fr";
 import isoWeek from "dayjs/plugin/isoWeek";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { OnboardingModal } from "../../components/OnboardingModal";
 import { useActiveGroup } from "../../lib/activeGroup";
+import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
+import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
 import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
@@ -112,6 +116,11 @@ export default function Semaine() {
   const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
   const [myGroups, setMyGroups] = useState([]);
   const isPortrait = height > width;
+
+  // États pour les popups d'onboarding
+  const [disposVisitedModalVisible, setDisposVisitedModalVisible] = useState(false);
+  const [noAvailabilityModalVisible, setNoAvailabilityModalVisible] = useState(false);
+  const [noGroupModalVisible, setNoGroupModalVisible] = useState(false);
   // ---- (plus de mode peinture global) ----
 
   // Fenêtre d'application de plage sur d'autres jours
@@ -142,6 +151,44 @@ export default function Semaine() {
       setMeId(u?.user?.id ?? null);
     })();
   }, []);
+
+  // Vérifier si un groupe est sélectionné au focus
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        if (!mounted) return;
+        
+        // Vérifier si un groupe est sélectionné
+        if (!activeGroup?.id) {
+          // Pas de groupe sélectionné, afficher popup
+          setNoGroupModalVisible(true);
+          return;
+        }
+        
+        // Si groupe sélectionné, vérifier si c'est la première visite ET pas de disponibilités renseignées
+        if (groupId && meId) {
+          try {
+            const hasVisited = await getOnboardingFlag(FLAG_KEYS.DISPOS_VISITED);
+            if (!hasVisited) {
+              await setOnboardingFlag(FLAG_KEYS.DISPOS_VISITED, true);
+              
+              // Vérifier si des disponibilités existent pour le groupe actif
+              const hasAvail = await hasAvailabilityForGroup(meId, groupId);
+              
+              if (!hasAvail && mounted) {
+                // Première visite ET pas de dispos -> afficher popup
+                setNoAvailabilityModalVisible(true);
+              }
+            }
+          } catch (e) {
+            console.warn('[Semaine] Error checking availability on focus:', e);
+          }
+        }
+      })();
+      return () => { mounted = false; };
+    }, [activeGroup?.id, groupId, meId])
+  );
 
   // Charger les membres du groupe actuel
   const loadGroupMembers = useCallback(async (groupId) => {
@@ -410,6 +457,44 @@ export default function Semaine() {
           });
         if (eAv) throw eAv;
         av = avData ?? [];
+        
+        // Charger aussi les exceptions 'neutral' de l'utilisateur depuis availability
+        // car get_availability_effective les exclut, mais on en a besoin pour l'affichage
+        // IMPORTANT: on ne charge que celles qui masquent une disponibilité globale existante
+        if (meId) {
+          const { data: neutralExceptions, error: eNeutral } = await supabase
+            .from("availability")
+            .select("*")
+            .eq("user_id", meId)
+            .eq("group_id", groupId)
+            .eq("status", "neutral")
+            .gte("start", start)
+            .lt("start", end);
+          if (!eNeutral && neutralExceptions && neutralExceptions.length > 0) {
+            // Vérifier pour chaque exception 'neutral' si une disponibilité globale existe
+            // On ne garde que celles qui masquent effectivement une globale
+            const { data: globalAvailabilities, error: eGlobal } = await supabase
+              .from("availability_global")
+              .select("start, end")
+              .eq("user_id", meId)
+              .gte("start", start)
+              .lt("start", end);
+            
+            if (!eGlobal && globalAvailabilities) {
+              const globalStarts = new Set(
+                globalAvailabilities.map(g => normalizeSlotTime(g.start))
+              );
+              // Filtrer pour ne garder que les exceptions 'neutral' qui masquent une globale
+              const validNeutralExceptions = neutralExceptions.filter(ne => {
+                const normalizedStart = normalizeSlotTime(ne.start);
+                return globalStarts.has(normalizedStart);
+              });
+              if (validNeutralExceptions.length > 0) {
+                av = [...av, ...validNeutralExceptions];
+              }
+            }
+          }
+        }
       } else {
         // Fallback si pas de groupe: lecture directe (ancien mode)
         let avQ = supabase
@@ -466,7 +551,7 @@ export default function Semaine() {
     } finally {
       if (loading) setLoading(false);
     }
-  }, [weekStart, groupId, loading, normalizeSlotTime]);
+  }, [weekStart, groupId, loading, normalizeSlotTime, meId]);
 
   useEffect(() => {
     fetchDataRef.current = fetchData;
@@ -614,7 +699,8 @@ export default function Semaine() {
       const k = normalizeSlotTime(s.start);
       if (!seen.has(k)) {
         seen.set(k, true);
-        m.set(k, s.status || "available");
+        // Préserver le statut exact, y compris 'neutral', null, undefined
+        m.set(k, s.status !== undefined && s.status !== null ? s.status : "available");
       }
     }
     return m;
@@ -644,6 +730,9 @@ export default function Semaine() {
       // Normaliser systématiquement les dates pour garantir la cohérence
       const normalizedStart = normalizeSlotTime(startIso);
       const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, "minute").toISOString());
+      
+      // Variable pour utiliser dans toutes les branches
+      const normalizedEndForRpc = normalizedEnd;
 
       // Chercher toutes les entrées correspondantes avec normalisation
       const allMatching = (slots || []).filter((s) => {
@@ -706,51 +795,52 @@ export default function Semaine() {
         
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       } else if (mine.status === 'available') {
-        // Supprimer la disponibilité (toggle off)
+        // Supprimer la disponibilité (toggle off) - utiliser les fonctions RPC
+        // Mettre à jour optimiste : ajouter une entrée 'neutral' pour que myStatusByStart la détecte
         setSlots((prev) => {
-          return prev.filter((s) => {
+          const filtered = prev.filter((s) => {
             const sNormalized = normalizeSlotTime(s.start);
             return !(s.user_id === user.id && s.group_id === gid && sNormalized === normalizedStart);
           });
+          // Ajouter une entrée 'neutral' pour indiquer que la disponibilité est annulée
+          return [...filtered, {
+            user_id: user.id,
+            group_id: gid,
+            start: normalizedStart,
+            end: normalizedEndForRpc,
+            status: 'neutral',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }];
         });
         
         try { Haptics.selectionAsync(); } catch {}
         
+        // Utiliser les fonctions RPC qui gèrent correctement la suppression
         if (applyToAllGroups) {
-          // Récupérer toutes les entrées et filtrer celles qui correspondent après normalisation
-          const { data: allEntries } = await supabase
-            .from('availability_global')
-            .select('id, start')
-            .eq('user_id', user.id);
-          if (allEntries) {
-            const idsToDelete = allEntries
-              .filter(row => normalizeSlotTime(row.start) === normalizedStart)
-              .map(row => row.id);
-            if (idsToDelete.length > 0) {
-              const { error } = await supabase
-                .from('availability_global')
-                .delete()
-                .in('id', idsToDelete);
-              if (error) { await fetchData(); throw error; }
-            }
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: normalizedStart,
+            p_end: normalizedEndForRpc,
+            p_status: 'neutral', // La RPC supprimera maintenant correctement
+          });
+          if (error) {
+            console.error('[toggleMyAvailability] Error deleting via set_availability_global:', error);
+            await fetchData(); // Recharger pour restaurer l'état correct
+            throw error;
           }
         } else {
-          const { data: allEntries } = await supabase
-            .from('availability')
-            .select('id, start')
-            .eq('user_id', user.id)
-            .eq('group_id', gid);
-          if (allEntries) {
-            const idsToDelete = allEntries
-              .filter(row => normalizeSlotTime(row.start) === normalizedStart)
-              .map(row => row.id);
-            if (idsToDelete.length > 0) {
-              const { error } = await supabase
-                .from('availability')
-                .delete()
-                .in('id', idsToDelete);
-              if (error) { await fetchData(); throw error; }
-            }
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: normalizedStart,
+            p_end: normalizedEndForRpc,
+            p_status: 'neutral', // La RPC créera une exception 'neutral' si nécessaire
+          });
+          if (error) {
+            console.error('[toggleMyAvailability] Error deleting via set_availability_group:', error);
+            await fetchData(); // Recharger pour restaurer l'état correct
+            throw error;
           }
         }
         
@@ -864,7 +954,7 @@ export default function Semaine() {
         }
       } else if (mine && mine.status !== status) {
         if (status === 'neutral') {
-          // Supprimer
+          // Supprimer - mise à jour optimiste de l'UI d'abord
           setSlots((prev) => {
             return prev.filter((s) => {
               const sNormalized = normalizeSlotTime(s.start);
@@ -874,40 +964,32 @@ export default function Semaine() {
           
           try { Haptics.selectionAsync(); } catch {}
           
+          // Utiliser les fonctions RPC qui gèrent maintenant correctement la suppression
+          // quand status='neutral'
           if (applyToAllGroups) {
-            const { data: allEntries } = await supabase
-              .from('availability_global')
-              .select('id, start')
-              .eq('user_id', user.id);
-            if (allEntries) {
-              const idsToDelete = allEntries
-                .filter(row => normalizeSlotTime(row.start) === normalizedStart)
-                .map(row => row.id);
-              if (idsToDelete.length > 0) {
-                const { error } = await supabase
-                  .from('availability_global')
-                  .delete()
-                  .in('id', idsToDelete);
-                if (error) { await fetchData(); throw error; }
-              }
+            const { error } = await supabase.rpc("set_availability_global", {
+              p_user: user.id,
+              p_start: normalizedStart,
+              p_end: normalizedEnd,
+              p_status: 'neutral', // La RPC supprimera maintenant correctement
+            });
+            if (error) {
+              console.error('[setMyAvailability] Error deleting via set_availability_global:', error);
+              await fetchData(); // Recharger pour restaurer l'état correct
+              throw error;
             }
           } else {
-            const { data: allEntries } = await supabase
-              .from('availability')
-              .select('id, start')
-              .eq('user_id', user.id)
-              .eq('group_id', gid);
-            if (allEntries) {
-              const idsToDelete = allEntries
-                .filter(row => normalizeSlotTime(row.start) === normalizedStart)
-                .map(row => row.id);
-              if (idsToDelete.length > 0) {
-                const { error } = await supabase
-                  .from('availability')
-                  .delete()
-                  .in('id', idsToDelete);
-                if (error) { await fetchData(); throw error; }
-              }
+            const { error } = await supabase.rpc("set_availability_group", {
+              p_user: user.id,
+              p_group: gid,
+              p_start: normalizedStart,
+              p_end: normalizedEnd,
+              p_status: 'neutral', // La RPC supprimera maintenant correctement
+            });
+            if (error) {
+              console.error('[setMyAvailability] Error deleting via set_availability_group:', error);
+              await fetchData(); // Recharger pour restaurer l'état correct
+              throw error;
             }
           }
           return;
@@ -1008,36 +1090,37 @@ export default function Semaine() {
 
       try { Haptics.selectionAsync(); } catch {}
 
-      // 2) Persistance : upsert en une seule requête (selon toggle) avec normalisation
-      if (applyToAllGroups) {
-        const rows = startIsos.map((startIso) => {
-          const normalizedStart = normalizeSlotTime(startIso);
-          return {
-            user_id: user.id,
-            start: normalizedStart,
-            end: normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString()),
-            status,
-          };
-        });
-        const { error } = await supabase
-          .from('availability_global')
-          .upsert(rows, { onConflict: 'user_id,start,end' });
-        if (error) throw error;
-      } else {
-        const rows = startIsos.map((startIso) => {
-          const normalizedStart = normalizeSlotTime(startIso);
-          return {
-            user_id: user.id,
-            group_id: gid,
-            start: normalizedStart,
-            end: normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString()),
-            status,
-          };
-        });
-        const { error } = await supabase
-          .from('availability')
-          .upsert(rows, { onConflict: 'user_id,group_id,start,end' });
-        if (error) throw error;
+      // 2) Persistance : utiliser les fonctions RPC pour chaque créneau
+      // Cela garantit une gestion correcte des disponibilités globales vs exceptions
+      const normalizedStartIsos = startIsos.map(s => normalizeSlotTime(s));
+      
+      for (const normalizedStart of normalizedStartIsos) {
+        const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString());
+        
+        if (applyToAllGroups) {
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
+            p_status: status,
+          });
+          if (error) {
+            console.error('[setMyAvailabilityBulk] Error via set_availability_global:', error);
+            throw error;
+          }
+        } else {
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
+            p_status: status,
+          });
+          if (error) {
+            console.error('[setMyAvailabilityBulk] Error via set_availability_group:', error);
+            throw error;
+          }
+        }
       }
 
       // Notifier les autres pages (notamment matches) que la disponibilité a changé
@@ -1071,43 +1154,36 @@ export default function Semaine() {
       });
       try { Haptics.selectionAsync(); } catch {}
 
-      // Delete en une requête par lot (selon toggle) - avec normalisation
-      // Récupérer toutes les entrées et filtrer celles qui correspondent après normalisation
+      // Supprimer en utilisant les fonctions RPC pour chaque créneau
+      // Plus fiable que SELECT puis DELETE
       const normalizedStartIsos = startIsos.map(s => normalizeSlotTime(s));
       
-      if (applyToAllGroups) {
-        const { data: allEntries } = await supabase
-          .from('availability_global')
-          .select('id, start')
-          .eq('user_id', user.id);
-        if (allEntries) {
-          const idsToDelete = allEntries
-            .filter(row => normalizedStartIsos.includes(normalizeSlotTime(row.start)))
-            .map(row => row.id);
-          if (idsToDelete.length > 0) {
-            const { error } = await supabase
-              .from('availability_global')
-              .delete()
-              .in('id', idsToDelete);
-            if (error) throw error;
+      // Traiter chaque créneau individuellement avec les fonctions RPC
+      for (const normalizedStart of normalizedStartIsos) {
+        const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString());
+        
+        if (applyToAllGroups) {
+          const { error } = await supabase.rpc("set_availability_global", {
+            p_user: user.id,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
+            p_status: 'neutral', // La RPC supprimera maintenant correctement
+          });
+          if (error) {
+            console.error('[setMyNeutralBulk] Error deleting via set_availability_global:', error);
+            throw error;
           }
-        }
-      } else {
-        const { data: allEntries } = await supabase
-          .from('availability')
-          .select('id, start')
-          .eq('user_id', user.id)
-          .eq('group_id', gid);
-        if (allEntries) {
-          const idsToDelete = allEntries
-            .filter(row => normalizedStartIsos.includes(normalizeSlotTime(row.start)))
-            .map(row => row.id);
-          if (idsToDelete.length > 0) {
-            const { error } = await supabase
-              .from('availability')
-              .delete()
-              .in('id', idsToDelete);
-            if (error) throw error;
+        } else {
+          const { error } = await supabase.rpc("set_availability_group", {
+            p_user: user.id,
+            p_group: gid,
+            p_start: normalizedStart,
+            p_end: normalizedEnd,
+            p_status: 'neutral', // La RPC créera une exception 'neutral' si nécessaire
+          });
+          if (error) {
+            console.error('[setMyNeutralBulk] Error deleting via set_availability_group:', error);
+            throw error;
           }
         }
       }
@@ -1214,9 +1290,14 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 let textColor = '#0b2240';
 
                 // Mapping uniforme selon le nombre de dispos
-                if (availableCount <= 0) {
+                // Mais si l'utilisateur a annulé sa disponibilité, forcer le rouge clair
+                if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
+                  // Cellule rouge clair si le joueur a annulé sa disponibilité
                   cellBg = '#fee2e2';
-                  cellBorder = '#fecaca';
+                  cellBorder = '#fee2e2';
+                } else if (availableCount <= 0) {
+                  cellBg = '#fee2e2';
+                  cellBorder = '#fee2e2';
                 } else if (availableCount === 1) {
                   cellBg = '#ffedd5';
                   cellBorder = '#fed7aa';
@@ -1294,7 +1375,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                     onPressIn={() => { if (rangeStartIdx != null && idx !== rangeHoverIdx) setRangeHoverIdx(idx); }}
                     onHoverIn={() => { if (Platform.OS === 'web' && rangeStartIdx != null && idx !== rangeHoverIdx) setRangeHoverIdx(idx); }}
                     onMouseEnter={() => { if (Platform.OS === 'web' && rangeStartIdx != null && idx !== rangeHoverIdx) setRangeHoverIdx(idx); }}
-                    onPress={press(`toggle-${startIso}`, () => toggleMyAvailability(startIso))}
+                    onPress={press(`toggle-${startIso}`, () => {
+                      // Si une sélection est en cours, ne pas déclencher le toggle
+                      if (rangeStartIdx != null) return;
+                      toggleMyAvailability(startIso);
+                    })}
                     onLongPress={() => {
                       // Ensure startIso is defined (already is above)
                       if (rangeStartIdx == null) {
@@ -1307,6 +1392,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                         setRangeHoverIdx(idx);
                         try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
                       } else {
+                        // Termine la plage et applique directement la sélection
                         const a = Math.min(rangeStartIdx, idx);
                         const b = Math.max(rangeStartIdx, idx);
                         const batch = [];
@@ -1314,8 +1400,12 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                           const { hour: h, minute: m } = hoursOfDay[i];
                           batch.push(keySlot(day, h, m));
                         }
-                        if (onPaintRangeWithStatus) onPaintRangeWithStatus(batch, rangeIntent);
-                        onRangeCompleted && onRangeCompleted({ startIdx: a, endIdx: b, dayIndex, intent: rangeIntent });
+                        // Appliquer directement la sélection
+                        if (rangeIntent === 'neutral') {
+                          setMyNeutralBulk(batch);
+                        } else {
+                          setMyAvailabilityBulk(batch, 'available');
+                        }
                         setRangeStartIdx(null);
                         setRangeHoverIdx(null);
                         try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
@@ -1414,45 +1504,72 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           borderBottomWidth: 0,
         }}
       >
-        {/* Toggle "Appliquer à tous les groupes" - Reste en haut */}
+        {/* Boutons "Appliquer à mon groupe actif" et "Appliquer à tous les groupes" */}
         {activeGroup?.name && (
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'space-between',
               paddingLeft: Math.max(12, insets.left + 8),
               paddingRight: Math.max(12, insets.right + 8),
               marginTop: isPortrait ? 4 : 2,
               marginBottom: isPortrait ? 6 : 4,
               width: '100%',
+              gap: 8,
             }}
           >
+            {/* Bouton gauche : Appliquer à mon groupe actif */}
             <Pressable
-              onPress={() => setApplyToAllGroups((prev) => !prev)}
+              onPress={() => setApplyToAllGroups(false)}
               style={{
+                flex: 1,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-                paddingVertical: 6,
+                paddingVertical: 8,
                 paddingHorizontal: 12,
-                borderRadius: 999,
-                backgroundColor: applyToAllGroups ? '#156BC9' : '#374151',
+                borderRadius: 8,
+                backgroundColor: !applyToAllGroups ? '#e0ff00' : '#e5e7eb',
                 borderWidth: 1,
-                borderColor: applyToAllGroups ? '#0ea5e9' : '#6b7280',
+                borderColor: !applyToAllGroups ? '#d4d700' : '#d1d5db',
                 ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
               }}
             >
-              {applyToAllGroups && (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={16}
-                  color="#ffffff"
-                  style={{ marginRight: 6 }}
-                />
-              )}
-              <Text style={{ fontWeight: '700', color: '#ffffff', fontSize: 12 }}>
-                {applyToAllGroups ? 'Appliquer à tous mes groupes' : 'Appliquer au groupe actuel uniquement'}
+              <Text style={{ 
+                fontWeight: '700', 
+                color: !applyToAllGroups ? '#0b2240' : '#6b7280', 
+                fontSize: 12,
+                textAlign: 'center'
+              }}>
+                Appliquer à mon groupe actif
+              </Text>
+            </Pressable>
+            
+            {/* Bouton droite : Appliquer à tous les groupes */}
+            <Pressable
+              onPress={() => setApplyToAllGroups(true)}
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                backgroundColor: applyToAllGroups ? '#e0ff00' : '#e5e7eb',
+                borderWidth: 1,
+                borderColor: applyToAllGroups ? '#d4d700' : '#d1d5db',
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+              }}
+            >
+              <Text style={{ 
+                fontWeight: '700', 
+                color: applyToAllGroups ? '#0b2240' : '#6b7280', 
+                fontSize: 12,
+                textAlign: 'center'
+              }}>
+                Appliquer à tous mes groupes
               </Text>
             </Pressable>
           </View>
@@ -1555,8 +1672,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
   <ScrollView
     ref={scrollRef}
     style={{ flex: 1 }}
-    contentContainerStyle={{ paddingBottom: Math.max(16, insets.bottom + 120) }}
-    scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 60) }}
+    contentContainerStyle={{ paddingBottom: Math.max(16, insets.bottom + 200) }}
+    scrollIndicatorInsets={{ bottom: Math.max(8, insets.bottom + 140) }}
     showsVerticalScrollIndicator
     decelerationRate={Platform.OS === 'ios' ? 'fast' : 0.98}
     onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
@@ -1615,9 +1732,9 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
             cellBg = '#105b23';
             cellBorder = '#105b23';
           } else if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
-            // Cellule rouge clair si le joueur n'est pas disponible
+            // Cellule rouge clair si le joueur n'est pas disponible (style similaire aux autres cellules)
             cellBg = '#fee2e2';
-            cellBorder = '#fecaca';
+            cellBorder = '#fee2e2';
           }
 
           // Surbrillance de la plage en cours (prévisualisation)
@@ -1652,6 +1769,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
               onHoverIn={() => { if (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
               onMouseEnter={() => { if (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
               onPress={press(`toggle-${startIso}`, async () => {
+                // Si une sélection est en cours, ne pas déclencher le toggle
+                if (rangeStart) return;
                 try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
                 await toggleMyAvailability(startIso);
               })}
@@ -1973,6 +2092,31 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
         </Pressable>
       )}
+
+      {/* Popup première visite dispos */}
+      <OnboardingModal
+        visible={disposVisitedModalVisible}
+        message="Renseignez vos disponibilités en cliquant sur les créneaux, puis direction la page Matches"
+        onClose={() => setDisposVisitedModalVisible(false)}
+      />
+
+      {/* Popup pas de dispos renseignées */}
+      <OnboardingModal
+        visible={noAvailabilityModalVisible}
+        message="renseigne tes dispos pour avoir des matchs"
+        onClose={() => setNoAvailabilityModalVisible(false)}
+      />
+
+      {/* Popup pas de groupe sélectionné */}
+      <OnboardingModal
+        visible={noGroupModalVisible}
+        message="choisis un groupe"
+        onClose={() => {
+          setNoGroupModalVisible(false);
+          // Rediriger vers groupes après fermeture
+          router.replace("/(tabs)/groupes");
+        }}
+      />
     </View>
   );
 }

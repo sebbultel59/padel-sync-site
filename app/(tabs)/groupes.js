@@ -28,7 +28,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OnboardingModal } from "../../components/OnboardingModal";
 import { useActiveGroup } from "../../lib/activeGroup";
+import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
+import { validateActiveGroup } from "../../lib/groupValidation";
+import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
 
@@ -279,11 +283,36 @@ export default function GroupesScreen() {
           setMeId(uid);
           setAuthChecked(true);
         }
+
+        // Vérifier que le groupe actif correspond bien à un groupe dont l'utilisateur est membre
+        if (mounted && activeGroup?.id && uid) {
+          const isValid = await validateActiveGroup(uid, activeGroup.id);
+          if (!isValid) {
+            // Le groupe actif n'est plus valide, réinitialiser
+            console.log('[Groupes] Active group is invalid, resetting:', activeGroup.id);
+            setActiveGroup(null);
+            try {
+              await AsyncStorage.removeItem("active_group_id");
+              // Nettoyer aussi dans le profil
+              await supabase
+                .from("profiles")
+                .update({ active_group_id: null })
+                .eq("id", uid);
+            } catch (e) {
+              console.warn('[Groupes] Error cleaning invalid group:', e);
+            }
+          }
+        }
+
+        // Afficher la popup si pas de groupe sélectionné (une seule fois par session)
+        if (mounted && !activeGroup?.id) {
+          setGroupsVisitedModalVisible(true);
+        }
       })();
       return () => {
         mounted = false;
       };
-    }, [nav])
+    }, [nav, activeGroup?.id, setActiveGroup])
   );
 
   // --- Données groupes ---
@@ -318,6 +347,11 @@ export default function GroupesScreen() {
   const [editingGroupVisibility, setEditingGroupVisibility] = useState("private");
   const [editingGroupJoinPolicy, setEditingGroupJoinPolicy] = useState("invite");
   const [savingGroup, setSavingGroup] = useState(false);
+
+  // États pour les popups d'onboarding
+  const [groupsVisitedModalVisible, setGroupsVisitedModalVisible] = useState(false);
+  const [groupJoinedModalVisible, setGroupJoinedModalVisible] = useState(false);
+  const [noAvailabilityModalVisible, setNoAvailabilityModalVisible] = useState(false);
 
   const openContactForProfile = useCallback((p) => {
     console.log('[openContactForProfile] Called with profile:', p?.name, p?.phone, p?.email);
@@ -620,6 +654,35 @@ export default function GroupesScreen() {
 
       // 6) Feedback utilisateur (uniquement haptique / vibrate)
       await hapticSelect();
+
+      // 7) Vérifier les disponibilités pour ce groupe
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        const uid = u?.user?.id;
+        
+        if (uid) {
+          const hasAvail = await hasAvailabilityForGroup(uid, g.id);
+          
+          if (hasAvail) {
+            // Dispos présentes -> matches
+            router.replace("/(tabs)/matches");
+          } else {
+            // Pas de dispos -> dispos avec popup
+            setNoAvailabilityModalVisible(true);
+            // Rediriger après un court délai pour laisser la popup s'afficher
+            setTimeout(() => {
+              router.replace("/(tabs)/semaine");
+            }, 500);
+          }
+        } else {
+          // Pas d'utilisateur, rediriger vers matches par défaut
+          router.replace("/(tabs)/matches");
+        }
+      } catch (e) {
+        console.warn('[Groupes] Error checking availability after activate:', e);
+        // En cas d'erreur, rediriger vers matches par défaut
+        router.replace("/(tabs)/matches");
+      }
 
     } catch (e) {
       console.error("[Groupes] onActivate error:", e);
@@ -932,7 +995,21 @@ Padel Sync — Ton match en 3 clics 🎾`;
             .single();
           setActiveGroup(joined);
           await loadMembersAndAdmin(groupId);
-          Alert.alert("Bienvenue 👍", "Tu as rejoint le groupe !");
+          
+          // Vérifier si c'est la première fois qu'un groupe est rejoint
+          const wasFirstJoin = !(await getOnboardingFlag(FLAG_KEYS.GROUP_JOINED));
+          if (wasFirstJoin) {
+            await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
+            setGroupJoinedModalVisible(true);
+            // Toujours rediriger vers dispos après rejoin (première fois)
+            setTimeout(() => {
+              router.replace("/(tabs)/semaine");
+            }, 500);
+          } else {
+            Alert.alert("Bienvenue 👍", "Tu as rejoint le groupe !");
+            // Toujours rediriger vers dispos après rejoin
+            router.replace("/(tabs)/semaine");
+          }
           return;
         }
         
@@ -1284,7 +1361,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
       });
       
       if (!rpcError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
         setJoinModalVisible(false);
         setInviteCode("");
         await loadGroups();
@@ -1297,6 +1373,21 @@ Padel Sync — Ton match en 3 clics 🎾`;
         if (groupData) {
           setActiveGroup(groupData);
         }
+        
+        // Vérifier si c'est la première fois qu'un groupe est rejoint
+        const wasFirstJoin = !(await getOnboardingFlag(FLAG_KEYS.GROUP_JOINED));
+        if (wasFirstJoin) {
+          await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
+          setGroupJoinedModalVisible(true);
+          // Toujours rediriger vers dispos après rejoin (première fois)
+          setTimeout(() => {
+            router.replace("/(tabs)/semaine");
+          }, 500);
+        } else {
+          Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+          // Toujours rediriger vers dispos après rejoin
+          router.replace("/(tabs)/semaine");
+        }
         return;
       }
       
@@ -1306,7 +1397,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
       });
       
       if (!publicError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
         setJoinModalVisible(false);
         setInviteCode("");
         await loadGroups();
@@ -1318,6 +1408,21 @@ Padel Sync — Ton match en 3 clics 🎾`;
           .single();
         if (groupData) {
           setActiveGroup(groupData);
+        }
+        
+        // Vérifier si c'est la première fois qu'un groupe est rejoint
+        const wasFirstJoin = !(await getOnboardingFlag(FLAG_KEYS.GROUP_JOINED));
+        if (wasFirstJoin) {
+          await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
+          setGroupJoinedModalVisible(true);
+          // Toujours rediriger vers dispos après rejoin (première fois)
+          setTimeout(() => {
+            router.replace("/(tabs)/semaine");
+          }, 500);
+        } else {
+          Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+          // Toujours rediriger vers dispos après rejoin
+          router.replace("/(tabs)/semaine");
         }
         return;
       }
@@ -1742,17 +1847,22 @@ Padel Sync — Ton match en 3 clics 🎾`;
         <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
           <Pressable 
             onPress={press("join-group", () => setJoinModalVisible(true))} 
-            style={[s.btn, { backgroundColor: "#2dc149", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
+            style={[s.btn, { backgroundColor: "#ff8c00", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
           >
             <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
             <Text style={[s.btnTxt, { fontSize: 13 }]}>Rejoindre</Text>
           </Pressable>
           <Pressable 
             onPress={press("create-group", onCreateGroup)} 
-            style={[s.btn, { backgroundColor: "#001831", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#e0ff00" }, Platform.OS === "web" && { cursor: "pointer" }]}
+            style={[s.btn, { backgroundColor: "#2fc249", flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 }, Platform.OS === "web" && { cursor: "pointer" }]}
           >
-            <Text style={{ fontSize: 16 }}>👑</Text>
-            <Text style={[s.btnTxt, { fontSize: 13, color: "#e0ff00" }]}>Créer</Text>
+            <Text style={{ 
+              fontSize: 16,
+              textShadowColor: 'rgba(255, 255, 255, 0.9)',
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 3
+            }}>👑</Text>
+            <Text style={[s.btnTxt, { fontSize: 13 }]}>CRÉER</Text>
           </Pressable>
         </View>
 
@@ -2275,6 +2385,27 @@ Padel Sync — Ton match en 3 clics 🎾`;
           </View>
         </View>
       </Modal>
+
+      {/* Popup pas de groupe sélectionné */}
+      <OnboardingModal
+        visible={groupsVisitedModalVisible}
+        message="sélectionne ou rejoins un groupe pour commencer à utiliser l'app"
+        onClose={() => setGroupsVisitedModalVisible(false)}
+      />
+
+      {/* Popup groupe rejoint - aller sur dispos */}
+      <OnboardingModal
+        visible={groupJoinedModalVisible}
+        message="👉 renseigne tes dispos sur la page dispos"
+        onClose={() => setGroupJoinedModalVisible(false)}
+      />
+
+      {/* Popup pas de dispos après activation */}
+      <OnboardingModal
+        visible={noAvailabilityModalVisible}
+        message="renseigne tes dispos pour avoir des matchs"
+        onClose={() => setNoAvailabilityModalVisible(false)}
+      />
     </View>
   );
 }

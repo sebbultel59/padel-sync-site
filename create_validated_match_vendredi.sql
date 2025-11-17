@@ -2,6 +2,7 @@
 -- Un match validé nécessite :
 -- 1. Un match avec status='confirmed'
 -- 2. 4 RSVPs avec status='accepted' (4 joueurs confirmés)
+-- Avec seb.sax.evenements@gmail.com pour vendredi à 11h00
 
 DO $$
 DECLARE
@@ -13,19 +14,19 @@ DECLARE
   player2_id UUID;
   player3_id UUID;
   player4_id UUID;
-  -- Date du match : mardi prochain à 18h00
-  -- Calculer le prochain mardi (jour 2 de la semaine ISO, où lundi=1)
+  -- Date du match : vendredi prochain à 11h00
+  -- Calculer le prochain vendredi (jour 5 de la semaine ISO, où lundi=1)
   match_date TIMESTAMPTZ := (
     CASE 
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 0 THEN CURRENT_DATE + INTERVAL '2 days'  -- Si dimanche, mardi dans 2 jours
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 1 THEN CURRENT_DATE + INTERVAL '1 day'   -- Si lundi, mardi demain
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 2 THEN CURRENT_DATE + INTERVAL '7 days'   -- Si mardi, mardi prochain (dans 7 jours)
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 3 THEN CURRENT_DATE + INTERVAL '6 days'  -- Si mercredi, mardi dans 6 jours
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 4 THEN CURRENT_DATE + INTERVAL '5 days'  -- Si jeudi, mardi dans 5 jours
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 5 THEN CURRENT_DATE + INTERVAL '4 days'  -- Si vendredi, mardi dans 4 jours
-      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 6 THEN CURRENT_DATE + INTERVAL '3 days'  -- Si samedi, mardi dans 3 jours
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 0 THEN CURRENT_DATE + INTERVAL '5 days'  -- Si dimanche, vendredi dans 5 jours
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 1 THEN CURRENT_DATE + INTERVAL '4 days'   -- Si lundi, vendredi dans 4 jours
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 2 THEN CURRENT_DATE + INTERVAL '3 days'   -- Si mardi, vendredi dans 3 jours
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 3 THEN CURRENT_DATE + INTERVAL '2 days'   -- Si mercredi, vendredi dans 2 jours
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 4 THEN CURRENT_DATE + INTERVAL '1 day'    -- Si jeudi, vendredi demain
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 5 THEN CURRENT_DATE + INTERVAL '7 days'   -- Si vendredi, vendredi prochain (dans 7 jours)
+      WHEN EXTRACT(DOW FROM CURRENT_DATE) = 6 THEN CURRENT_DATE + INTERVAL '6 days'  -- Si samedi, vendredi dans 6 jours
     END
-  )::date + TIME '18:00:00';
+  )::date + TIME '11:00:00';
   match_end TIMESTAMPTZ := match_date + INTERVAL '1 hour 30 minutes';
   v_time_slot_exists BOOLEAN;
 BEGIN
@@ -41,23 +42,23 @@ BEGIN
   
   RAISE NOTICE 'Groupe trouvé: %', test_group_id;
   
-  -- 2. Sélectionner 4 joueurs du groupe, en incluant sebbultel59@gmail.com
+  -- 2. Sélectionner 4 joueurs du groupe, en incluant seb.sax.evenements@gmail.com
   -- D'abord, trouver l'utilisateur avec cet email
   SELECT id INTO player1_id
   FROM auth.users
-  WHERE email = 'sebbultel59@gmail.com'
+  WHERE email = 'seb.sax.evenements@gmail.com'
   LIMIT 1;
   
   IF player1_id IS NULL THEN
-    RAISE EXCEPTION 'Utilisateur sebbultel59@gmail.com non trouvé';
+    RAISE EXCEPTION 'Utilisateur seb.sax.evenements@gmail.com non trouvé';
   END IF;
   
   -- Vérifier que cet utilisateur est membre du groupe
   IF NOT EXISTS (SELECT 1 FROM group_members WHERE group_id = test_group_id AND user_id = player1_id) THEN
-    RAISE EXCEPTION 'L''utilisateur sebbultel59@gmail.com n''est pas membre du groupe';
+    RAISE EXCEPTION 'L''utilisateur seb.sax.evenements@gmail.com n''est pas membre du groupe';
   END IF;
   
-  RAISE NOTICE 'Joueur 1 (sebbultel59@gmail.com): %', player1_id;
+  RAISE NOTICE 'Joueur 1 (seb.sax.evenements@gmail.com): %', player1_id;
   
   -- Sélectionner 3 autres joueurs du groupe (en excluant player1_id)
   SELECT user_id INTO player2_id
@@ -85,12 +86,12 @@ BEGIN
   LIMIT 1 OFFSET 0;
   
   IF player2_id IS NULL OR player3_id IS NULL OR player4_id IS NULL THEN
-    RAISE EXCEPTION 'Pas assez de membres dans le groupe (minimum 4 requis, y compris sebbultel59@gmail.com)';
+    RAISE EXCEPTION 'Pas assez de membres dans le groupe (minimum 4 requis, y compris seb.sax.evenements@gmail.com)';
   END IF;
   
   RAISE NOTICE 'Joueurs sélectionnés: %, %, %, %', player1_id, player2_id, player3_id, player4_id;
   
-  -- 3. Créer ou récupérer un time_slot pour mardi prochain à 18h00 (1h30)
+  -- 3. Créer ou récupérer un time_slot pour vendredi prochain à 11h00 (1h30)
   -- Rechercher un time_slot existant avec une tolérance de 1 minute pour les timestamps
   -- Essayer d'abord avec group_id si la colonne existe
   BEGIN

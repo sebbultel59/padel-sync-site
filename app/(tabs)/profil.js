@@ -19,8 +19,14 @@ import {
   TextInput,
   View,
 } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OnboardingModal } from "../../components/OnboardingModal";
 import { useAuth } from "../../context/auth";
+import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
+import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
+import { isProfileComplete } from "../../lib/profileCheck";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
 
@@ -83,6 +89,20 @@ export default function ProfilScreen() {
   const [clubPickerVisible, setClubPickerVisible] = useState(false);
   const [clubsList, setClubsList] = useState([]);
   const [loadingClubs, setLoadingClubs] = useState(false);
+  
+  // États pour les popups d'onboarding
+  const [incompleteProfileModalVisible, setIncompleteProfileModalVisible] = useState(false);
+  
+  // Refs pour la recherche d'adresse (debouncing et annulation)
+  const debounceTimerHome = useRef(null);
+  const debounceTimerWork = useRef(null);
+  const abortControllerHome = useRef(null);
+  const abortControllerWork = useRef(null);
+  
+  // Cache pour les suggestions d'adresse (Map<query, {suggestions, timestamp}>)
+  const addressCache = useRef(new Map());
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  const CACHE_MAX_SIZE = 50;
   
   // Zoom et pan pour l'image des niveaux
   const scale = useSharedValue(1);
@@ -269,52 +289,223 @@ export default function ProfilScreen() {
     return () => { mounted = false; };
   }, []);
 
-  // Recherche d'adresse avec autocomplétion (Nominatim)
-  const searchAddress = useCallback(async (query, setSuggestions) => {
-    if (!query || query.length < 3) {
-      setSuggestions([]);
-      return;
+  // Afficher la popup si le profil est incomplet (une seule fois par session)
+  const [hasShownIncompleteModal, setHasShownIncompleteModal] = useState(false);
+  
+  // Nettoyer les timers et requêtes lors du démontage
+  useEffect(() => {
+    return () => {
+      // Annuler les timers de debouncing
+      if (debounceTimerHome.current) {
+        clearTimeout(debounceTimerHome.current);
+      }
+      if (debounceTimerWork.current) {
+        clearTimeout(debounceTimerWork.current);
+      }
+      // Annuler les requêtes en cours
+      if (abortControllerHome.current) {
+        abortControllerHome.current.abort();
+      }
+      if (abortControllerWork.current) {
+        abortControllerWork.current.abort();
+      }
+    };
+  }, []);
+  
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        if (!me?.id || loading || hasShownIncompleteModal) return;
+        
+        try {
+          const complete = await isProfileComplete(me.id);
+          if (mounted && !complete && !hasShownIncompleteModal) {
+            // Afficher la popup si le profil est incomplet
+            setIncompleteProfileModalVisible(true);
+            setHasShownIncompleteModal(true);
+          }
+        } catch (e) {
+          console.warn('[Profil] Error checking profile completeness:', e);
+        }
+      })();
+      return () => { mounted = false; };
+    }, [me?.id, loading, hasShownIncompleteModal])
+  );
+
+  // Recherche d'adresse avec l'API adresse.data.gouv.fr
+  const searchAddressAdresseDataGouv = useCallback(async (query, signal) => {
+    try {
+      const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(query)}&limit=5`;
+      const res = await fetch(url, {
+        signal,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data || !data.features) return [];
+      
+      return data.features.map(feature => {
+        const props = feature.properties;
+        const coords = feature.geometry.coordinates; // [lng, lat]
+        // Formater l'adresse : "Numéro rue, Code postal Ville"
+        const formattedAddress = props.label || `${props.name || ''}, ${props.postcode || ''} ${props.city || ''}`.trim();
+        return {
+          name: formattedAddress,
+          lat: coords[1],
+          lng: coords[0],
+          address: formattedAddress,
+        };
+      });
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        throw e; // Re-lancer pour que le gestionnaire sache que c'est une annulation
+      }
+      console.warn('[Profile] adresse.data.gouv.fr error:', e);
+      return null; // Retourner null pour indiquer l'échec
     }
+  }, []);
+
+  // Recherche d'adresse avec Nominatim (fallback)
+  const searchAddressNominatim = useCallback(async (query, signal) => {
     try {
       const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
       const res = await fetch(url, {
+        signal,
         headers: {
           'User-Agent': 'PadelSync-Profile/1.0'
         }
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const suggestions = (data || []).map(item => ({
+      return (data || []).map(item => ({
         name: item.display_name,
         lat: parseFloat(item.lat),
         lng: parseFloat(item.lon),
         address: item.display_name,
       }));
-      setSuggestions(suggestions);
     } catch (e) {
-      console.warn('[Profile] address search error:', e);
-      setSuggestions([]);
+      if (e.name === 'AbortError') {
+        throw e;
+      }
+      console.warn('[Profile] Nominatim error:', e);
+      return [];
     }
   }, []);
 
-  // Géocoder une adresse complète
+  // Recherche d'adresse avec autocomplétion (debouncing, cache, API principale + fallback)
+  const searchAddress = useCallback(async (query, setSuggestions, isHome = true) => {
+    const trimmedQuery = (query || '').trim();
+    
+    // Réinitialiser les suggestions si la requête est trop courte
+    if (trimmedQuery.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    // Vérifier le cache
+    const cacheKey = trimmedQuery.toLowerCase();
+    const cached = addressCache.current.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      setSuggestions(cached.suggestions);
+      return;
+    }
+
+    // Annuler la requête précédente si elle existe
+    const abortController = isHome ? abortControllerHome : abortControllerWork;
+    if (abortController.current) {
+      abortController.current.abort();
+    }
+    abortController.current = new AbortController();
+    const signal = abortController.current.signal;
+
+    try {
+      // Essayer d'abord avec adresse.data.gouv.fr
+      let suggestions = await searchAddressAdresseDataGouv(trimmedQuery, signal);
+      
+      // Si échec ou résultat vide, fallback sur Nominatim
+      if (!suggestions || suggestions.length === 0) {
+        suggestions = await searchAddressNominatim(trimmedQuery, signal);
+      }
+
+      // Mettre en cache si on a des résultats
+      if (suggestions && suggestions.length > 0) {
+        // Nettoyer le cache si trop grand
+        if (addressCache.current.size >= CACHE_MAX_SIZE) {
+          const firstKey = addressCache.current.keys().next().value;
+          addressCache.current.delete(firstKey);
+        }
+        addressCache.current.set(cacheKey, {
+          suggestions,
+          timestamp: Date.now()
+        });
+        setSuggestions(suggestions);
+      } else {
+        setSuggestions([]);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        // Requête annulée, ne rien faire
+        return;
+      }
+      console.warn('[Profile] address search error:', e);
+      setSuggestions([]);
+    }
+  }, [searchAddressAdresseDataGouv, searchAddressNominatim]);
+
+  // Géocoder une adresse complète (utilise adresse.data.gouv.fr en priorité, puis Nominatim)
   const geocodeAddress = useCallback(async (address) => {
     if (!address || !address.trim()) return null;
+    const trimmedAddress = address.trim();
+    
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1&countrycodes=fr&accept-language=fr`;
-      const res = await fetch(url, {
+      // Essayer d'abord avec adresse.data.gouv.fr
+      const urlAdresse = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(trimmedAddress)}&limit=1`;
+      const resAdresse = await fetch(urlAdresse, {
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (resAdresse.ok) {
+        const dataAdresse = await resAdresse.json();
+        if (dataAdresse && dataAdresse.features && dataAdresse.features.length > 0) {
+          const feature = dataAdresse.features[0];
+          const coords = feature.geometry.coordinates; // [lng, lat]
+          const lat = coords[1];
+          const lng = coords[0];
+          const props = feature.properties;
+          const formattedAddress = props.label || trimmedAddress;
+          
+          // Vérifier que c'est bien en France (tolérant pour DOM-TOM)
+          if (lat >= 38 && lat <= 54 && lng >= -10 && lng <= 15) {
+            return {
+              address: formattedAddress,
+              lat,
+              lng,
+            };
+          }
+        }
+      }
+      
+      // Fallback sur Nominatim
+      const urlNominatim = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmedAddress)}&limit=1&countrycodes=fr&accept-language=fr`;
+      const resNominatim = await fetch(urlNominatim, {
         headers: {
           'User-Agent': 'PadelSync-Profile/1.0'
         }
       });
-      const data = await res.json();
-      if (data && data.length > 0) {
-        const result = data[0];
+      const dataNominatim = await resNominatim.json();
+      if (dataNominatim && dataNominatim.length > 0) {
+        const result = dataNominatim[0];
         const lat = parseFloat(result.lat);
         const lng = parseFloat(result.lon);
         // Vérifier que c'est bien en France (tolérant pour DOM-TOM)
         if (lat >= 38 && lat <= 54 && lng >= -10 && lng <= 15) {
           return {
-            address: address.trim(),
+            address: trimmedAddress,
             lat,
             lng,
           };
@@ -362,10 +553,10 @@ export default function ProfilScreen() {
     if (!cote) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre côté (droite, gauche ou les deux)."); return false; }
     const clubTrimmed = (club || "").trim();
     if (!clubTrimmed) { Alert.alert("Champ obligatoire", "Merci de sélectionner un club."); return false; }
-    const phoneTrimmed = (phone || "").trim();
-    if (!phoneTrimmed) { Alert.alert("Champ obligatoire", "Merci de renseigner votre numéro de téléphone."); return false; }
+    // Téléphone est facultatif
+    const phoneTrimmed = (phone || "").trim() || null;
     if (!addressHome || !addressHome.address) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de domicile."); return false; }
-    if (!addressWork || !addressWork.address) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de travail."); return false; }
+    // Adresse travail est facultative
     if (rayonKm === null || rayonKm === undefined) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre rayon de jeu possible."); return false; }
 
     try {
@@ -402,6 +593,29 @@ export default function ProfilScreen() {
       setInitialSnap(newSnap);
 
       Alert.alert("Enregistré", "Profil mis à jour.");
+      
+      // Après sauvegarde, vérifier groupe et dispos puis rediriger
+      try {
+        const savedGroupId = await AsyncStorage.getItem("active_group_id");
+        
+        if (savedGroupId) {
+          // Groupe existe, vérifier les disponibilités
+          const hasAvail = await hasAvailabilityForGroup(me.id, savedGroupId);
+          if (hasAvail) {
+            router.replace("/(tabs)/matches");
+          } else {
+            router.replace("/(tabs)/semaine");
+          }
+        } else {
+          // Pas de groupe, rediriger vers groupes
+          router.replace("/(tabs)/groupes");
+        }
+      } catch (e) {
+        console.warn('[Profil] Error checking group/availability after save:', e);
+        // En cas d'erreur, rediriger vers l'index qui fera la vérification
+        router.replace("/");
+      }
+      
       return true;
     } catch (e) {
       Alert.alert("Erreur", e?.message ?? String(e));
@@ -728,7 +942,7 @@ export default function ProfilScreen() {
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>👤</Text>
-              <Text style={s.tileTitle}>Pseudo</Text>
+              <Text style={s.tileTitle}>Pseudo <Text style={{ color: '#dc2626' }}>*</Text></Text>
             </View>
             <TextInput
               value={displayName}
@@ -740,11 +954,177 @@ export default function ProfilScreen() {
             />
           </View>
 
-          {/* Ligne 2 : Niveau à 100% */}
+          {/* Ligne 2 : Adresses */}
+          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }]}>
+            <Text style={[s.label, { color: '#dcff13' }]}>📍 Adresses</Text>
+            <Text style={{ fontSize: 14, fontWeight: '400', color: '#e0ff00', marginTop: 2 }}>(pour trouver des matchs à proximité)</Text>
+            
+            {/* Domicile */}
+            <View style={{ marginTop: 8 }}>
+              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>🏠 Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
+              <TextInput
+                value={addressHomeInput}
+                onChangeText={(text) => {
+                  setAddressHomeInput(text);
+                  
+                  // Annuler le timer précédent
+                  if (debounceTimerHome.current) {
+                    clearTimeout(debounceTimerHome.current);
+                  }
+                  
+                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
+                  if (text.trim().length < 3) {
+                    setAddressHomeSuggestions([]);
+                    return;
+                  }
+                  
+                  // Debouncing : attendre 400ms après la dernière frappe
+                  debounceTimerHome.current = setTimeout(() => {
+                    searchAddress(text, setAddressHomeSuggestions, true);
+                  }, 400);
+                }}
+                placeholder="Ex: 123 Rue de la Paix, 75001 Paris"
+                style={s.input}
+                autoCapitalize="words"
+              />
+              {addressHomeSuggestions.length > 0 && (
+                <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
+                  <ScrollView nestedScrollEnabled>
+                    {addressHomeSuggestions.map((sug, idx) => (
+                      <Pressable
+                        key={idx}
+                        onPress={async () => {
+                          setAddressHomeInput(sug.address);
+                          setAddressHomeSuggestions([]);
+                          setGeocodingHome(true);
+                          const geocoded = await geocodeAddress(sug.address);
+                          setGeocodingHome(false);
+                          if (geocoded) {
+                            setAddressHome(geocoded);
+                          } else {
+                            Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                          }
+                        }}
+                        style={{
+                          padding: 12,
+                          borderBottomWidth: idx < addressHomeSuggestions.length - 1 ? 1 : 0,
+                          borderBottomColor: '#e5e7eb',
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{sug.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {geocodingHome && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color={BRAND} />
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
+                </View>
+              )}
+              {addressHome && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressHome.address}</Text>
+                  <Pressable
+                    onPress={() => {
+                      setAddressHome(null);
+                      setAddressHomeInput("");
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#dc2626" />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            {/* Travail */}
+            <View style={{ marginTop: 12 }}>
+              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>💼 Travail</Text>
+              <TextInput
+                value={addressWorkInput}
+                onChangeText={(text) => {
+                  setAddressWorkInput(text);
+                  
+                  // Annuler le timer précédent
+                  if (debounceTimerWork.current) {
+                    clearTimeout(debounceTimerWork.current);
+                  }
+                  
+                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
+                  if (text.trim().length < 3) {
+                    setAddressWorkSuggestions([]);
+                    return;
+                  }
+                  
+                  // Debouncing : attendre 400ms après la dernière frappe
+                  debounceTimerWork.current = setTimeout(() => {
+                    searchAddress(text, setAddressWorkSuggestions, false);
+                  }, 400);
+                }}
+                placeholder="Ex: 456 Avenue des Champs, 69001 Lyon"
+                style={s.input}
+                autoCapitalize="words"
+              />
+              {addressWorkSuggestions.length > 0 && (
+                <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
+                  <ScrollView nestedScrollEnabled>
+                    {addressWorkSuggestions.map((sug, idx) => (
+                      <Pressable
+                        key={idx}
+                        onPress={async () => {
+                          setAddressWorkInput(sug.address);
+                          setAddressWorkSuggestions([]);
+                          setGeocodingWork(true);
+                          const geocoded = await geocodeAddress(sug.address);
+                          setGeocodingWork(false);
+                          if (geocoded) {
+                            setAddressWork(geocoded);
+                          } else {
+                            Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                          }
+                        }}
+                        style={{
+                          padding: 12,
+                          borderBottomWidth: idx < addressWorkSuggestions.length - 1 ? 1 : 0,
+                          borderBottomColor: '#e5e7eb',
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{sug.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {geocodingWork && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color={BRAND} />
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
+                </View>
+              )}
+              {addressWork && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressWork.address}</Text>
+                  <Pressable
+                    onPress={() => {
+                      setAddressWork(null);
+                      setAddressWorkInput("");
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#dc2626" />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Ligne 3 : Niveau à 100% */}
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>🔥</Text>
-              <Text style={s.tileTitle}>Niveau</Text>
+              <Text style={s.tileTitle}>Niveau <Text style={{ color: '#dc2626' }}>*</Text></Text>
               <Pressable
                 onPress={() => setNiveauInfoModalVisible(true)}
                 style={{ 
@@ -812,7 +1192,7 @@ export default function ProfilScreen() {
             <View style={[s.tile, s.tileHalf]}>
               <View style={s.tileHeader}>
                 <Text style={s.tileIcon}>🖐️</Text>
-                <Text style={s.tileTitle}>Main</Text>
+                <Text style={s.tileTitle}>Main <Text style={{ color: '#dc2626' }}>*</Text></Text>
               </View>
               <Pressable
                 onPress={() => setMainPickerVisible(true)}
@@ -837,7 +1217,7 @@ export default function ProfilScreen() {
             <View style={[s.tile, s.tileHalf]}>
               <View style={s.tileHeader}>
                 <Text style={s.tileIcon}>🎯</Text>
-                <Text style={s.tileTitle}>Côté</Text>
+                <Text style={s.tileTitle}>Côté <Text style={{ color: '#dc2626' }}>*</Text></Text>
               </View>
               <Pressable
                 onPress={() => setCotePickerVisible(true)}
@@ -864,7 +1244,7 @@ export default function ProfilScreen() {
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>🏟️</Text>
-              <Text style={s.tileTitle}>Club</Text>
+              <Text style={s.tileTitle}>Club <Text style={{ color: '#dc2626' }}>*</Text></Text>
             </View>
             <Pressable
               onPress={() => setClubPickerVisible(true)}
@@ -912,146 +1292,11 @@ export default function ProfilScreen() {
           </View>
         </View>
 
-        {/* Ligne 7 : Adresses */}
-        <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }]}>
-          <Text style={[s.label, { color: '#dcff13' }]}>📍 Adresses</Text>
-          
-          {/* Domicile */}
-          <View style={{ marginTop: 8 }}>
-            <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>🏠 Domicile</Text>
-            <TextInput
-              value={addressHomeInput}
-              onChangeText={(text) => {
-                setAddressHomeInput(text);
-                searchAddress(text, setAddressHomeSuggestions);
-              }}
-              placeholder="Ex: 123 Rue de la Paix, 75001 Paris, France"
-              style={s.input}
-              autoCapitalize="words"
-            />
-            {addressHomeSuggestions.length > 0 && (
-              <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
-                <ScrollView nestedScrollEnabled>
-                  {addressHomeSuggestions.map((sug, idx) => (
-                    <Pressable
-                      key={idx}
-                      onPress={async () => {
-                        setAddressHomeInput(sug.address);
-                        setAddressHomeSuggestions([]);
-                        setGeocodingHome(true);
-                        const geocoded = await geocodeAddress(sug.address);
-                        setGeocodingHome(false);
-                        if (geocoded) {
-                          setAddressHome(geocoded);
-                        } else {
-                          Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
-                        }
-                      }}
-                      style={{
-                        padding: 12,
-                        borderBottomWidth: idx < addressHomeSuggestions.length - 1 ? 1 : 0,
-                        borderBottomColor: '#e5e7eb',
-                      }}
-                    >
-                      <Text style={{ fontSize: 14, color: '#111827' }}>{sug.name}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-            {geocodingHome && (
-              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <ActivityIndicator size="small" color={BRAND} />
-                <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
-              </View>
-            )}
-            {addressHome && (
-              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
-                <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressHome.address}</Text>
-                <Pressable
-                  onPress={() => {
-                    setAddressHome(null);
-                    setAddressHomeInput("");
-                  }}
-                  style={{ padding: 4 }}
-                >
-                  <Ionicons name="close-circle" size={18} color="#dc2626" />
-                </Pressable>
-              </View>
-            )}
-          </View>
-
-          {/* Travail */}
-          <View style={{ marginTop: 12 }}>
-            <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>💼 Travail</Text>
-            <TextInput
-              value={addressWorkInput}
-              onChangeText={(text) => {
-                setAddressWorkInput(text);
-                searchAddress(text, setAddressWorkSuggestions);
-              }}
-              placeholder="Ex: 456 Avenue des Champs, 69001 Lyon, France"
-              style={s.input}
-              autoCapitalize="words"
-            />
-            {addressWorkSuggestions.length > 0 && (
-              <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
-                <ScrollView nestedScrollEnabled>
-                  {addressWorkSuggestions.map((sug, idx) => (
-                    <Pressable
-                      key={idx}
-                      onPress={async () => {
-                        setAddressWorkInput(sug.address);
-                        setAddressWorkSuggestions([]);
-                        setGeocodingWork(true);
-                        const geocoded = await geocodeAddress(sug.address);
-                        setGeocodingWork(false);
-                        if (geocoded) {
-                          setAddressWork(geocoded);
-                        } else {
-                          Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
-                        }
-                      }}
-                      style={{
-                        padding: 12,
-                        borderBottomWidth: idx < addressWorkSuggestions.length - 1 ? 1 : 0,
-                        borderBottomColor: '#e5e7eb',
-                      }}
-                    >
-                      <Text style={{ fontSize: 14, color: '#111827' }}>{sug.name}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-            {geocodingWork && (
-              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <ActivityIndicator size="small" color={BRAND} />
-                <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
-              </View>
-            )}
-            {addressWork && (
-              <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
-                <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressWork.address}</Text>
-                <Pressable
-                  onPress={() => {
-                    setAddressWork(null);
-                    setAddressWorkInput("");
-                  }}
-                  style={{ padding: 4 }}
-                >
-                  <Ionicons name="close-circle" size={18} color="#dc2626" />
-                </Pressable>
-              </View>
-            )}
-          </View>
-        </View>
-
         {/* Ligne 8 : Rayon à 100% */}
         <View style={[s.tile, s.tileFull, { marginTop: 0 }]}>
           <View style={s.tileHeader}>
             <Text style={s.tileIcon}>🚗</Text>
-            <Text style={s.tileTitle}>Rayon de jeu possible</Text>
+            <Text style={s.tileTitle}>Rayon de jeu possible <Text style={{ color: '#dc2626' }}>*</Text></Text>
           </View>
           <View style={s.rayonRow}>
             {RAYONS.map((r) => {
@@ -1397,6 +1642,14 @@ export default function ProfilScreen() {
             </View>
           </Pressable>
         </Modal>
+
+        {/* Popup profil incomplet */}
+        <OnboardingModal
+          visible={incompleteProfileModalVisible}
+          message="complète ton profil pour commencer à utiliser l'app"
+          onClose={() => setIncompleteProfileModalVisible(false)}
+        />
+
       </ScrollView>
     </KeyboardAvoidingView>
   );

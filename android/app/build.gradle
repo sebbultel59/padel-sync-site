@@ -92,8 +92,8 @@ android {
         applicationId 'com.padelsync.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 24
-        versionName "2.0.4"
+        versionCode 27
+        versionName "2.0.7"
     }
     
     compileOptions {

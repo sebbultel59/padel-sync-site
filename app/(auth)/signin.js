@@ -18,13 +18,13 @@ export default function SigninScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Si déjà connecté, repasse par /join pour finir l’invite
+  // Si déjà connecté, repasse par /join pour finir l'invite ou redirige vers l'index
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
       if (data?.session) {
         if (gid) router.replace(`/join?group_id=${encodeURIComponent(gid)}`);
-        else router.replace("/(tabs)/matches");
+        else router.replace("/"); // Rediriger vers l'index qui vérifiera le profil
       }
     })();
   }, [gid]);
@@ -47,7 +47,9 @@ export default function SigninScreen() {
       if (gid) {
         router.replace(`/join?group_id=${encodeURIComponent(gid)}`);
       } else {
-        router.replace("/(tabs)/matches");
+        // Pour un nouveau compte (signup), rediriger vers l'index qui vérifiera le profil
+        // Pour un login, rediriger vers l'index aussi pour vérifier le profil
+        router.replace("/");
       }
     } catch (e) {
       Alert.alert("Auth", e?.message ?? String(e));
