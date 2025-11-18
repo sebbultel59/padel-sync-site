@@ -92,8 +92,8 @@ android {
         applicationId 'com.padelsync.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 27
-        versionName "2.0.7"
+        versionCode 31
+        versionName "2.0.9"
     }
     
     compileOptions {
@@ -123,8 +123,20 @@ android {
             signingConfig signingConfigs.debug
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             crunchPngs (findProperty('android.enablePngCrunchInReleaseBuilds')?.toBoolean() ?: true)
+        }
+    }
+    
+    // Generate mapping file for ProGuard/R8 (required for Google Play Console)
+    applicationVariants.all { variant ->
+        if (variant.buildType.name == "release") {
+            variant.assembleProvider.get().doLast {
+                def mappingFile = variant.mappingFileProvider.get().get().asFile
+                if (mappingFile.exists()) {
+                    println "Mapping file generated at: ${mappingFile.absolutePath}"
+                }
+            }
         }
     }
     packagingOptions {

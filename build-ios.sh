@@ -22,3 +22,5 @@ echo ""
 
 open ios/PadelSync.xcworkspace
 
+
+

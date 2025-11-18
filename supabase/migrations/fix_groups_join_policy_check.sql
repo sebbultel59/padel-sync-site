@@ -20,3 +20,5 @@ ALTER TABLE groups ADD CONSTRAINT groups_join_policy_check
 COMMENT ON CONSTRAINT groups_join_policy_check ON groups IS 
   'Vérifie que join_policy est valide selon visibility: private+invite, public+open/request/invite';
 
+
+

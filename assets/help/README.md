@@ -40,13 +40,16 @@ Ce dossier contient les captures d'écran utilisées dans le modal d'aide et le 
 
 ## Format recommandé
 
-- **Format** : PNG avec transparence si nécessaire
+- **Format** : WebP (optimisé pour réduire la taille de l'application)
 - **Taille** : Adaptée à l'affichage mobile (max 800px de largeur)
 - **Ratio** : Respecter le ratio de l'écran mobile pour les captures complètes
+- **Conversion** : Les images PNG peuvent être converties en WebP avec `cwebp -q 85 fichier.png -o fichier.webp`
 
 ## Activation des images
 
-Une fois les images ajoutées dans ce dossier, décommentez les lignes correspondantes dans `lib/helpImages.js` en remplaçant `null` par `require('../assets/help/nom-fichier.png')`.
+Une fois les images ajoutées dans ce dossier, décommentez les lignes correspondantes dans `lib/helpImages.js` en remplaçant `null` par `require('../assets/help/nom-fichier.webp')`.
+
+
 
 
 
