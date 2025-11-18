@@ -551,8 +551,8 @@ export default function ProfilScreen() {
     if (!niveau) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre niveau."); return false; }
     if (!main) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre main (droite ou gauche)."); return false; }
     if (!cote) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre côté (droite, gauche ou les deux)."); return false; }
-    const clubTrimmed = (club || "").trim();
-    if (!clubTrimmed) { Alert.alert("Champ obligatoire", "Merci de sélectionner un club."); return false; }
+    // Club favori est facultatif
+    const clubTrimmed = (club || "").trim() || null;
     // Téléphone est facultatif
     const phoneTrimmed = (phone || "").trim() || null;
     if (!addressHome || !addressHome.address) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de domicile."); return false; }
@@ -1240,11 +1240,11 @@ export default function ProfilScreen() {
             </View>
           </View>
 
-          {/* Ligne 4 : Club à 100% */}
+          {/* Ligne 4 : Club favori à 100% */}
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
               <Text style={s.tileIcon}>🏟️</Text>
-              <Text style={s.tileTitle}>Club <Text style={{ color: '#dc2626' }}>*</Text></Text>
+              <Text style={s.tileTitle}>Club favori</Text>
             </View>
             <Pressable
               onPress={() => setClubPickerVisible(true)}
@@ -1260,7 +1260,7 @@ export default function ProfilScreen() {
               ]}
             >
               <Text style={{ fontSize: 14, color: club ? '#111827' : '#9ca3af', flex: 1 }}>
-                {club || "Sélectionner un club"}
+                {club || "Sélectionner un club favori"}
               </Text>
               <Ionicons name="chevron-down" size={18} color="#6b7280" />
             </Pressable>
@@ -1568,7 +1568,7 @@ export default function ProfilScreen() {
           </Pressable>
         </Modal>
 
-        {/* Modal Liste de choix pour Club */}
+        {/* Modal Liste de choix pour Club favori */}
         <Modal
           visible={clubPickerVisible}
           transparent
@@ -1582,7 +1582,7 @@ export default function ProfilScreen() {
             <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20, maxHeight: '80%' }}>
               <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
                 <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
-                  Sélectionner un club
+                  Sélectionner un club favori
                 </Text>
                 {addressHome?.lat && addressHome?.lng && (
                   <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>

@@ -510,6 +510,11 @@ export default function TabsLayout() {
           tabBarItemStyle: {
             paddingVertical: Platform.OS === 'android' ? 4 : 0,
           },
+          tabBarLabel: route.name === 'semaine' ? 'Dispos' 
+            : route.name === 'matches' ? 'Matches'
+            : route.name === 'groupes' ? 'Groupes'
+            : route.name === 'profil' ? 'Profil'
+            : undefined,
           tabBarIcon: ({ focused, color, size }) => {
             let name = 'ellipse';
 
@@ -563,13 +568,6 @@ export default function TabsLayout() {
           options={{ 
             tabBarLabel: 'Groupes',
             tabBarAccessibilityLabel: 'Groupes',
-          }} 
-        />
-        <Tabs.Screen 
-          name="profil" 
-          options={{ 
-            tabBarLabel: 'Profil',
-            tabBarAccessibilityLabel: 'Profil',
           }} 
         />
       </Tabs>

@@ -116,11 +116,13 @@ export default function Semaine() {
   const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
   const [myGroups, setMyGroups] = useState([]);
   const isPortrait = height > width;
+  const disposPromptShownRef = React.useRef(false);
 
   // États pour les popups d'onboarding
   const [disposVisitedModalVisible, setDisposVisitedModalVisible] = useState(false);
   const [noAvailabilityModalVisible, setNoAvailabilityModalVisible] = useState(false);
   const [noGroupModalVisible, setNoGroupModalVisible] = useState(false);
+  const [showDisposPromptModal, setShowDisposPromptModal] = useState(false);
   // ---- (plus de mode peinture global) ----
 
   // Fenêtre d'application de plage sur d'autres jours
@@ -257,6 +259,14 @@ export default function Semaine() {
   }, [meId, groupId]);
 
   const params = useLocalSearchParams();
+
+  // Détecter le paramètre showDisposPrompt pour afficher la popup
+  useEffect(() => {
+    if (params?.showDisposPrompt === 'true' && !disposPromptShownRef.current) {
+      disposPromptShownRef.current = true;
+      setShowDisposPromptModal(true);
+    }
+  }, [params?.showDisposPrompt]);
 
   // 0) If a groupId is provided via route params, persist it
   useEffect(() => {
@@ -1715,6 +1725,11 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           const di = day.diff(weekStart, 'day');
           const startIso = keySlot(day, hour, minute);
           
+          // Vérifier si le créneau est dans le passé
+          const slotDateTime = dayjs(startIso);
+          const now = dayjs();
+          const isPast = slotDateTime.isBefore(now);
+          
           // Récupérer le nombre pré-calculé depuis le cache (beaucoup plus rapide)
           const availableCount = cellCountByStartIso.get(startIso) ?? 0;
           const match = mapMatches.get(startIso);
@@ -1727,7 +1742,12 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           let cellBorder = '#1f2937';
           let textColor = '#0b2240';
           
-          if (myStatus === 'available') {
+          // Si le créneau est passé, appliquer un style grisé
+          if (isPast) {
+            cellBg = '#f3f4f6'; // gris clair
+            cellBorder = '#d1d5db'; // gris
+            textColor = '#9ca3af'; // gris foncé
+          } else if (myStatus === 'available') {
             // Cellule vert foncé si le joueur est disponible
             cellBg = '#105b23';
             cellBorder = '#105b23';
@@ -1737,8 +1757,8 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
             cellBorder = '#fee2e2';
           }
 
-          // Surbrillance de la plage en cours (prévisualisation)
-          if (rangeStart && rangeStart.dayIndex === di) {
+          // Surbrillance de la plage en cours (prévisualisation) - uniquement si le créneau n'est pas passé
+          if (!isPast && rangeStart && rangeStart.dayIndex === di) {
             const a = Math.min(rangeStart.slotIdx, rangeHover ?? rangeStart.slotIdx);
             const b = Math.max(rangeStart.slotIdx, rangeHover ?? rangeStart.slotIdx);
             if (idx >= a && idx <= b && !match) {
@@ -1761,20 +1781,26 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           return (
             <Pressable
               key={startIso}
+              disabled={isPast}
               delayLongPress={250}
               onPressIn={() => {
+                if (isPast) return;
                 if (rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx);
                 try { Haptics.selectionAsync(); } catch {}
               }}
-              onHoverIn={() => { if (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
-              onMouseEnter={() => { if (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover) setRangeHover(idx); }}
+              onHoverIn={() => { if (isPast || (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover)) return; setRangeHover(idx); }}
+              onMouseEnter={() => { if (isPast || (Platform.OS === 'web' && rangeStart && rangeStart.dayIndex === di && idx !== rangeHover)) return; setRangeHover(idx); }}
               onPress={press(`toggle-${startIso}`, async () => {
+                // Si le créneau est passé, ne rien faire
+                if (isPast) return;
                 // Si une sélection est en cours, ne pas déclencher le toggle
                 if (rangeStart) return;
                 try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
                 await toggleMyAvailability(startIso);
               })}
               onLongPress={() => {
+                // Si le créneau est passé, ne rien faire
+                if (isPast) return;
                 if (!rangeStart) {
                   // Démarre une plage sur ce jour : intention d'après mon statut initial
                   const normalizedStartIsoForLookup = normalizeSlotTime(startIso);
@@ -1806,7 +1832,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
                 }
               }}
-              android_ripple={{ color: '#00000022', borderless: false }}
+              android_ripple={{ color: isPast ? 'transparent' : '#00000022', borderless: false }}
               style={({ pressed }) => ({
                 width: 43,
                 marginLeft: i === 0 ? -8 : 0,
@@ -1816,12 +1842,12 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 borderColor: cellBorder,
                 justifyContent: 'center',
                 backgroundColor: cellBg,
-                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                ...(Platform.OS === 'web' ? { cursor: isPast ? 'not-allowed' : 'pointer' } : {}),
                 borderRadius: 6,
                 overflow: 'hidden',
                 position: 'relative',
-                transform: pressed ? [{ scale: 0.985 }] : [{ scale: 1 }],
-                opacity: pressed ? 0.92 : 1,
+                transform: pressed && !isPast ? [{ scale: 0.985 }] : [{ scale: 1 }],
+                opacity: isPast ? 0.5 : (pressed ? 0.92 : 1),
               })}
             >
               {/* Affichage pour les admins : nombre en haut à droite + balle de padel au centre si disponible */}
@@ -2115,6 +2141,15 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           setNoGroupModalVisible(false);
           // Rediriger vers groupes après fermeture
           router.replace("/(tabs)/groupes");
+        }}
+      />
+
+      {/* Popup "Renseigne tes dispos" depuis la redirection initiale */}
+      <OnboardingModal
+        visible={showDisposPromptModal}
+        message="Renseigne tes dispos"
+        onClose={() => {
+          setShowDisposPromptModal(false);
         }}
       />
     </View>

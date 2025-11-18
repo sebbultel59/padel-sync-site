@@ -93,10 +93,10 @@ export default function Index() {
     if (profileComplete === true && hasActiveGroup === true) {
       // Profil OK et groupe sélectionné -> vérifier dispos
       if (hasAvailability === false) {
-        // Pas de dispos -> dispos
-        router.replace('/(tabs)/semaine');
+        // Pas de dispos -> dispos avec popup
+        router.replace('/(tabs)/semaine?showDisposPrompt=true');
       } else if (hasAvailability === true) {
-        // Dispos présentes -> matches
+        // Dispos présentes -> matches sans popup
         router.replace('/(tabs)/matches');
       }
       return;
