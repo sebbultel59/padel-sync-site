@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { router, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -12,7 +13,6 @@ import {
   Alert,
   Clipboard,
   DeviceEventEmitter,
-  FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -26,7 +26,7 @@ import {
   TextInput,
   TouchableOpacity,
   Vibration,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingModal } from "../../components/OnboardingModal";
@@ -319,6 +319,20 @@ export default function GroupesScreen() {
   // --- Données groupes ---
   const [groups, setGroups] = useState({ mine: [], open: [] });
   const [loading, setLoading] = useState(true);
+  const [publicGroupsClubFilter, setPublicGroupsClubFilter] = useState(null); // null = tous les clubs
+  
+  // Filtre géographique avancé
+  const [publicGroupsGeoFilterVisible, setPublicGroupsGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
+  const [publicGroupsGeoLocationType, setPublicGroupsGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [publicGroupsGeoRefPoint, setPublicGroupsGeoRefPoint] = useState(null); // { lat, lng, address } | null
+  const [publicGroupsGeoCityQuery, setPublicGroupsGeoCityQuery] = useState('');
+  const [publicGroupsGeoCitySuggestions, setPublicGroupsGeoCitySuggestions] = useState([]);
+  const [publicGroupsGeoRadiusKm, setPublicGroupsGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
+  const [locationPermission, setLocationPermission] = useState(null);
+  const [myProfile, setMyProfile] = useState(null);
+  
+  // Le filtre géographique est actif si un point de référence est défini
+  const publicGroupsGeoFilter = publicGroupsGeoRefPoint && publicGroupsGeoRefPoint.lat != null && publicGroupsGeoRefPoint.lng != null;
 
   const [members, setMembers] = useState([]);
   const [membersModalVisible, setMembersModalVisible] = useState(false);
@@ -347,7 +361,12 @@ export default function GroupesScreen() {
   const [editingGroupName, setEditingGroupName] = useState("");
   const [editingGroupVisibility, setEditingGroupVisibility] = useState("private");
   const [editingGroupJoinPolicy, setEditingGroupJoinPolicy] = useState("invite");
+  const [editingGroupClubId, setEditingGroupClubId] = useState(null);
+  const [editingGroupCity, setEditingGroupCity] = useState("");
+  const [editingCitySuggestions, setEditingCitySuggestions] = useState([]);
+  const [loadingEditingCitySuggestions, setLoadingEditingCitySuggestions] = useState(false);
   const [savingGroup, setSavingGroup] = useState(false);
+  const [editClubPickerVisible, setEditClubPickerVisible] = useState(false);
 
   // États pour les popups d'onboarding
   const [groupsVisitedModalVisible, setGroupsVisitedModalVisible] = useState(false);
@@ -389,34 +408,57 @@ export default function GroupesScreen() {
           .order("created_at", { ascending: false });
         if (error) throw error;
         
-        // Charger les noms des clubs séparément si nécessaire
+        // Charger les noms et coordonnées des clubs séparément si nécessaire
         const clubIds = [...new Set((data ?? []).map(g => g.club_id).filter(Boolean))];
         let clubsMap = {};
         if (clubIds.length > 0) {
           const { data: clubsData } = await supabase
             .from("clubs")
-            .select("id, name")
+            .select("id, name, lat, lng")
             .in("id", clubIds);
-          clubsMap = new Map((clubsData || []).map(c => [c.id, c.name]));
+          clubsMap = new Map((clubsData || []).map(c => [c.id, { name: c.name, lat: c.lat, lng: c.lng }]));
         }
         
-        myGroups = (data ?? []).map(g => ({
-          ...g,
-          club_name: g.club_id ? (clubsMap.get(g.club_id) || null) : null,
-        }));
+        myGroups = (data ?? []).map(g => {
+          const club = g.club_id ? (clubsMap.get(g.club_id) || null) : null;
+          return {
+            ...g,
+            club_name: club?.name || null,
+            club_lat: club?.lat || null,
+            club_lng: club?.lng || null,
+          };
+        });
       }
 
       const { data: openPublic, error: eOpen } = await supabase
          .from("groups")
-         .select("id, name, avatar_url, visibility, join_policy")
+         .select("id, name, avatar_url, visibility, join_policy, club_id")
          .ilike("visibility", "public"); // ← gère 'Public', 'PUBLIC', etc.
       if (eOpen) throw eOpen;
+      
+      // Charger les noms et coordonnées des clubs pour les groupes publics
+      const publicClubIds = [...new Set((openPublic ?? []).map(g => g.club_id).filter(Boolean))];
+      let publicClubsMap = {};
+      if (publicClubIds.length > 0) {
+        const { data: publicClubsData } = await supabase
+          .from("clubs")
+          .select("id, name, lat, lng")
+          .in("id", publicClubIds);
+        publicClubsMap = new Map((publicClubsData || []).map(c => [c.id, { name: c.name, lat: c.lat, lng: c.lng }]));
+      }
+      
         const openList = (openPublic ?? [])
-          .map(g => ({
-            ...g,
-            visibility: String(g.visibility || "").toLowerCase(),
-            join_policy: String(g.join_policy || "").toLowerCase(),
-          }))
+          .map(g => {
+            const club = g.club_id ? (publicClubsMap.get(g.club_id) || null) : null;
+            return {
+              ...g,
+              visibility: String(g.visibility || "").toLowerCase(),
+              join_policy: String(g.join_policy || "").toLowerCase(),
+              club_name: club?.name || null,
+              club_lat: club?.lat || null,
+              club_lng: club?.lng || null,
+            };
+          })
           .filter((g) => !myIds.includes(g.id));
       console.log("[Groupes] openPublic count =", openPublic?.length, openPublic?.slice?.(0,3));
 
@@ -431,6 +473,44 @@ export default function GroupesScreen() {
   useEffect(() => {
     if (authChecked) loadGroups();
   }, [authChecked, loadGroups]);
+
+  // Liste des clubs uniques des groupes publics pour le filtre
+  const publicGroupsClubs = useMemo(() => {
+    const clubsMap = new Map();
+    (groups.open ?? []).forEach(g => {
+      if (g.club_id && g.club_name) {
+        clubsMap.set(g.club_id, { id: g.club_id, name: g.club_name });
+      }
+    });
+    return Array.from(clubsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [groups.open]);
+
+  // Groupes publics filtrés par club et/ou distance
+  const filteredPublicGroups = useMemo(() => {
+    let filtered = groups.open ?? [];
+    
+    // Filtre par club
+    if (publicGroupsClubFilter) {
+      filtered = filtered.filter(g => g.club_id === publicGroupsClubFilter);
+    }
+    
+    // Filtre géographique par distance
+    if (publicGroupsGeoFilter && publicGroupsGeoRefPoint && publicGroupsGeoRefPoint.lat != null && publicGroupsGeoRefPoint.lng != null && publicGroupsGeoRadiusKm != null) {
+      filtered = filtered
+        .map(g => {
+          // Calculer la distance si le groupe a des coordonnées de club
+          let distance = null;
+          if (g.club_lat && g.club_lng) {
+            distance = haversineKm(publicGroupsGeoRefPoint, { lat: g.club_lat, lng: g.club_lng });
+          }
+          return { ...g, distanceKm: distance };
+        })
+        .filter(g => g.distanceKm !== null && g.distanceKm !== Infinity && g.distanceKm <= publicGroupsGeoRadiusKm) // Garder seulement ceux dans le rayon
+        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)); // Trier par distance croissante
+    }
+    
+    return filtered;
+  }, [groups.open, publicGroupsClubFilter, publicGroupsGeoFilter, publicGroupsGeoRefPoint, publicGroupsGeoRadiusKm, haversineKm]);
 
   // Membres & droits admin du groupe actif
   const loadMembersAndAdmin = useCallback(
@@ -468,7 +548,7 @@ export default function GroupesScreen() {
               avatar_url: p?.avatar_url ?? null,
               niveau: p?.niveau ?? null,
               phone: p?.phone ?? null,
-              is_admin: gm.role === "admin",
+              is_admin: gm.role === "admin" || gm.role === "owner",
             };
           });
         }
@@ -482,7 +562,7 @@ export default function GroupesScreen() {
             .eq("user_id", meId)
             .maybeSingle();
           if (eMe) throw eMe;
-          setIsAdmin(meRow?.role === "admin");
+          setIsAdmin(meRow?.role === "admin" || meRow?.role === "owner");
         }
       } catch (e) {
         Alert.alert("Erreur", e?.message ?? String(e));
@@ -906,12 +986,25 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
       console.log('[onUpdateGroup] Updating group with:', updateData);
 
+      // Préparer les paramètres de localisation
+      const clubIdParam = (editingGroupClubId && String(editingGroupClubId).trim() !== '') ? String(editingGroupClubId).trim() : null;
+      const cityParam = (editingGroupCity && String(editingGroupCity).trim() !== '') ? String(editingGroupCity).trim() : null;
+      
+      // Pour les groupes publics, la ville est obligatoire
+      if (normalizedVisibility === 'public' && (!cityParam || cityParam.length < 2)) {
+        Alert.alert("Ville requise", "Pour un groupe public, tu dois renseigner une ville.");
+        setSavingGroup(false);
+        return;
+      }
+      
       // Utiliser la fonction RPC pour mettre à jour le groupe (contourne les contraintes CHECK)
       const { data: updatedGroupId, error: updateError } = await supabase.rpc('rpc_update_group', {
         p_group_id: groupId,
         p_name: trimmedName,
         p_visibility: normalizedVisibility,
         p_join_policy: normalizedJoinPolicy,
+        p_club_id: clubIdParam,
+        p_city: cityParam,
       });
 
       if (updateError) {
@@ -925,11 +1018,25 @@ Padel Sync — Ton match en 3 clics 🎾`;
       
       // Mettre à jour le groupe actif avec les nouvelles valeurs normalisées
       if (activeGroup?.id === groupId) {
+        // Charger les infos du club si nécessaire
+        let clubName = null;
+        if (clubIdParam) {
+          const { data: clubData } = await supabase
+            .from("clubs")
+            .select("name")
+            .eq("id", clubIdParam)
+            .single();
+          clubName = clubData?.name || null;
+        }
+        
         setActiveGroup({
           ...activeGroup,
           name: trimmedName,
           visibility: normalizedVisibility,
           join_policy: normalizedJoinPolicy,
+          club_id: clubIdParam,
+          city: cityParam,
+          club_name: clubName,
         });
       }
 
@@ -941,6 +1048,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
       setEditingGroupName("");
       setEditingGroupVisibility("private");
       setEditingGroupJoinPolicy("invite");
+      setEditingGroupClubId(null);
+      setEditingGroupCity("");
+      setEditingCitySuggestions([]);
     } catch (e) {
       console.error('[onUpdateGroup] Erreur:', e);
       Alert.alert("Erreur", e?.message ?? "Impossible de mettre à jour le groupe.");
@@ -948,7 +1058,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
     } finally {
       setSavingGroup(false);
     }
-  }, [isAdmin, isSuperAdmin, isGlobalAdmin, editingGroupName, editingGroupVisibility, editingGroupJoinPolicy, loadGroups, activeGroup, setActiveGroup]);
+  }, [isAdmin, isSuperAdmin, isGlobalAdmin, editingGroupName, editingGroupVisibility, editingGroupJoinPolicy, editingGroupClubId, editingGroupCity, loadGroups, activeGroup, setActiveGroup]);
 
   const onJoinPublic = useCallback(
     async (groupId) => {
@@ -1383,12 +1493,139 @@ Padel Sync — Ton match en 3 clics 🎾`;
     }
   }, [meId, showCreate]);
   
+  // Charger le profil complet pour le filtre géographique
+  useEffect(() => {
+    if (!meId) return;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('address_home, address_work')
+          .eq('id', meId)
+          .single();
+        if (data) {
+          setMyProfile(data);
+        }
+      } catch (e) {
+        console.warn('[Groupes] Erreur chargement profil:', e?.message ?? String(e));
+      }
+    })();
+  }, [meId]);
+
+  // Demander permission GPS au démarrage
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        setLocationPermission(status);
+      } catch (e) {
+        console.warn('[Groupes] location permission error:', e);
+        setLocationPermission('denied');
+      }
+    })();
+  }, []);
+  
+  // Autocomplétion ville via Nominatim pour le filtre géographique
+  const searchPublicGroupsGeoCity = useCallback(async (query) => {
+    if (!query || query.length < 3) {
+      setPublicGroupsGeoCitySuggestions([]);
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=fr&accept-language=fr`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const suggestions = (data || []).map(item => ({
+        name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+      }));
+      setPublicGroupsGeoCitySuggestions(suggestions);
+    } catch (e) {
+      console.warn('[Groupes] city search error:', e);
+      setPublicGroupsGeoCitySuggestions([]);
+    }
+  }, []);
+  
+  // Calculer le point de référence géographique pour le filtre
+  const computePublicGroupsGeoRefPoint = useCallback(async () => {
+    let point = null;
+    if (publicGroupsGeoLocationType === 'current') {
+      if (locationPermission !== 'granted') {
+        Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la localisation.');
+        setPublicGroupsGeoLocationType(null);
+        return null;
+      }
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        point = { lat: loc.coords.latitude, lng: loc.coords.longitude, address: 'Position actuelle' };
+      } catch (e) {
+        Alert.alert('Erreur', 'Impossible d\'obtenir votre position. Utilisez une ville.');
+        setPublicGroupsGeoLocationType(null);
+        return null;
+      }
+    } else if (publicGroupsGeoLocationType === 'home') {
+      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
+        setPublicGroupsGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_home;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
+    } else if (publicGroupsGeoLocationType === 'work') {
+      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
+        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
+        setPublicGroupsGeoLocationType(null);
+        return null;
+      }
+      const addr = myProfile.address_work;
+      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
+    }
+    
+    return point;
+  }, [publicGroupsGeoLocationType, locationPermission, myProfile]);
+  
+  // Charger le point de référence géographique du filtre quand le type change
+  useEffect(() => {
+    if (!publicGroupsGeoFilterVisible) return; // Ne pas charger si le filtre n'est pas visible
+    
+    (async () => {
+      // Pour 'city', le point sera défini quand l'utilisateur sélectionne une ville
+      if (publicGroupsGeoLocationType === 'city') {
+        // Ne rien faire, attendre la sélection de ville
+        return;
+      }
+      
+      // Pour les autres types (current, home, work), charger automatiquement
+      const point = await computePublicGroupsGeoRefPoint();
+      if (point) {
+        setPublicGroupsGeoRefPoint(point);
+      } else {
+        setPublicGroupsGeoRefPoint(null);
+      }
+    })();
+  }, [publicGroupsGeoLocationType, publicGroupsGeoFilterVisible, computePublicGroupsGeoRefPoint]);
+  
+  // Réinitialiser le rayon quand le type de localisation change
+  useEffect(() => {
+    if (!publicGroupsGeoLocationType) {
+      setPublicGroupsGeoRadiusKm(null);
+    }
+  }, [publicGroupsGeoLocationType]);
+  
   // Charger les clubs quand on ouvre le picker (comme dans profil.js)
   useEffect(() => {
     if (clubPickerVisible) {
       loadClubs();
     }
   }, [clubPickerVisible, loadClubs]);
+
+  // Charger les clubs quand on ouvre le picker d'édition
+  useEffect(() => {
+    if (editClubPickerVisible) {
+      loadClubs();
+    }
+  }, [editClubPickerVisible, loadClubs]);
 
   // Recherche de villes avec Nominatim
   const searchCities = useCallback(async (query) => {
@@ -1485,6 +1722,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
   const doCreateGroup = useCallback(async () => {
     const n = (createName || "").trim();
     if (!n) return Alert.alert("Nom requis", "Entre un nom de groupe.");
+    
+    // Pour les groupes publics, la ville est obligatoire
+    if (createVisibility === "public") {
+      const cityTrimmed = (createCity || "").trim();
+      if (!cityTrimmed || cityTrimmed.length < 2) {
+        return Alert.alert("Ville requise", "Pour un groupe public, tu dois renseigner une ville.");
+      }
+    }
+    
     try {
       const { data: u } = await supabase.auth.getUser();
       const me = u?.user?.id;
@@ -1522,27 +1768,108 @@ Padel Sync — Ton match en 3 clics 🎾`;
         join_policy = "invite";
       }
 
+      // Préparer les paramètres de localisation
+      const clubIdParam = (createClubId && String(createClubId).trim() !== '') ? String(createClubId).trim() : null;
+      const cityParam = (createCity && String(createCity).trim() !== '') ? String(createCity).trim() : null;
+      
       console.log('[Groups][create] me =', me, 'visibility =', safeVisibility, 'join_policy =', join_policy);
+      console.log('[Groups][create] club_id =', clubIdParam, 'city =', cityParam);
+      console.log('[Groups][create] createClubId raw =', createClubId, 'type =', typeof createClubId);
+      console.log('[Groups][create] createCity raw =', createCity, 'type =', typeof createCity);
 
-      const { data: rpcData, error: rpcErr } = await supabase.rpc('rpc_create_group', {
+      // Construire les paramètres de la RPC - toujours passer tous les paramètres
+      const rpcParams = {
         p_name: n,
         p_visibility: safeVisibility,
         p_join_policy: join_policy,
-        p_club_id: createClubId || null,
-        p_city: createCity?.trim() || null,
-      });
-      if (rpcErr) throw rpcErr;
+        p_club_id: clubIdParam,  // Passer null explicitement si vide
+        p_city: cityParam,        // Passer null explicitement si vide
+      };
+      
+      console.log('[Groups][create] RPC params =', JSON.stringify(rpcParams, null, 2));
+
+      // Essayer d'abord avec la RPC
+      let rpcData = null;
+      let rpcErr = null;
+      try {
+        const result = await supabase.rpc('rpc_create_group', rpcParams);
+        rpcData = result.data;
+        rpcErr = result.error;
+      } catch (e) {
+        console.error('[Groups][create][rpc] exception:', e);
+        rpcErr = e;
+      }
+      
+      // Si la RPC échoue, créer le groupe directement avec INSERT
+      if (rpcErr || !rpcData) {
+        console.warn('[Groups][create] RPC failed, using direct INSERT');
+        console.error('[Groups][create][rpc] error =', rpcErr);
+        
+        // Créer le groupe directement
+        const { data: insertData, error: insertErr } = await supabase
+          .from('groups')
+          .insert({
+            name: n,
+            visibility: safeVisibility,
+            join_policy: join_policy,
+            club_id: clubIdParam,
+            city: cityParam,
+          })
+          .select('id, name, avatar_url, visibility, join_policy, club_id, city')
+          .single();
+        
+        if (insertErr) {
+          console.error('[Groups][create] Direct INSERT also failed:', insertErr);
+          throw insertErr;
+        }
+        
+        console.log('[Groups][create] Group created via direct INSERT:', insertData);
+        rpcData = [insertData]; // Formater comme la RPC
+      }
 
       console.log('[Groups][create][rpc] result =', rpcData);
       let created = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      console.log('[Groups][create] created object =', created);
+      console.log('[Groups][create] created.club_id =', created?.club_id, 'created.city =', created?.city);
+      
+      // Si le groupe a été créé mais sans les localisations, les mettre à jour immédiatement
+      if (created && created.id && (clubIdParam || cityParam)) {
+        const needsLocationUpdate = (clubIdParam && created.club_id !== clubIdParam) || 
+                                   (cityParam && created.city !== cityParam) ||
+                                   (clubIdParam && !created.club_id) ||
+                                   (cityParam && !created.city);
+        
+        if (needsLocationUpdate) {
+          console.log('[Groups][create] Location data missing or incorrect, updating immediately');
+          const locationUpdate = {};
+          if (clubIdParam) locationUpdate.club_id = clubIdParam;
+          if (cityParam) locationUpdate.city = cityParam;
+          
+          const { data: updatedGroup, error: updateErr } = await supabase
+            .from('groups')
+            .update(locationUpdate)
+            .eq('id', created.id)
+            .select('id, name, avatar_url, visibility, join_policy, club_id, city')
+            .single();
+          
+          if (updateErr) {
+            console.error('[Groups][create] Error updating location immediately:', updateErr);
+            // Ne pas échouer la création, juste logger l'erreur
+          } else if (updatedGroup) {
+            console.log('[Groups][create] Location updated successfully:', updatedGroup);
+            created = { ...created, ...updatedGroup };
+          }
+        }
+      }
 
-      // Fallback: si la RPC ne renvoie pas l’ID (implémentation SQL différente),
-      // on va rechercher le dernier groupe créé par l’utilisateur avec ce nom.
+      // Fallback: si la RPC ne renvoie pas l'ID (implémentation SQL différente),
+      // on va rechercher le dernier groupe créé par l'utilisateur avec ce nom.
       if (!created || !created.id) {
         const { data: fallback, error: fbErr } = await supabase
           .from('groups')
-          .select('id, name, avatar_url')
+          .select('id, name, avatar_url, club_id, city')
           .eq('name', n)
+          .eq('created_by', me)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -1550,27 +1877,138 @@ Padel Sync — Ton match en 3 clics 🎾`;
         if (!fallback?.id) {
           throw new Error('Création du groupe : réponse invalide (aucun ID retourné)');
         }
+        console.log('[Groups][create] fallback object =', fallback);
         created = fallback;
       }
 
+      // Vérifier immédiatement dans la DB que les données ont bien été enregistrées
+      const { data: verifyData, error: verifyErr } = await supabase
+        .from("groups")
+        .select("id, name, avatar_url, visibility, join_policy, created_by, club_id, city")
+        .eq("id", created.id)
+        .single();
+      
+      if (verifyErr) {
+        console.error('[Groups][create] Error verifying group data:', verifyErr);
+      } else {
+        console.log('[Groups][create] Verified group data from DB:', verifyData);
+        console.log('[Groups][create] Expected club_id =', clubIdParam, 'Expected city =', cityParam);
+        console.log('[Groups][create] Actual club_id in DB =', verifyData?.club_id, 'Actual city in DB =', verifyData?.city);
+        
+        // Si les données ne sont pas enregistrées, essayer de les mettre à jour directement
+        const needsUpdate = (clubIdParam && verifyData?.club_id !== clubIdParam) || 
+                           (cityParam && verifyData?.city !== cityParam) ||
+                           (clubIdParam && !verifyData?.club_id) ||
+                           (cityParam && !verifyData?.city);
+        
+        if (verifyData && needsUpdate) {
+          console.warn('[Groups][create] Localisation data missing or incorrect in DB, attempting direct update');
+          const updateData = {};
+          if (clubIdParam && verifyData?.club_id !== clubIdParam) {
+            updateData.club_id = clubIdParam;
+            console.log('[Groups][create] Will update club_id to:', clubIdParam);
+          }
+          if (cityParam && verifyData?.city !== cityParam) {
+            updateData.city = cityParam;
+            console.log('[Groups][create] Will update city to:', cityParam);
+          }
+          
+          if (Object.keys(updateData).length > 0) {
+            console.log('[Groups][create] Updating group with:', updateData);
+            const { data: updatedData, error: updateErr } = await supabase
+              .from("groups")
+              .update(updateData)
+              .eq("id", created.id)
+              .select("id, name, avatar_url, visibility, join_policy, created_by, club_id, city")
+              .single();
+            
+            if (updateErr) {
+              console.error('[Groups][create] Error updating group location:', updateErr);
+              Alert.alert("Avertissement", "Le groupe a été créé mais la localisation n'a pas pu être enregistrée. Erreur: " + updateErr.message);
+            } else {
+              console.log('[Groups][create] Successfully updated group location:', updatedData);
+              if (updatedData) {
+                verifyData.club_id = updatedData.club_id;
+                verifyData.city = updatedData.city;
+              }
+            }
+          }
+        } else if (verifyData && clubIdParam && cityParam) {
+          console.log('[Groups][create] Location data correctly saved in DB');
+        }
+      }
+      
       await loadGroups();
-      setActiveGroup(created);
-      await loadMembersAndAdmin(created.id);
+      
+      // Utiliser les données vérifiées depuis la DB
+      const groupToUse = verifyData || created;
+      console.log('[Groups][create] Using groupToUse:', groupToUse);
+      
+      // Charger les infos du club si nécessaire
+      let clubName = null;
+      let clubLat = null;
+      let clubLng = null;
+      if (groupToUse?.club_id) {
+        const { data: clubData, error: clubErr } = await supabase
+          .from("clubs")
+          .select("name, lat, lng")
+          .eq("id", groupToUse.club_id)
+          .single();
+        if (clubErr) {
+          console.error('[Groups][create] Error fetching club data:', clubErr);
+        } else {
+          clubName = clubData?.name || null;
+          clubLat = clubData?.lat || null;
+          clubLng = clubData?.lng || null;
+          console.log('[Groups][create] club data =', { clubName, clubLat, clubLng });
+        }
+      }
+      
+      const fullGroup = {
+        ...groupToUse,
+        club_name: clubName,
+        club_lat: clubLat,
+        club_lng: clubLng,
+      };
+      console.log('[Groups][create] Setting activeGroup with fullGroup =', fullGroup);
+      setActiveGroup(fullGroup);
+      await loadMembersAndAdmin(fullGroup.id);
+      // Réinitialiser les valeurs du formulaire
+      setCreateName("");
+      setCreateVisibility("private");
+      setCreateJoinPolicy("invite");
+      setCreateClubId(null);
+      setCreateCity("");
+      setCitySuggestions([]);
       setShowCreate(false);
-      Alert.alert("Groupe créé", `“${n}” est maintenant actif.`);
+      Alert.alert("Groupe créé", `"${n}" est maintenant actif.`);
     } catch (e) {
+      console.error('[Groups][create] Error:', e);
       Alert.alert("Erreur création", e?.message ?? String(e));
     }
-  }, [createName, createVisibility, createJoinPolicy, isSuperAdmin, isGlobalAdmin, loadGroups, setActiveGroup, loadMembersAndAdmin]);
+  }, [createName, createVisibility, createJoinPolicy, createClubId, createCity, isSuperAdmin, isGlobalAdmin, loadGroups, setActiveGroup, loadMembersAndAdmin]);
 
-  const { activeRecord } = useMemo(() => {
+  // Trouver le groupe actif dans groups.mine (plus complet avec club_name, city, etc.)
+  const activeRecord = useMemo(() => {
     const a = (groups.mine ?? []).find((g) => g.id === activeGroup?.id) || null;
-    // Si activeRecord existe mais activeGroup n'a pas les données complètes, mettre à jour activeGroup
-    if (a && activeGroup && (!activeGroup.club_id && a.club_id || !activeGroup.city && a.city || !activeGroup.club_name && a.club_name)) {
-      setActiveGroup(a);
+    // Si on ne trouve pas dans groups.mine mais qu'on a activeGroup, utiliser activeGroup
+    return a || activeGroup || null;
+  }, [groups.mine, activeGroup?.id, activeGroup]);
+
+  // Mettre à jour activeGroup avec les données complètes de groups.mine si nécessaire
+  useEffect(() => {
+    if (activeRecord && activeGroup && activeRecord !== activeGroup) {
+      // Vérifier si les données complètes sont différentes
+      if (activeRecord.club_name !== activeGroup.club_name || 
+          activeRecord.city !== activeGroup.city || 
+          activeRecord.club_id !== activeGroup.club_id ||
+          activeRecord.club_lat !== activeGroup.club_lat ||
+          activeRecord.club_lng !== activeGroup.club_lng) {
+        console.log('[Groupes] Updating activeGroup with complete data from groups.mine');
+        setActiveGroup(activeRecord);
+      }
     }
-    return { activeRecord: a };
-  }, [groups, activeGroup?.id, activeGroup, setActiveGroup]);
+  }, [activeRecord, activeGroup, setActiveGroup]);
 
   // Fonctions pour rejoindre un groupe
   const handleJoinByGroupId = useCallback(async (groupId) => {
@@ -1936,6 +2374,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
                           setEditingGroupName(activeRecord.name || "");
                           setEditingGroupVisibility(activeRecord.visibility || "private");
                           setEditingGroupJoinPolicy(activeRecord.join_policy || "invite");
+                          setEditingGroupClubId(activeRecord.club_id || null);
+                          setEditingGroupCity(activeRecord.city || "");
+                          setEditingCitySuggestions([]);
                           setShowEditGroup(true);
                         }}
                         style={{
@@ -2115,6 +2556,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 setEditingGroupName(g.name || "");
                 setEditingGroupVisibility(g.visibility || "private");
                 setEditingGroupJoinPolicy(g.join_policy || "invite");
+                setEditingGroupClubId(g.club_id || null);
+                setEditingGroupCity(g.city || "");
+                setEditingCitySuggestions([]);
                 setShowEditGroup(true);
               };
 
@@ -2167,15 +2611,266 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
         {/* Groupes publics */}
         <View style={s.sectionHeader}>
-          <Text style={s.sectionTitle}>Groupes publics</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+            <Text style={s.sectionTitle}>Groupes publics</Text>
+            <Pressable
+              onPress={() => {
+                if (!publicGroupsGeoFilterVisible) {
+                  setPublicGroupsGeoFilterVisible(true);
+                } else {
+                  setPublicGroupsGeoFilterVisible(false);
+                }
+              }}
+              style={[
+                {
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 4,
+                  paddingHorizontal: 12,
+                  paddingLeft: 4,
+                  borderRadius: 8,
+                  backgroundColor: "transparent",
+                  gap: 8,
+                },
+                Platform.OS === "web" && { cursor: "pointer" }
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={publicGroupsGeoFilter ? `Filtre géo (${publicGroupsGeoRadiusKm}km)` : "Filtre géographique"}
+            >
+              <Text style={{ 
+                color: publicGroupsGeoFilter ? "#15803d" : "#9ca3af", 
+                fontWeight: "700", 
+                fontSize: 12 
+              }}>
+                {publicGroupsGeoFilter && publicGroupsGeoRadiusKm ? `Filtre géo (${publicGroupsGeoRadiusKm}km)` : "Filtre géographique"}
+              </Text>
+              <Ionicons 
+                name="location" 
+                size={20} 
+                color={publicGroupsGeoFilter ? "#15803d" : "#9ca3af"}
+              />
+            </Pressable>
+          </View>
+          {publicGroupsClubs.length > 0 && (
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+              <Pressable
+                onPress={() => setPublicGroupsClubFilter(null)}
+                style={[
+                  { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+                  publicGroupsClubFilter === null
+                    ? { backgroundColor: BRAND, borderColor: BRAND }
+                    : { backgroundColor: "transparent", borderColor: "#6b7280" },
+                  Platform.OS === "web" && { cursor: "pointer" }
+                ]}
+              >
+                <Text style={[
+                  { fontWeight: "700", fontSize: 12 },
+                  publicGroupsClubFilter === null ? { color: "#ffffff" } : { color: "#9ca3af" }
+                ]}>
+                  Tous
+                </Text>
+              </Pressable>
+              {publicGroupsClubs.map((club) => (
+                <Pressable
+                  key={club.id}
+                  onPress={() => setPublicGroupsClubFilter(club.id)}
+                  style={[
+                    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+                    publicGroupsClubFilter === club.id
+                      ? { backgroundColor: BRAND, borderColor: BRAND }
+                      : { backgroundColor: "transparent", borderColor: "#6b7280" },
+                    Platform.OS === "web" && { cursor: "pointer" }
+                  ]}
+                >
+                  <Text style={[
+                    { fontWeight: "700", fontSize: 12 },
+                    publicGroupsClubFilter === club.id ? { color: "#ffffff" } : { color: "#9ca3af" }
+                  ]}>
+                    {club.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          
+          {/* Zone de configuration du filtre géographique */}
+          {publicGroupsGeoFilterVisible && (
+            <View style={{ 
+              backgroundColor: "#f3f4f6", 
+              borderRadius: 12, 
+              padding: 12,
+              marginTop: 12,
+              borderWidth: 1,
+              borderColor: publicGroupsGeoFilter ? "#15803d" : "#d1d5db",
+            }}>
+              {/* Sélection du type de position */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 8 }}>
+                  Position de référence
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {[
+                    { key: "current", label: "📍 Position actuelle" },
+                    { key: "home", label: "🏠 Domicile" },
+                    { key: "work", label: "💼 Travail" },
+                    { key: "city", label: "🏙️ Ville" },
+                  ].map(({ key, label }) => {
+                    const isSelected = publicGroupsGeoLocationType === key;
+                    return (
+                      <Pressable
+                        key={key}
+                        onPress={() => {
+                          // Si cette position est déjà sélectionnée, désélectionner (annuler le filtre)
+                          if (isSelected) {
+                            setPublicGroupsGeoRefPoint(null);
+                            setPublicGroupsGeoCityQuery("");
+                            setPublicGroupsGeoCitySuggestions([]);
+                            setPublicGroupsGeoLocationType(null);
+                          } else {
+                            // Sinon, sélectionner cette position
+                            setPublicGroupsGeoLocationType(key);
+                            if (key === "city") {
+                              setPublicGroupsGeoRefPoint(null);
+                              setPublicGroupsGeoCityQuery("");
+                            }
+                          }
+                        }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          backgroundColor: (isSelected && publicGroupsGeoFilter) ? "#15803d" : "#ffffff",
+                          borderWidth: 1,
+                          borderColor: (isSelected && publicGroupsGeoFilter) ? "#15803d" : "#d1d5db",
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 14, 
+                          fontWeight: (isSelected && publicGroupsGeoFilter) ? "800" : "700", 
+                          color: (isSelected && publicGroupsGeoFilter) ? "#ffffff" : "#111827" 
+                        }}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              
+              {/* Recherche de ville si type = 'city' */}
+              {publicGroupsGeoLocationType && publicGroupsGeoLocationType === "city" && (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 8 }}>
+                    Rechercher une ville
+                  </Text>
+                  <TextInput
+                    placeholder="Tapez le nom d'une ville..."
+                    value={publicGroupsGeoCityQuery}
+                    onChangeText={(text) => {
+                      setPublicGroupsGeoCityQuery(text);
+                      searchPublicGroupsGeoCity(text);
+                    }}
+                    style={{
+                      backgroundColor: "#ffffff",
+                      borderRadius: 8,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: "#d1d5db",
+                      fontSize: 14,
+                    }}
+                  />
+                  {publicGroupsGeoCitySuggestions.length > 0 && (
+                    <View style={{ marginTop: 8, backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db" }}>
+                      {publicGroupsGeoCitySuggestions.map((suggestion, idx) => (
+                        <Pressable
+                          key={idx}
+                          onPress={() => {
+                            setPublicGroupsGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
+                            setPublicGroupsGeoCityQuery(suggestion.name);
+                            setPublicGroupsGeoCitySuggestions([]);
+                          }}
+                          style={{
+                            padding: 12,
+                            borderBottomWidth: idx < publicGroupsGeoCitySuggestions.length - 1 ? 1 : 0,
+                            borderBottomColor: "#e5e7eb",
+                          }}
+                        >
+                          <Text style={{ fontSize: 14, color: "#111827" }}>{suggestion.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+              
+              {/* Sélection du rayon */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 8 }}>
+                  Rayon : {publicGroupsGeoRadiusKm ? `${publicGroupsGeoRadiusKm} km` : "non sélectionné"}
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "nowrap", gap: 6 }}>
+                  {[10, 20, 30, 40, 50].map((km) => {
+                    const isSelected = publicGroupsGeoRadiusKm === km;
+                    return (
+                      <Pressable
+                        key={km}
+                        onPress={() => {
+                          // Si ce rayon est déjà sélectionné, désélectionner (mettre à null)
+                          if (isSelected) {
+                            setPublicGroupsGeoRadiusKm(null);
+                          } else {
+                            // Sinon, sélectionner ce rayon
+                            setPublicGroupsGeoRadiusKm(km);
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 6,
+                          paddingHorizontal: 8,
+                          borderRadius: 8,
+                          backgroundColor: isSelected ? "#15803d" : "#ffffff",
+                          borderWidth: 1,
+                          borderColor: isSelected ? "#15803d" : "#d1d5db",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 12, 
+                          fontWeight: isSelected ? "800" : "700", 
+                          color: isSelected ? "#ffffff" : "#111827" 
+                        }}>
+                          {km} km
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              
+              {publicGroupsGeoFilter && (
+                <Text style={{ fontSize: 12, fontWeight: "500", color: "#15803d", marginTop: 8 }}>
+                  ✓ Filtre actif : {publicGroupsGeoRefPoint?.address || "Position sélectionnée"} - {publicGroupsGeoRadiusKm} km
+                </Text>
+              )}
+            </View>
+          )}
         </View>
-        {(groups.open ?? []).length === 0 ? (
+        {filteredPublicGroups.length === 0 ? (
           <View style={[s.card, { alignItems: "center" }]}>
-            <Text style={{ color: "#cbd5e1" }}>Aucun groupe public disponible.</Text>
+            <Text style={{ color: "#cbd5e1" }}>
+              {publicGroupsGeoFilter && (!publicGroupsGeoRefPoint || !publicGroupsGeoRadiusKm)
+                ? "Configure le filtre géographique en sélectionnant une position et un rayon."
+                : publicGroupsClubFilter 
+                  ? "Aucun groupe public pour ce club." 
+                  : publicGroupsGeoFilter
+                    ? "Aucun groupe public dans le rayon sélectionné."
+                    : "Aucun groupe public disponible."}
+            </Text>
           </View>
         ) : (
           <View style={{ gap: 8 }}>
-            {(groups.open ?? []).map((g) => (
+            {filteredPublicGroups.map((g) => (
               <View key={g.id} style={s.rowCard} pointerEvents="box-none">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
                   <Avatar url={g.avatar_url} fallback={g.name} size={40} />
@@ -2183,6 +2878,10 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
                     <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
                       {g.visibility === 'public' ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}` : 'Privé'}
+                      {g.club_name && ` · ${g.club_name}`}
+                      {publicGroupsGeoFilter && g.distanceKm !== null && g.distanceKm !== Infinity && (
+                        <Text style={{ color: "#9ca3af" }}> · {typeof g.distanceKm === 'number' ? g.distanceKm.toFixed(1) : g.distanceKm} km</Text>
+                      )}
                     </Text>
                   </View>
                 </View>
@@ -2286,6 +2985,117 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </TouchableOpacity>
               )}
 
+              {/* Localisation */}
+              <Text style={{ marginTop: 16, marginBottom: 8, fontWeight: "700", color: "#111827" }}>
+                Localisation {editingGroupVisibility === "public" ? "(ville obligatoire pour les groupes publics)" : "(facultatif)"}
+              </Text>
+              
+              {/* Sélecteur de club */}
+              <Pressable
+                onPress={() => {
+                  setShowEditGroup(false);
+                  setTimeout(() => {
+                    setEditClubPickerVisible(true);
+                  }, 300);
+                }}
+                style={[
+                  s.input,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingVertical: 10,
+                  }
+                ]}
+              >
+                <Text style={{ fontSize: 14, color: editingGroupClubId ? '#111827' : '#9ca3af', flex: 1 }}>
+                  {editingGroupClubId 
+                    ? clubsList.find(c => c.id === editingGroupClubId)?.name || 'Club sélectionné'
+                    : 'Sélectionner un club (facultatif)'}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color="#6b7280" />
+              </Pressable>
+
+              {/* Champ ville avec autocomplete */}
+              <View style={{ marginTop: 8 }}>
+                <TextInput
+                  placeholder={editingGroupVisibility === "public" ? "Ville (obligatoire pour les groupes publics)" : "Ville (facultatif)"}
+                  value={editingGroupCity}
+                  onChangeText={async (text) => {
+                    setEditingGroupCity(text);
+                    if (text && text.trim().length >= 2) {
+                      // Rechercher des villes pour l'édition
+                      const trimmedQuery = text.trim();
+                      try {
+                        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmedQuery)}&countrycodes=fr&limit=5&featuretype=city&accept-language=fr`;
+                        const res = await fetch(url, {
+                          headers: { 'User-Agent': 'PadelSync-Groupes/1.0' }
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          const suggestions = (data || [])
+                            .map(item => {
+                              let cityName = item.name || item.display_name.split(',')[0].trim();
+                              if (cityName.includes(',')) {
+                                cityName = cityName.split(',')[0].trim();
+                              }
+                              return cityName;
+                            })
+                            .filter((name, index, self) => 
+                              name && name.trim() && index === self.findIndex(t => t.toLowerCase() === name.toLowerCase())
+                            )
+                            .slice(0, 5)
+                            .map(name => ({ name: name.trim() }));
+                          setEditingCitySuggestions(suggestions);
+                        }
+                      } catch (e) {
+                        console.warn('[Groupes] Erreur recherche villes édition:', e);
+                      }
+                    } else {
+                      setEditingCitySuggestions([]);
+                    }
+                  }}
+                  style={[
+                    s.input,
+                    editingGroupVisibility === "public" && (!editingGroupCity || editingGroupCity.trim().length < 2) && {
+                      borderColor: "#dc2626",
+                      borderWidth: 1.5
+                    }
+                  ]}
+                  returnKeyType="done"
+                />
+                {loadingCitySuggestions && (
+                  <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator size="small" color={BRAND} />
+                    <Text style={{ fontSize: 12, color: '#6b7280' }}>Recherche en cours...</Text>
+                  </View>
+                )}
+                {editingCitySuggestions.length > 0 && (
+                  <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150, borderWidth: 1, borderColor: '#e5e7eb' }}>
+                    <ScrollView nestedScrollEnabled>
+                      {editingCitySuggestions.map((sug, idx) => (
+                        <Pressable
+                          key={idx}
+                          onPress={() => {
+                            setEditingGroupCity(sug.name);
+                            setEditingCitySuggestions([]);
+                          }}
+                          style={({ pressed }) => ({
+                            paddingVertical: 12,
+                            paddingHorizontal: 12,
+                            backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
+                            borderBottomWidth: idx < editingCitySuggestions.length - 1 ? 1 : 0,
+                            borderBottomColor: '#e5e7eb',
+                          })}
+                        >
+                          <Text style={{ fontSize: 14, color: '#111827' }}>{sug.name}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
               <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
                 <Pressable
                   onPress={() => {
@@ -2294,6 +3104,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     setEditingGroupName("");
                     setEditingGroupVisibility("private");
                     setEditingGroupJoinPolicy("invite");
+                    setEditingGroupClubId(null);
+                    setEditingGroupCity("");
+                    setEditingCitySuggestions([]);
                   }}
                   disabled={savingGroup}
                   style={[s.btn, { backgroundColor: "#6b7280", flex: 1 }, savingGroup && { opacity: 0.5 }, Platform.OS === "web" && { cursor: savingGroup ? "not-allowed" : "pointer" }]}
@@ -2390,7 +3203,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
               )}
 
               {/* Localisation */}
-              <Text style={{ marginTop: 16, marginBottom: 8, fontWeight: "700", color: "#111827" }}>Localisation (facultatif)</Text>
+              <Text style={{ marginTop: 16, marginBottom: 8, fontWeight: "700", color: "#111827" }}>
+                Localisation {createVisibility === "public" ? "(ville obligatoire pour les groupes publics)" : "(facultatif)"}
+              </Text>
               
               {/* Sélecteur de club - même structure que profil.js */}
               <Pressable
@@ -2423,10 +3238,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
               {/* Champ ville avec autocomplete */}
               <View style={{ marginTop: 8 }}>
                 <TextInput
-                  placeholder="Ville (facultatif)"
+                  placeholder={createVisibility === "public" ? "Ville (obligatoire pour les groupes publics)" : "Ville (facultatif)"}
                   value={createCity}
                   onChangeText={setCreateCity}
-                  style={s.input}
+                  style={[
+                    s.input,
+                    createVisibility === "public" && (!createCity || createCity.trim().length < 2) && {
+                      borderColor: "#dc2626",
+                      borderWidth: 1.5
+                    }
+                  ]}
                   returnKeyType="done"
                 />
                 {loadingCitySuggestions && (
@@ -2600,6 +3421,153 @@ Padel Sync — Ton match en 3 clics 🎾`;
                         )}
                       </View>
                       {createClubId === c.id && <Ionicons name="checkmark" size={20} color={BRAND} />}
+                    </View>
+                  </Pressable>
+                ))}
+                {clubsList.length === 0 && !loadingClubs && (
+                  <View style={{ padding: 40, alignItems: 'center' }}>
+                    <Text style={{ color: '#6b7280' }}>Aucun club disponible</Text>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Modal sélection club pour édition */}
+      <Modal
+        visible={editClubPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setEditClubPickerVisible(false);
+          setTimeout(() => {
+            setShowEditGroup(true);
+          }, 300);
+        }}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+          onPress={() => {
+            setEditClubPickerVisible(false);
+            setTimeout(() => {
+              setShowEditGroup(true);
+            }, 300);
+          }}
+        >
+          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20, maxHeight: '80%' }}>
+            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
+                Sélectionner un club support
+              </Text>
+              {addressHome?.lat && addressHome?.lng && (
+                <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                  Triés par distance du domicile
+                </Text>
+              )}
+            </View>
+            {loadingClubs ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={BRAND} />
+                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 500 }}>
+                <Pressable
+                  onPress={() => {
+                    setEditingGroupClubId(null);
+                    setEditClubPickerVisible(false);
+                    setTimeout(() => {
+                      setShowEditGroup(true);
+                    }, 300);
+                  }}
+                  style={({ pressed }) => ({
+                    paddingVertical: 16,
+                    paddingHorizontal: 20,
+                    backgroundColor: pressed ? '#f3f4f6' : !editingGroupClubId ? '#e0f2fe' : '#ffffff',
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#e5e7eb',
+                  })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 16, color: '#111827', fontWeight: !editingGroupClubId ? '700' : '400' }}>
+                      Aucun club
+                    </Text>
+                    {!editingGroupClubId && <Ionicons name="checkmark" size={20} color={BRAND} />}
+                  </View>
+                </Pressable>
+                {clubsList.map((c, idx) => (
+                  <Pressable
+                    key={c.id || idx}
+                    onPress={() => {
+                      setEditingGroupClubId(c.id);
+                      
+                      // Extraire la ville de l'adresse du club si disponible
+                      if (c.address) {
+                        const address = c.address.trim();
+                        let cityName = '';
+                        
+                        const cpCityMatch = address.match(/(\d{5})\s+([^,]+?)(?:\s*,\s*|$)/);
+                        if (cpCityMatch) {
+                          cityName = cpCityMatch[2].trim();
+                        } else {
+                          const addressParts = address.split(',').map(part => part.trim());
+                          if (addressParts.length > 2) {
+                            cityName = addressParts[addressParts.length - 2];
+                          } else if (addressParts.length === 2) {
+                            cityName = addressParts[1];
+                            cityName = cityName.replace(/^\d{5}\s*/, '').trim();
+                          } else {
+                            const cpMatch = address.match(/\d{5}\s+([^\s,]+)/);
+                            if (cpMatch) {
+                              cityName = cpMatch[1];
+                            } else {
+                              const parts = address.split(/\s+/);
+                              if (parts.length > 1) {
+                                cityName = parts[parts.length - 1];
+                              }
+                            }
+                          }
+                        }
+                        
+                        cityName = cityName.replace(/\s*(France|FRANCE|france)\s*$/i, '').trim();
+                        
+                        if (cityName && cityName.length > 1) {
+                          setEditingGroupCity(cityName);
+                        }
+                      }
+                      
+                      setEditClubPickerVisible(false);
+                      setTimeout(() => {
+                        setShowEditGroup(true);
+                      }, 300);
+                    }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 16,
+                      paddingHorizontal: 20,
+                      backgroundColor: pressed ? '#f3f4f6' : editingGroupClubId === c.id ? '#e0f2fe' : '#ffffff',
+                      borderBottomWidth: idx < clubsList.length - 1 ? 1 : 0,
+                      borderBottomColor: '#e5e7eb',
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 16, color: '#111827', fontWeight: editingGroupClubId === c.id ? '700' : '400' }}>
+                          {c.name}
+                        </Text>
+                        {c.address && (
+                          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                            {c.address}
+                          </Text>
+                        )}
+                        {c.distance !== undefined && c.distance !== Infinity && (
+                          <Text style={{ fontSize: 12, color: BRAND, marginTop: 2 }}>
+                            {c.distance} km
+                          </Text>
+                        )}
+                      </View>
+                      {editingGroupClubId === c.id && <Ionicons name="checkmark" size={20} color={BRAND} />}
                     </View>
                   </Pressable>
                 ))}
