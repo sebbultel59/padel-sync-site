@@ -131,20 +131,21 @@ function formatRange(sIso, eIso) {
   return `${wd} ${dd} ${mo} - ${sh} à ${eh}`;
 }
 
-function colorForLevel(level) {
-  const n = parseInt(level, 10);
-  switch (n) {
-    case 1: return "#a3e635";
-    case 2: return "#86efac";
-    case 3: return "#60a5fa";
-    case 4: return "#22d3ee";
-    case 5: return "#fbbf24";
-    case 6: return "#f59e0b";
-    case 7: return "#fb7185";
-    case 8: return "#a78bfa";
-    default: return "#d1d5db";
-  }
-}
+const LEVELS = [
+  { v: 1, label: "Débutant", color: "#a3e635" },
+  { v: 2, label: "Perfectionnement", color: "#86efac" },
+  { v: 3, label: "Élémentaire", color: "#0e7aff" },
+  { v: 4, label: "Intermédiaire", color: "#0d97ac" },
+  { v: 5, label: "Confirmé", color: "#ff9d00" },
+  { v: 6, label: "Avancé", color: "#f06300" },
+  { v: 7, label: "Expert", color: "#fb7185" },
+  { v: 8, label: "Elite", color: "#a78bfa" },
+];
+
+const colorForLevel = (level) => {
+  const n = Number(level);
+  return LEVELS.find((x) => x.v === n)?.color ?? "#d1d5db";
+};
 
 export default function MatchesScreen() {
   const navigation = useNavigation();
@@ -189,6 +190,88 @@ export default function MatchesScreen() {
       router.push(`/profiles/${profile.id}`);
     }
   }, [router]);
+
+  // Fonction pour ouvrir le profil depuis la modale d'invitation
+  const openProfileFromModal = useCallback(async (profile) => {
+    if (profile?.id) {
+      console.log('[HotMatch] Ouverture modale profil pour:', profile.id, profile.display_name);
+      // Charger les données complètes du profil depuis la base de données
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, email, display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone')
+          .eq('id', profile.id)
+          .maybeSingle();
+        
+        if (error) {
+          console.error('[HotMatch] Erreur chargement profil:', error);
+          Alert.alert('Erreur', 'Impossible de charger le profil');
+          return;
+        }
+        
+        if (data) {
+          setSelectedHotMatchProfile(data);
+          // Fermer la modale d'invitation et ouvrir la modale de profil
+          setInviteHotMatchModalVisible(false);
+          setTimeout(() => {
+            setHotMatchProfileModalVisible(true);
+          }, 100);
+        }
+      } catch (e) {
+        console.error('[HotMatch] Erreur:', e);
+        Alert.alert('Erreur', 'Impossible de charger le profil');
+      }
+    }
+  }, []);
+
+  // Fonction pour ouvrir le profil depuis la modale flash match
+  const openProfileFromFlashModal = useCallback(async (profile) => {
+    if (profile?.id) {
+      console.log('[FlashMatch] Ouverture modale profil pour:', profile.id, profile.name || profile.display_name);
+      // Charger les données complètes du profil depuis la base de données
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, email, display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone')
+          .eq('id', profile.id)
+          .maybeSingle();
+        
+        if (error) {
+          console.error('[FlashMatch] Erreur chargement profil:', error);
+          Alert.alert('Erreur', 'Impossible de charger le profil');
+          return;
+        }
+        
+        if (data) {
+          setSelectedFlashProfile(data);
+          // Fermer la modale flash match et ouvrir la modale de profil
+          setFlashPickerOpen(false);
+          setTimeout(() => {
+            setFlashProfileModalVisible(true);
+          }, 100);
+        }
+      } catch (e) {
+        console.error('[FlashMatch] Erreur:', e);
+        Alert.alert('Erreur', 'Impossible de charger le profil');
+      }
+    }
+  }, []);
+
+  // Fonction pour réinitialiser les filtres flash match
+  const resetFlashFilters = useCallback(() => {
+    setFlashQuery('');
+    setFlashLevelFilter([]);
+    setFlashLevelFilterVisible(false);
+    setFlashGeoLocationType(null);
+    setFlashGeoRefPoint(null);
+    setFlashGeoCityQuery('');
+    setFlashGeoCitySuggestions([]);
+    setFlashGeoRadiusKm(null);
+    setFlashGeoFilterVisible(false);
+    setFlashAvailabilityFilter(false);
+    setFlashAvailableMemberIds(new Set());
+  }, []);
+
   const tabBarHeight = useBottomTabBarHeight();
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
@@ -234,7 +317,7 @@ export default function MatchesScreen() {
   const [flashSelected, setFlashSelected] = useState([]);
   const [flashPickerOpen, setFlashPickerOpen] = useState(false);
   const [flashQuery, setFlashQuery] = useState('');
-  const [flashLevelFilter, setFlashLevelFilter] = useState([]); // Plages de niveaux sélectionnées ['1/2', '3/4', etc.]
+  const [flashLevelFilter, setFlashLevelFilter] = useState([]); // Liste de niveaux individuels sélectionnés [1, 2, 3, etc.]
   const [flashLevelFilterVisible, setFlashLevelFilterVisible] = useState(false); // Visibilité de la zone de configuration des niveaux
   const [flashGeoLocationType, setFlashGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
   const [flashGeoRefPoint, setFlashGeoRefPoint] = useState(null); // { lat, lng, address }
@@ -242,6 +325,11 @@ export default function MatchesScreen() {
   const [flashGeoCitySuggestions, setFlashGeoCitySuggestions] = useState([]);
   const [flashGeoRadiusKm, setFlashGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
   const [flashGeoFilterVisible, setFlashGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
+  const [flashAvailabilityFilter, setFlashAvailabilityFilter] = useState(false); // Filtre par disponibilité
+  const [flashAvailableMemberIds, setFlashAvailableMemberIds] = useState(new Set()); // IDs des membres disponibles sur le créneau
+  // Modale de profil depuis la liste flash match
+  const [flashProfileModalVisible, setFlashProfileModalVisible] = useState(false);
+  const [selectedFlashProfile, setSelectedFlashProfile] = useState(null);
   const [flashWhenOpen, setFlashWhenOpen] = useState(false);
   const [flashDateModalOpen, setFlashDateModalOpen] = useState(false);
   const [flashDatePickerModalOpen, setFlashDatePickerModalOpen] = useState(false);
@@ -299,11 +387,11 @@ export default function MatchesScreen() {
   const [availablePlayersLoading, setAvailablePlayersLoading] = useState(false);
   
   // Filtre par niveau ciblé
-  const [filterLevelRanges, setFilterLevelRanges] = useState([]); // Aucun niveau sélectionné par défaut = pas de filtre
+  const [filterLevels, setFilterLevels] = useState([]); // Liste de niveaux individuels sélectionnés
   const [filterConfigVisible, setFilterConfigVisible] = useState(false); // Visibilité de la zone de configuration
   
   // Le filtre est actif si au moins un niveau est sélectionné
-  const filterByLevel = filterLevelRanges && filterLevelRanges.length > 0;
+  const filterByLevel = Array.isArray(filterLevels) && filterLevels.length > 0;
   
   // Filtre géographique
   const [filterGeoVisible, setFilterGeoVisible] = useState(false); // Visibilité de la zone de configuration géographique
@@ -322,7 +410,7 @@ export default function MatchesScreen() {
   const [loadingHotMatchMembers, setLoadingHotMatchMembers] = useState(false);
   const [selectedHotMatch, setSelectedHotMatch] = useState(null);
   const [hotMatchSearchQuery, setHotMatchSearchQuery] = useState('');
-  const [hotMatchLevelFilter, setHotMatchLevelFilter] = useState([]); // Plages de niveaux sélectionnées ['1/2', '3/4', etc.]
+  const [hotMatchLevelFilter, setHotMatchLevelFilter] = useState([]); // Liste de niveaux individuels sélectionnés [1, 2, 3, etc.]
   const [hotMatchLevelFilterVisible, setHotMatchLevelFilterVisible] = useState(false); // Visibilité de la zone de configuration des niveaux
   const [hotMatchGeoLocationType, setHotMatchGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
   const [hotMatchGeoRefPoint, setHotMatchGeoRefPoint] = useState(null); // { lat, lng, address }
@@ -330,6 +418,9 @@ export default function MatchesScreen() {
   const [hotMatchGeoCitySuggestions, setHotMatchGeoCitySuggestions] = useState([]);
   const [hotMatchGeoRadiusKm, setHotMatchGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
   const [hotMatchGeoFilterVisible, setHotMatchGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
+  // Modale de profil depuis la liste d'invitation
+  const [hotMatchProfileModalVisible, setHotMatchProfileModalVisible] = useState(false);
+  const [selectedHotMatchProfile, setSelectedHotMatchProfile] = useState(null);
   // Modale de contacts du joueur
   const [playerContactsModalVisible, setPlayerContactsModalVisible] = useState(false);
   const [selectedPlayerForContacts, setSelectedPlayerForContacts] = useState(null);
@@ -347,7 +438,7 @@ export default function MatchesScreen() {
   // Réinitialiser les filtres quand le groupe change
   useEffect(() => {
     if (groupId) {
-      setFilterLevelRanges([]);
+      setFilterLevels([]);
       setFilterConfigVisible(false);
       setFilterGeoVisible(false);
       setFilterGeoLocationType(null);
@@ -412,19 +503,12 @@ const longReadyWeek = React.useMemo(
       
       // Filtrer par niveau ciblé si activé
       let finalFiltered = sorted;
-      if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
-        // Convertir les plages de niveaux en niveaux individuels autorisés
-        const allowedLevels = new Set();
-        filterLevelRanges.forEach(range => {
-          const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-          if (parts.length === 2) {
-            const [min, max] = parts.sort((a, b) => a - b);
-            for (let level = min; level <= max; level++) {
-              allowedLevels.add(level);
-            }
-          }
-        });
-        
+      if (filterByLevel) {
+        const allowedLevels = new Set(
+          (filterLevels || [])
+            .map((lvl) => Number(lvl))
+            .filter((n) => Number.isFinite(n))
+        );
         if (allowedLevels.size > 0) {
           finalFiltered = sorted.filter(slot => {
             // Filtrer les joueurs pour ne garder que ceux avec les niveaux autorisés
@@ -447,17 +531,6 @@ const longReadyWeek = React.useMemo(
           }).map(slot => {
             // Filtrer ready_user_ids pour ne garder que les joueurs autorisés
             const userIds = slot.ready_user_ids || [];
-            const allowedLevels = new Set();
-            filterLevelRanges.forEach(range => {
-              const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-              if (parts.length === 2) {
-                const [min, max] = parts.sort((a, b) => a - b);
-                for (let level = min; level <= max; level++) {
-                  allowedLevels.add(level);
-                }
-              }
-            });
-            
             const filteredUserIds = userIds.filter(uid => {
               const profile = profilesById[String(uid)];
               if (!profile?.niveau) return false;
@@ -543,7 +616,7 @@ const longReadyWeek = React.useMemo(
       console.log('[longReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', longReady?.length || 0);
       return finalFiltered;
     },
-    [longReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
+    [longReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
   );
   
 const hourReadyWeek = React.useMemo(
@@ -584,19 +657,12 @@ const hourReadyWeek = React.useMemo(
       
       // Filtrer par niveau ciblé si activé
       let finalFiltered = sorted;
-      if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
-        // Convertir les plages de niveaux en niveaux individuels autorisés
-        const allowedLevels = new Set();
-        filterLevelRanges.forEach(range => {
-          const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-          if (parts.length === 2) {
-            const [min, max] = parts.sort((a, b) => a - b);
-            for (let level = min; level <= max; level++) {
-              allowedLevels.add(level);
-            }
-          }
-        });
-        
+      if (filterByLevel) {
+        const allowedLevels = new Set(
+          (filterLevels || [])
+            .map((lvl) => Number(lvl))
+            .filter((n) => Number.isFinite(n))
+        );
         if (allowedLevels.size > 0) {
           finalFiltered = sorted.filter(slot => {
             // Filtrer les joueurs pour ne garder que ceux avec les niveaux autorisés
@@ -619,17 +685,6 @@ const hourReadyWeek = React.useMemo(
           }).map(slot => {
             // Filtrer ready_user_ids pour ne garder que les joueurs autorisés
             const userIds = slot.ready_user_ids || [];
-            const allowedLevels = new Set();
-            filterLevelRanges.forEach(range => {
-              const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-              if (parts.length === 2) {
-                const [min, max] = parts.sort((a, b) => a - b);
-                for (let level = min; level <= max; level++) {
-                  allowedLevels.add(level);
-                }
-              }
-            });
-            
             const filteredUserIds = userIds.filter(uid => {
               const profile = profilesById[String(uid)];
               if (!profile?.niveau) return false;
@@ -716,7 +771,7 @@ const hourReadyWeek = React.useMemo(
       // Forcer une nouvelle référence pour garantir que React détecte le changement
       return finalFiltered.map(item => ({ ...item }));
     },
-  [hourReady, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
+  [hourReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
 );
   
 // Fonction helper pour vérifier si un match n'est pas périmé
@@ -846,18 +901,12 @@ const hotMatches = React.useMemo(
     
     // Appliquer le filtre par niveau si activé (même logique que longReadyWeek)
     let finalFiltered = adjusted;
-    if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
-      const allowedLevels = new Set();
-      filterLevelRanges.forEach(range => {
-        const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-        if (parts.length === 2) {
-          const [min, max] = parts.sort((a, b) => a - b);
-          for (let level = min; level <= max; level++) {
-            allowedLevels.add(level);
-          }
-        }
-      });
-      
+    if (filterByLevel) {
+      const allowedLevels = new Set(
+        (filterLevels || [])
+          .map((lvl) => Number(lvl))
+          .filter((n) => Number.isFinite(n))
+      );
       if (allowedLevels.size > 0) {
         finalFiltered = adjusted.filter(slot => {
           const userIds = slot.ready_user_ids || [];
@@ -1007,18 +1056,12 @@ const hotMatches = React.useMemo(
         }
         
         // Appliquer les filtres de niveau si activés
-        if (filterByLevel && filterLevelRanges && filterLevelRanges.length > 0) {
-          const allowedLevels = new Set();
-          filterLevelRanges.forEach(range => {
-            const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-            if (parts.length === 2) {
-              const [min, max] = parts.sort((a, b) => a - b);
-              for (let level = min; level <= max; level++) {
-                allowedLevels.add(level);
-              }
-            }
-          });
-          
+        if (filterByLevel) {
+          const allowedLevels = new Set(
+            (filterLevels || [])
+              .map((lvl) => Number(lvl))
+              .filter((n) => Number.isFinite(n))
+          );
           if (allowedLevels.size > 0) {
             const acceptedUserIds = acceptedRsvps.map(r => r.user_id);
             const allMatchLevel = acceptedUserIds.every(uid => {
@@ -1111,7 +1154,7 @@ const hotMatches = React.useMemo(
       me_id: meId,
     }));
   },
-  [readyAll, meId, groupId, currentWs, currentWe, filterByLevel, filterLevelRanges, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
+  [readyAll, meId, groupId, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
 );
 
   const confirmedHour = React.useMemo(
@@ -3405,6 +3448,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     }
   }, [hotMatchGeoLocationType]);
 
+
+
   // Calculer le point de référence géographique pour le modal match éclair
   const computeFlashGeoRefPoint = useCallback(async () => {
     let point = null;
@@ -3463,6 +3508,45 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       }
     })();
   }, [flashGeoLocationType, flashPickerOpen, computeFlashGeoRefPoint]);
+
+  // Calculer les disponibilités des membres pour le match éclair
+  useEffect(() => {
+    if (!flashPickerOpen || !groupId || !flashStart || !flashEnd) {
+      setFlashAvailableMemberIds(new Set());
+      return;
+    }
+
+    (async () => {
+      try {
+        // Récupérer les disponibilités effectives pour tous les membres du groupe sur ce créneau
+        const { data: availabilityData, error } = await supabase.rpc('get_availability_effective', {
+          p_group: groupId,
+          p_user: null, // null pour tous les utilisateurs
+          p_low: flashStart.toISOString(),
+          p_high: flashEnd.toISOString(),
+        });
+
+        if (error) {
+          console.warn('[FlashMatch] Erreur calcul disponibilités:', error);
+          setFlashAvailableMemberIds(new Set());
+          return;
+        }
+
+        const availableIds = new Set();
+        (availabilityData || []).forEach((av) => {
+          if (av.status === 'available') {
+            availableIds.add(String(av.user_id));
+          }
+        });
+
+        console.log('[FlashMatch] Membres disponibles sur le créneau:', availableIds.size);
+        setFlashAvailableMemberIds(availableIds);
+      } catch (e) {
+        console.warn('[FlashMatch] Erreur calcul disponibilités:', e);
+        setFlashAvailableMemberIds(new Set());
+      }
+    })();
+  }, [flashPickerOpen, groupId, flashStart, flashEnd]);
 
   // Autocomplétion ville pour le filtre géographique du modal match éclair
   const searchFlashGeoCity = useCallback(async (query) => {
@@ -6574,7 +6658,7 @@ const HourSlotRow = ({ item }) => {
                 fontWeight: '700', 
                 fontSize: 12 
               }}>
-                {filterByLevel ? `Filtre actif (${filterLevelRanges.length})` : 'Filtre niveau'}
+                {filterByLevel ? `Filtre actif (${filterLevels.length})` : 'Filtre niveau'}
               </Text>
             </Pressable>
             
@@ -6661,39 +6745,38 @@ const HourSlotRow = ({ item }) => {
               </Text>
               
               {/* Sélection des niveaux */}
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {['1/2', '3/4', '5/6', '7/8'].map((range) => {
-                  const isSelected = Array.isArray(filterLevelRanges) && filterLevelRanges.includes(range);
+              <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
+                {LEVELS.map((lv) => {
+                  const isSelected = Array.isArray(filterLevels) && filterLevels.includes(lv.v);
                   return (
                     <Pressable
-                      key={range}
+                      key={lv.v}
                       onPress={() => {
-                        setFilterLevelRanges((prev) => {
+                        setFilterLevels((prev) => {
                           const prevArray = Array.isArray(prev) ? prev : [];
-                          if (prevArray.includes(range)) {
-                            // Désélectionner
-                            return prevArray.filter(r => r !== range);
-                          } else {
-                            // Sélectionner
-                            return [...prevArray, range];
+                          if (prevArray.includes(lv.v)) {
+                            return prevArray.filter((n) => n !== lv.v);
                           }
+                          return [...prevArray, lv.v];
                         });
                       }}
                       style={{
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: 8,
-                        backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
-                        borderWidth: 1,
-                        borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                        paddingVertical: 4.5,
+                        paddingHorizontal: 11,
+                        borderRadius: 999,
+                        backgroundColor: isSelected ? lv.color : '#ffffff',
+                        borderWidth: isSelected ? 2 : 1,
+                        borderColor: isSelected ? lv.color : '#d1d5db',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                       }}
                     >
                       <Text style={{ 
-                        fontSize: 14, 
-                        fontWeight: isSelected ? '800' : '700', 
-                        color: isSelected ? '#000000' : '#111827' 
+                        fontSize: 13, 
+                        fontWeight: isSelected ? '900' : '800', 
+                        color: '#111827' 
                       }}>
-                        {range}
+                        {lv.v}
                       </Text>
                     </Pressable>
                   );
@@ -6702,7 +6785,7 @@ const HourSlotRow = ({ item }) => {
               
               {filterByLevel && (
                 <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
-                  ✓ Filtre actif : seuls les matchs avec au moins 3 joueurs de niveau {filterLevelRanges.join(', ')} sont affichés
+                  ✓ Filtre actif : niveaux ciblés {filterLevels.slice().sort((a, b) => a - b).join(', ')}
                 </Text>
               )}
             </View>
@@ -7696,7 +7779,10 @@ const HourSlotRow = ({ item }) => {
         visible={flashPickerOpen}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setFlashPickerOpen(false)}
+        onRequestClose={() => {
+          setFlashPickerOpen(false);
+          resetFlashFilters();
+        }}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
           <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
@@ -7705,15 +7791,7 @@ const HourSlotRow = ({ item }) => {
             <Pressable
                 onPress={() => {
                   setFlashPickerOpen(false);
-                  setFlashQuery(''); // Réinitialiser la recherche
-                  setFlashLevelFilter([]); // Réinitialiser le filtre de niveau
-                  setFlashLevelFilterVisible(false); // Masquer la zone de configuration
-                  setFlashGeoLocationType(null); // Réinitialiser le filtre géographique
-                  setFlashGeoRefPoint(null);
-                  setFlashGeoCityQuery('');
-                  setFlashGeoCitySuggestions([]);
-                  setFlashGeoRadiusKm(null);
-                  setFlashGeoFilterVisible(false); // Masquer la zone de configuration
+                  resetFlashFilters();
                 }}
                 style={{ padding: 8 }}
               >
@@ -7747,14 +7825,15 @@ const HourSlotRow = ({ item }) => {
                       const memberLevel = Number(member.niveau);
                       if (!Number.isFinite(memberLevel)) return false;
                       
-                      const isInRange = flashLevelFilter.some(range => {
-                        const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-                        if (parts.length !== 2) return false;
-                        const [min, max] = parts.sort((a, b) => a - b);
-                        return memberLevel >= min && memberLevel <= max;
-                      });
-                      
-                      if (!isInRange) return false;
+                      if (!flashLevelFilter.includes(memberLevel)) return false;
+                    }
+                    
+                    // Filtre par disponibilité
+                    if (flashAvailabilityFilter) {
+                      const memberId = String(member.id);
+                      if (!flashAvailableMemberIds.has(memberId)) {
+                        return false;
+                      }
                     }
                     
                     // Filtre géographique
@@ -7814,7 +7893,15 @@ const HourSlotRow = ({ item }) => {
                         />
                         
                         {/* Boutons de filtres */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, marginBottom: 12 }}>
+                          <Text style={{ 
+                            color: '#111827', 
+                            fontWeight: '700', 
+                            fontSize: 14 
+                          }}>
+                            Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                          </Text>
+                          
                           <Pressable
                             onPress={() => {
                               if (!flashLevelFilterVisible) {
@@ -7843,13 +7930,28 @@ const HourSlotRow = ({ item }) => {
                             />
                           </Pressable>
                           
-                          <Text style={{ 
-                            color: '#111827', 
-                            fontWeight: '700', 
-                            fontSize: 14 
-                          }}>
-                            Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
-                          </Text>
+                          <Pressable
+                            onPress={() => {
+                              setFlashAvailabilityFilter(!flashAvailabilityFilter);
+                            }}
+                            style={{
+                              padding: 10,
+                              backgroundColor: 'transparent',
+                            }}
+                          >
+                            <Ionicons 
+                              name="calendar" 
+                              size={20} 
+                              color={flashAvailabilityFilter ? '#ff751d' : '#374151'}
+                              style={{
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 3,
+                                elevation: 4,
+                              }}
+                            />
+                          </Pressable>
                           
                           <Pressable
                             onPress={() => {
@@ -7878,6 +7980,13 @@ const HourSlotRow = ({ item }) => {
                           </Pressable>
                         </View>
                         
+                        {/* Message filtre disponibilité */}
+                        {flashAvailabilityFilter && (
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: '#15803d', marginBottom: 8, textAlign: 'center' }}>
+                            ✓ Uniquement les joueurs dispos
+                          </Text>
+                        )}
+                        
                         {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
                         {flashLevelFilterVisible && (
                           <View style={{ 
@@ -7892,36 +8001,38 @@ const HourSlotRow = ({ item }) => {
                               Sélectionnez les niveaux à afficher
                             </Text>
                             
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                              {['1/2', '3/4', '5/6', '7/8'].map((range) => {
-                                const isSelected = flashLevelFilter.includes(range);
+                            <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 3.5 }}>
+                              {LEVELS.map((lv) => {
+                                const isSelected = Array.isArray(flashLevelFilter) && flashLevelFilter.includes(lv.v);
                                 return (
                                   <Pressable
-                                    key={range}
+                                    key={lv.v}
                                     onPress={() => {
                                       setFlashLevelFilter((prev) => {
-                                        if (prev.includes(range)) {
-                                          return prev.filter(r => r !== range);
-                                        } else {
-                                          return [...prev, range];
+                                        const prevArray = Array.isArray(prev) ? prev : [];
+                                        if (prevArray.includes(lv.v)) {
+                                          return prevArray.filter((n) => n !== lv.v);
                                         }
+                                        return [...prevArray, lv.v];
                                       });
                                     }}
                                     style={{
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 12,
-                    borderRadius: 8,
-                                      backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
-                                      borderWidth: 1,
-                                      borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                      paddingVertical: 3.3,
+                                      paddingHorizontal: 8.8,
+                                      borderRadius: 999,
+                                      backgroundColor: isSelected ? lv.color : '#ffffff',
+                                      borderWidth: isSelected ? 2 : 1,
+                                      borderColor: isSelected ? lv.color : '#d1d5db',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
                                     }}
                                   >
                                     <Text style={{ 
-                                      fontSize: 13, 
-                                      fontWeight: isSelected ? '800' : '700', 
-                                      color: isSelected ? '#000000' : '#111827' 
+                                      fontSize: 12, 
+                                      fontWeight: isSelected ? '900' : '800', 
+                                      color: '#111827' 
                                     }}>
-                                      {range}
+                                      {lv.v}
                                     </Text>
                                   </Pressable>
                                 );
@@ -7930,7 +8041,7 @@ const HourSlotRow = ({ item }) => {
                             
                             {flashLevelFilter.length > 0 && (
                               <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
-                                ✓ Filtre actif : {flashLevelFilter.length} plage{flashLevelFilter.length > 1 ? 's' : ''} sélectionnée{flashLevelFilter.length > 1 ? 's' : ''}
+                                ✓ Filtre actif : {flashLevelFilter.length} niveau{flashLevelFilter.length > 1 ? 'x' : ''} sélectionné{flashLevelFilter.length > 1 ? 's' : ''}
                               </Text>
                             )}
                           </View>
@@ -8106,7 +8217,7 @@ const HourSlotRow = ({ item }) => {
                           <Text style={{ color: '#6b7280', textAlign: 'center' }}>
                             Aucun membre trouvé
                             {flashQuery.trim() && ` pour "${flashQuery}"`}
-                            {flashLevelFilter.length > 0 && ` avec les niveaux ${flashLevelFilter.join(', ')}`}
+                            {flashLevelFilter.length > 0 && ` avec les niveaux ${flashLevelFilter.sort((a, b) => a - b).join(', ')}`}
                             {flashGeoRefPoint && flashGeoRadiusKm && ` dans un rayon de ${flashGeoRadiusKm} km autour de ${flashGeoRefPoint.address || 'la position sélectionnée'}`}
                           </Text>
                         </View>
@@ -8137,7 +8248,15 @@ const HourSlotRow = ({ item }) => {
                       />
                       
                       {/* Boutons de filtres */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, marginBottom: 12 }}>
+                        <Text style={{ 
+                          color: '#111827', 
+                          fontWeight: '700', 
+                          fontSize: 14 
+                        }}>
+                          Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                        </Text>
+                        
                         <Pressable
                           onPress={() => {
                             if (!flashLevelFilterVisible) {
@@ -8166,13 +8285,28 @@ const HourSlotRow = ({ item }) => {
                           />
                         </Pressable>
                         
-                        <Text style={{ 
-                          color: '#111827', 
-                          fontWeight: '700', 
-                          fontSize: 14 
-                        }}>
-                          Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
-                        </Text>
+                        <Pressable
+                          onPress={() => {
+                            setFlashAvailabilityFilter(!flashAvailabilityFilter);
+                          }}
+                          style={{
+                            padding: 10,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Ionicons 
+                            name="calendar" 
+                            size={20} 
+                            color={flashAvailabilityFilter ? '#ff751d' : '#374151'}
+                            style={{
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 3,
+                              elevation: 4,
+                            }}
+                          />
+                        </Pressable>
                         
                         <Pressable
                           onPress={() => {
@@ -8201,6 +8335,13 @@ const HourSlotRow = ({ item }) => {
                         </Pressable>
                       </View>
                       
+                      {/* Message filtre disponibilité */}
+                      {flashAvailabilityFilter && (
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#15803d', marginBottom: 8, textAlign: 'center' }}>
+                          ✓ Uniquement les joueurs dispos
+                        </Text>
+                      )}
+                      
                       {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
                       {flashLevelFilterVisible && (
                         <View style={{ 
@@ -8215,36 +8356,38 @@ const HourSlotRow = ({ item }) => {
                             Sélectionnez les niveaux à afficher
                           </Text>
                           
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                            {['1/2', '3/4', '5/6', '7/8'].map((range) => {
-                              const isSelected = flashLevelFilter.includes(range);
+                          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 3.5 }}>
+                            {LEVELS.map((lv) => {
+                              const isSelected = Array.isArray(flashLevelFilter) && flashLevelFilter.includes(lv.v);
                               return (
                                 <Pressable
-                                  key={range}
+                                  key={lv.v}
                                   onPress={() => {
                                     setFlashLevelFilter((prev) => {
-                                      if (prev.includes(range)) {
-                                        return prev.filter(r => r !== range);
-                                      } else {
-                                        return [...prev, range];
+                                      const prevArray = Array.isArray(prev) ? prev : [];
+                                      if (prevArray.includes(lv.v)) {
+                                        return prevArray.filter((n) => n !== lv.v);
                                       }
+                                      return [...prevArray, lv.v];
                                     });
                                   }}
                                   style={{
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 8,
-                                    backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
-                                    borderWidth: 1,
-                                    borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                    paddingVertical: 3.3,
+                                    paddingHorizontal: 8.8,
+                                    borderRadius: 999,
+                                    backgroundColor: isSelected ? lv.color : '#ffffff',
+                                    borderWidth: isSelected ? 2 : 1,
+                                    borderColor: isSelected ? lv.color : '#d1d5db',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
                                   }}
                                 >
                                   <Text style={{ 
-                                    fontSize: 13, 
-                                    fontWeight: isSelected ? '800' : '700', 
-                                    color: isSelected ? '#000000' : '#111827' 
+                                    fontSize: 12, 
+                                    fontWeight: isSelected ? '900' : '800', 
+                                    color: '#111827' 
                                   }}>
-                                    {range}
+                                    {lv.v}
                                   </Text>
                                 </Pressable>
                               );
@@ -8253,7 +8396,7 @@ const HourSlotRow = ({ item }) => {
                           
                           {flashLevelFilter.length > 0 && (
                             <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
-                              ✓ Filtre actif : {flashLevelFilter.length} plage{flashLevelFilter.length > 1 ? 's' : ''} sélectionnée{flashLevelFilter.length > 1 ? 's' : ''}
+                              ✓ Filtre actif : {flashLevelFilter.length} niveau{flashLevelFilter.length > 1 ? 'x' : ''} sélectionné{flashLevelFilter.length > 1 ? 's' : ''}
                             </Text>
                           )}
                         </View>
@@ -8498,6 +8641,11 @@ const HourSlotRow = ({ item }) => {
                       return (
                         <Pressable
                           key={String(member.id)}
+                          onLongPress={() => {
+                            console.log('[FlashMatch] Appui long sur membre:', member.id, member.name || member.display_name);
+                            openProfileFromFlashModal(member);
+                          }}
+                          delayLongPress={400}
                           onPress={() => {
                             if (isSelected) {
                               setFlashSelected(flashSelected.filter(id => id !== String(member.id)));
@@ -8629,6 +8777,121 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
+      {/* Modale de profil depuis la liste flash match */}
+      <Modal 
+        visible={flashProfileModalVisible} 
+        transparent={true} 
+        animationType="slide"
+        onRequestClose={() => {
+          setFlashProfileModalVisible(false);
+          // Rouvrir la modale flash match après fermeture du profil
+          setTimeout(() => {
+            setFlashPickerOpen(true);
+          }, 100);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 20, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
+            {selectedFlashProfile && (
+              <>
+                {/* Bouton retour */}
+                <Pressable 
+                  onPress={() => {
+                    setFlashProfileModalVisible(false);
+                    // Rouvrir la modale flash match après fermeture du profil
+                    setTimeout(() => {
+                      setFlashPickerOpen(true);
+                    }, 100);
+                  }} 
+                  style={{ marginBottom: 16, paddingVertical: 8, paddingHorizontal: 12, alignSelf: 'flex-start', borderRadius: 8, backgroundColor: '#f3f4f6' }}
+                >
+                  <Text style={{ color: '#1a4b97', fontWeight: '700' }}>← Retour</Text>
+                </Pressable>
+
+                {/* Avatar + Nom */}
+                <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                  {selectedFlashProfile.avatar_url ? (
+                    <Image 
+                      source={{ uri: selectedFlashProfile.avatar_url }} 
+                      style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#f3f4f6' }}
+                    />
+                  ) : (
+                    <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1a4b97' }}>
+                      <Text style={{ fontSize: 32, fontWeight: '800', color: '#1a4b97' }}>
+                        {(selectedFlashProfile.display_name || selectedFlashProfile.name || selectedFlashProfile.email || 'J').substring(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={{ fontSize: 20, fontWeight: '800', color: '#1a4b97', textAlign: 'center' }}>
+                    {selectedFlashProfile.display_name || selectedFlashProfile.name || selectedFlashProfile.email || 'Joueur'}
+                  </Text>
+                  <Pressable onPress={() => Linking.openURL(`mailto:${selectedFlashProfile.email}`)}>
+                    <Text style={{ fontSize: 13, color: '#3b82f6', textAlign: 'center', textDecorationLine: 'underline' }}>
+                      {selectedFlashProfile.email}
+                    </Text>
+                  </Pressable>
+                </View>
+                
+                {/* Résumé visuel */}
+                <ScrollView showsVerticalScrollIndicator={true}>
+                  <View style={{ backgroundColor: 'white', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, gap: 12 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827' }}>Résumé</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+                      {selectedFlashProfile.niveau && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🔥</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedFlashProfile.niveau}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Niveau</Text>
+                        </View>
+                      )}
+                      {selectedFlashProfile.main && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🖐️</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedFlashProfile.main}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Main</Text>
+                        </View>
+                      )}
+                      {selectedFlashProfile.cote && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🎯</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedFlashProfile.cote}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Côté</Text>
+                        </View>
+                      )}
+                      {selectedFlashProfile.club && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🏟️</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedFlashProfile.club}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Club</Text>
+                        </View>
+                      )}
+                      {selectedFlashProfile.rayon_km != null && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>📍</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>
+                            {selectedFlashProfile.rayon_km === 99 ? '+30 km' : `${selectedFlashProfile.rayon_km} km`}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Rayon</Text>
+                        </View>
+                      )}
+                      {selectedFlashProfile.phone && (
+                        <Pressable 
+                          onPress={() => Linking.openURL(`tel:${selectedFlashProfile.phone}`)}
+                          style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}
+                        >
+                          <Text style={{ fontSize: 28 }}>📞</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedFlashProfile.phone}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Téléphone</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal de sélection de groupe */}
       <Modal
@@ -9978,14 +10241,7 @@ const HourSlotRow = ({ item }) => {
                   const memberLevel = Number(member.niveau);
                   if (!Number.isFinite(memberLevel)) return false;
                   
-                  const isInRange = hotMatchLevelFilter.some(range => {
-                    const parts = String(range).split('/').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-                    if (parts.length !== 2) return false;
-                    const [min, max] = parts.sort((a, b) => a - b);
-                    return memberLevel >= min && memberLevel <= max;
-                  });
-                  
-                  if (!isInRange) return false;
+                  if (!hotMatchLevelFilter.includes(memberLevel)) return false;
                 }
                 
                 // Filtre géographique
@@ -10126,36 +10382,38 @@ const HourSlotRow = ({ item }) => {
                           Sélectionnez les niveaux à afficher
                         </Text>
                         
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                          {['1/2', '3/4', '5/6', '7/8'].map((range) => {
-                            const isSelected = hotMatchLevelFilter.includes(range);
+                        <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 3.5 }}>
+                          {LEVELS.map((lv) => {
+                            const isSelected = Array.isArray(hotMatchLevelFilter) && hotMatchLevelFilter.includes(lv.v);
                             return (
                               <Pressable
-                                key={range}
+                                key={lv.v}
                                 onPress={() => {
                                   setHotMatchLevelFilter((prev) => {
-                                    if (prev.includes(range)) {
-                                      return prev.filter(r => r !== range);
-                                    } else {
-                                      return [...prev, range];
+                                    const prevArray = Array.isArray(prev) ? prev : [];
+                                    if (prevArray.includes(lv.v)) {
+                                      return prevArray.filter((n) => n !== lv.v);
                                     }
+                                    return [...prevArray, lv.v];
                                   });
                                 }}
                                 style={{
-                                  paddingVertical: 8,
-                                  paddingHorizontal: 12,
-                                  borderRadius: 8,
-                                  backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
-                                  borderWidth: 1,
-                                  borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                  paddingVertical: 3.3,
+                                  paddingHorizontal: 8.8,
+                                  borderRadius: 999,
+                                  backgroundColor: isSelected ? lv.color : '#ffffff',
+                                  borderWidth: isSelected ? 2 : 1,
+                                  borderColor: isSelected ? lv.color : '#d1d5db',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                 }}
                               >
                                 <Text style={{ 
-                                  fontSize: 13, 
-                                  fontWeight: isSelected ? '800' : '700', 
-                                  color: isSelected ? '#000000' : '#111827' 
+                                  fontSize: 12, 
+                                  fontWeight: isSelected ? '900' : '800', 
+                                  color: '#111827' 
                                 }}>
-                                  {range}
+                                  {lv.v}
                                 </Text>
                               </Pressable>
                             );
@@ -10164,7 +10422,7 @@ const HourSlotRow = ({ item }) => {
                         
                         {hotMatchLevelFilter.length > 0 && (
                           <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
-                            ✓ Filtre actif : {hotMatchLevelFilter.length} plage{hotMatchLevelFilter.length > 1 ? 's' : ''} sélectionnée{hotMatchLevelFilter.length > 1 ? 's' : ''}
+                            ✓ Filtre actif : {hotMatchLevelFilter.length} niveau{hotMatchLevelFilter.length > 1 ? 'x' : ''} sélectionné{hotMatchLevelFilter.length > 1 ? 's' : ''}
                           </Text>
                         )}
                       </View>
@@ -10340,7 +10598,7 @@ const HourSlotRow = ({ item }) => {
                       <Text style={{ color: '#6b7280', textAlign: 'center' }}>
                         Aucun membre trouvé
                         {hotMatchSearchQuery.trim() && ` pour "${hotMatchSearchQuery}"`}
-                        {hotMatchLevelFilter.length > 0 && ` avec les niveaux ${hotMatchLevelFilter.join(', ')}`}
+                        {hotMatchLevelFilter.length > 0 && ` avec les niveaux ${hotMatchLevelFilter.sort((a, b) => a - b).join(', ')}`}
                         {hotMatchGeoRefPoint && hotMatchGeoRadiusKm && ` dans un rayon de ${hotMatchGeoRadiusKm} km autour de ${hotMatchGeoRefPoint.address || 'la position sélectionnée'}`}
                       </Text>
                     </View>
@@ -10449,36 +10707,38 @@ const HourSlotRow = ({ item }) => {
                         Sélectionnez les niveaux à afficher
                       </Text>
                       
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {['1/2', '3/4', '5/6', '7/8'].map((range) => {
-                          const isSelected = hotMatchLevelFilter.includes(range);
+                      <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 3.5 }}>
+                        {LEVELS.map((lv) => {
+                          const isSelected = Array.isArray(hotMatchLevelFilter) && hotMatchLevelFilter.includes(lv.v);
                           return (
                             <Pressable
-                              key={range}
+                              key={lv.v}
                               onPress={() => {
                                 setHotMatchLevelFilter((prev) => {
-                                  if (prev.includes(range)) {
-                                    return prev.filter(r => r !== range);
-                                  } else {
-                                    return [...prev, range];
+                                  const prevArray = Array.isArray(prev) ? prev : [];
+                                  if (prevArray.includes(lv.v)) {
+                                    return prevArray.filter((n) => n !== lv.v);
                                   }
+                                  return [...prevArray, lv.v];
                                 });
                               }}
                               style={{
-                                paddingVertical: 8,
-                                paddingHorizontal: 12,
-                                borderRadius: 8,
-                                backgroundColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#ffffff',
-                                borderWidth: 1,
-                                borderColor: isSelected ? colorForLevel(parseInt(range.split('/')[0])) : '#d1d5db',
+                                paddingVertical: 3.3,
+                                paddingHorizontal: 8.8,
+                                borderRadius: 999,
+                                backgroundColor: isSelected ? lv.color : '#ffffff',
+                                borderWidth: isSelected ? 2 : 1,
+                                borderColor: isSelected ? lv.color : '#d1d5db',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                               }}
                             >
                               <Text style={{ 
-                                fontSize: 13, 
-                                fontWeight: isSelected ? '800' : '700', 
-                                color: isSelected ? '#000000' : '#111827' 
+                                fontSize: 12, 
+                                fontWeight: isSelected ? '900' : '800', 
+                                color: '#111827' 
                               }}>
-                                {range}
+                                {lv.v}
                               </Text>
                             </Pressable>
                           );
@@ -10487,7 +10747,7 @@ const HourSlotRow = ({ item }) => {
                       
                       {hotMatchLevelFilter.length > 0 && (
                         <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
-                          ✓ Filtre actif : {hotMatchLevelFilter.length} plage{hotMatchLevelFilter.length > 1 ? 's' : ''} sélectionnée{hotMatchLevelFilter.length > 1 ? 's' : ''}
+                          ✓ Filtre actif : {hotMatchLevelFilter.length} niveau{hotMatchLevelFilter.length > 1 ? 'x' : ''} sélectionné{hotMatchLevelFilter.length > 1 ? 's' : ''}
                         </Text>
                       )}
                     </View>
@@ -10667,6 +10927,11 @@ const HourSlotRow = ({ item }) => {
                     {filteredMembers.map((member) => (
                   <Pressable
                     key={member.id}
+                    onLongPress={() => {
+                      console.log('[HotMatch] Appui long sur membre (Pressable parent):', member.id, member.display_name);
+                      openProfileFromModal(member);
+                    }}
+                    delayLongPress={400}
                     onPress={async () => {
                       console.log('[HotMatch] Membre cliqué:', member.id, member.display_name);
                       if (!selectedHotMatch || !groupId) {
@@ -10835,8 +11100,8 @@ const HourSlotRow = ({ item }) => {
                       <LevelAvatar
                         profile={member}
                         size={48}
-                        onPress={() => openProfile(member)}
-                        onLongPressProfile={openProfile}
+                        onPress={() => openProfileFromModal(member)}
+                        onLongPressProfile={openProfileFromModal}
                       />
                     </View>
                     <View style={{ flex: 1 }}>
@@ -10851,6 +11116,122 @@ const HourSlotRow = ({ item }) => {
               </>
               );
             })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modale de profil depuis la liste d'invitation */}
+      <Modal 
+        visible={hotMatchProfileModalVisible} 
+        transparent={true} 
+        animationType="slide"
+        onRequestClose={() => {
+          setHotMatchProfileModalVisible(false);
+          // Rouvrir la modale d'invitation après fermeture du profil
+          setTimeout(() => {
+            setInviteHotMatchModalVisible(true);
+          }, 100);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 20, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
+            {selectedHotMatchProfile && (
+              <>
+                {/* Bouton retour */}
+                <Pressable 
+                  onPress={() => {
+                    setHotMatchProfileModalVisible(false);
+                    // Rouvrir la modale d'invitation après fermeture du profil
+                    setTimeout(() => {
+                      setInviteHotMatchModalVisible(true);
+                    }, 100);
+                  }} 
+                  style={{ marginBottom: 16, paddingVertical: 8, paddingHorizontal: 12, alignSelf: 'flex-start', borderRadius: 8, backgroundColor: '#f3f4f6' }}
+                >
+                  <Text style={{ color: '#1a4b97', fontWeight: '700' }}>← Retour</Text>
+                </Pressable>
+
+                {/* Avatar + Nom */}
+                <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                  {selectedHotMatchProfile.avatar_url ? (
+                    <Image 
+                      source={{ uri: selectedHotMatchProfile.avatar_url }} 
+                      style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#f3f4f6' }}
+                    />
+                  ) : (
+                    <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1a4b97' }}>
+                      <Text style={{ fontSize: 32, fontWeight: '800', color: '#1a4b97' }}>
+                        {(selectedHotMatchProfile.display_name || selectedHotMatchProfile.name || selectedHotMatchProfile.email || 'J').substring(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={{ fontSize: 20, fontWeight: '800', color: '#1a4b97', textAlign: 'center' }}>
+                    {selectedHotMatchProfile.display_name || selectedHotMatchProfile.name || selectedHotMatchProfile.email || 'Joueur'}
+                  </Text>
+                  <Pressable onPress={() => Linking.openURL(`mailto:${selectedHotMatchProfile.email}`)}>
+                    <Text style={{ fontSize: 13, color: '#3b82f6', textAlign: 'center', textDecorationLine: 'underline' }}>
+                      {selectedHotMatchProfile.email}
+                    </Text>
+                  </Pressable>
+                </View>
+                
+                {/* Résumé visuel */}
+                <ScrollView showsVerticalScrollIndicator={true}>
+                  <View style={{ backgroundColor: 'white', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, gap: 12 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827' }}>Résumé</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+                      {selectedHotMatchProfile.niveau && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🔥</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedHotMatchProfile.niveau}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Niveau</Text>
+                        </View>
+                      )}
+                      {selectedHotMatchProfile.main && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🖐️</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedHotMatchProfile.main}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Main</Text>
+                        </View>
+                      )}
+                      {selectedHotMatchProfile.cote && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🎯</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedHotMatchProfile.cote}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Côté</Text>
+                        </View>
+                      )}
+                      {selectedHotMatchProfile.club && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>🏟️</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedHotMatchProfile.club}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Club</Text>
+                        </View>
+                      )}
+                      {selectedHotMatchProfile.rayon_km != null && (
+                        <View style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}>
+                          <Text style={{ fontSize: 28 }}>📍</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>
+                            {selectedHotMatchProfile.rayon_km === 99 ? '+30 km' : `${selectedHotMatchProfile.rayon_km} km`}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Rayon</Text>
+                        </View>
+                      )}
+                      {selectedHotMatchProfile.phone && (
+                        <Pressable 
+                          onPress={() => Linking.openURL(`tel:${selectedHotMatchProfile.phone}`)}
+                          style={{ width: '47%', borderWidth: 1, borderColor: '#eef2f7', borderRadius: 12, paddingVertical: 14, alignItems: 'center', gap: 6, backgroundColor: '#fafafa' }}
+                        >
+                          <Text style={{ fontSize: 28 }}>📞</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a4b97' }}>{selectedHotMatchProfile.phone}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>Téléphone</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
+                </ScrollView>
+              </>
+            )}
           </View>
         </View>
       </Modal>

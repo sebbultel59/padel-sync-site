@@ -21,7 +21,7 @@ const labelToLevel = new Map(LEVELS.map(x => [x.label.toLowerCase(), x.v]));
 const levelMeta = (n) => LEVELS.find((x) => x.v === n) ?? null;
 
 export default function ProfileScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, fromModal, returnTo, matchId } = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [p, setP] = useState(null);
 
@@ -71,7 +71,13 @@ export default function ProfileScreen() {
     <ScrollView contentContainerStyle={s.container}>
       {/* Bouton retour */}
       <Pressable onPress={() => {
-        if (router.canGoBack()) {
+        if (fromModal === 'true' && returnTo === 'matches') {
+          // Revenir à la page match avec un paramètre pour rouvrir la modale
+          const url = matchId 
+            ? `/(tabs)/matches?openInviteModal=true&matchId=${matchId}`
+            : '/(tabs)/matches?openInviteModal=true';
+          router.replace(url);
+        } else if (router.canGoBack()) {
           router.back();
         } else {
           router.replace("/groupes");

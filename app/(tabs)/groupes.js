@@ -12,6 +12,7 @@ import {
   Alert,
   Clipboard,
   DeviceEventEmitter,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -383,11 +384,26 @@ export default function GroupesScreen() {
       if (myIds.length) {
         const { data, error } = await supabase
           .from("groups")
-          .select("id, name, avatar_url, visibility, join_policy, created_by")
+          .select("id, name, avatar_url, visibility, join_policy, created_by, club_id, city")
           .in("id", myIds)
           .order("created_at", { ascending: false });
         if (error) throw error;
-        myGroups = data ?? [];
+        
+        // Charger les noms des clubs séparément si nécessaire
+        const clubIds = [...new Set((data ?? []).map(g => g.club_id).filter(Boolean))];
+        let clubsMap = {};
+        if (clubIds.length > 0) {
+          const { data: clubsData } = await supabase
+            .from("clubs")
+            .select("id, name")
+            .in("id", clubIds);
+          clubsMap = new Map((clubsData || []).map(c => [c.id, c.name]));
+        }
+        
+        myGroups = (data ?? []).map(g => ({
+          ...g,
+          club_name: g.club_id ? (clubsMap.get(g.club_id) || null) : null,
+        }));
       }
 
       const { data: openPublic, error: eOpen } = await supabase
@@ -1260,13 +1276,211 @@ Padel Sync — Ton match en 3 clics 🎾`;
   const [createName, setCreateName] = useState("");
   const [createVisibility, setCreateVisibility] = useState("private");
   const [createJoinPolicy, setCreateJoinPolicy] = useState("invite");
+  const [createClubId, setCreateClubId] = useState(null);
+  const [createCity, setCreateCity] = useState("");
+  const [citySuggestions, setCitySuggestions] = useState([]);
+  const [loadingCitySuggestions, setLoadingCitySuggestions] = useState(false);
+  const [clubsList, setClubsList] = useState([]);
+  const [loadingClubs, setLoadingClubs] = useState(false);
+  const [clubPickerVisible, setClubPickerVisible] = useState(false);
+  const [addressHome, setAddressHome] = useState(null);
+  const cityDebounceTimer = useRef(null);
+  const cityAbortController = useRef(null);
 
   const onCreateGroup = useCallback(() => {
     setCreateName("");
     setCreateVisibility("private");
     setCreateJoinPolicy("invite");
+    setCreateClubId(null);
+    setCreateCity("");
+    setCitySuggestions([]);
     setShowCreate(true);
   }, []);
+  
+  // Fonction de calcul de distance (même que dans profil.js)
+  const haversineKm = useCallback((a, b) => {
+    if (!a || !b || !a.lat || !a.lng || !b.lat || !b.lng) return Infinity;
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+    const dLon = ((b.lng - a.lng) * Math.PI) / 180;
+    const lat1 = (a.lat * Math.PI) / 180;
+    const lat2 = (b.lat * Math.PI) / 180;
+    const x =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    return Math.round(R * c * 10) / 10; // 0.1 km
+  }, []);
+
+  // Charger les clubs pour le sélecteur (même logique que dans profil.js)
+  const loadClubs = useCallback(async () => {
+    setLoadingClubs(true);
+    try {
+      // Charger tous les clubs avec pagination
+      const pageSize = 1000;
+      let from = 0;
+      let to = pageSize - 1;
+      let allClubs = [];
+      
+      while (true) {
+        const { data: page, error } = await supabase
+          .from('clubs')
+          .select('id, name, address, lat, lng')
+          .not('lat', 'is', null)
+          .not('lng', 'is', null)
+          .order('name', { ascending: true })
+          .range(from, to);
+        
+        if (error) throw error;
+        
+        const batch = Array.isArray(page) ? page : [];
+        allClubs = allClubs.concat(batch);
+        
+        if (batch.length < pageSize) break; // dernière page atteinte
+        from += pageSize;
+        to += pageSize;
+      }
+
+      // Si le joueur a un domicile, trier par distance
+      if (addressHome?.lat && addressHome?.lng) {
+        const clubsWithDist = allClubs.map(c => ({
+          ...c,
+          distance: haversineKm(addressHome, { lat: c.lat, lng: c.lng })
+        }));
+        clubsWithDist.sort((a, b) => a.distance - b.distance);
+        setClubsList(clubsWithDist);
+      } else {
+        // Sinon, trier par ordre alphabétique
+        allClubs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setClubsList(allClubs);
+      }
+    } catch (e) {
+      console.warn('[Groupes] Erreur chargement clubs:', e);
+      Alert.alert('Erreur', 'Impossible de charger la liste des clubs');
+    } finally {
+      setLoadingClubs(false);
+    }
+  }, [addressHome, haversineKm]);
+  
+  // Charger l'adresse du domicile de l'utilisateur
+  useEffect(() => {
+    if (meId && showCreate) {
+      (async () => {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('address_home')
+            .eq('id', meId)
+            .single();
+          
+          if (profile?.address_home) {
+            setAddressHome(profile.address_home);
+          }
+        } catch (e) {
+          console.warn('[Groupes] Erreur chargement adresse:', e);
+        }
+      })();
+    }
+  }, [meId, showCreate]);
+  
+  // Charger les clubs quand on ouvre le picker (comme dans profil.js)
+  useEffect(() => {
+    if (clubPickerVisible) {
+      loadClubs();
+    }
+  }, [clubPickerVisible, loadClubs]);
+
+  // Recherche de villes avec Nominatim
+  const searchCities = useCallback(async (query) => {
+    const trimmedQuery = (query || '').trim();
+    
+    // Réinitialiser les suggestions si la requête est trop courte
+    if (trimmedQuery.length < 2) {
+      setCitySuggestions([]);
+      return;
+    }
+
+    // Annuler la requête précédente si elle existe
+    if (cityAbortController.current) {
+      cityAbortController.current.abort();
+    }
+    cityAbortController.current = new AbortController();
+    const signal = cityAbortController.current.signal;
+
+    setLoadingCitySuggestions(true);
+    try {
+      // Rechercher des villes en France avec Nominatim
+      // Utiliser featuretype=city pour ne récupérer que des villes
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmedQuery)}&countrycodes=fr&limit=10&featuretype=city&accept-language=fr`;
+      const res = await fetch(url, {
+        signal,
+        headers: {
+          'User-Agent': 'PadelSync-Groupes/1.0'
+        }
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      
+      if (signal.aborted) return;
+      
+      // Extraire uniquement le nom de la ville depuis les résultats
+      const suggestions = (data || [])
+        .map(item => {
+          // Le nom de la ville est généralement dans 'name' ou la première partie de 'display_name'
+          let cityName = item.name || item.display_name.split(',')[0].trim();
+          
+          // Si le nom contient des informations supplémentaires, prendre seulement la première partie
+          if (cityName.includes(',')) {
+            cityName = cityName.split(',')[0].trim();
+          }
+          
+          return cityName;
+        })
+        .filter((name, index, self) => 
+          // Éliminer les doublons et les valeurs vides
+          name && name.trim() && index === self.findIndex(t => t.toLowerCase() === name.toLowerCase())
+        )
+        .slice(0, 5) // Limiter à 5 résultats
+        .map(name => ({ name: name.trim() }));
+      
+      setCitySuggestions(suggestions);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      console.warn('[Groupes] Erreur recherche villes:', e);
+      setCitySuggestions([]);
+    } finally {
+      if (!signal.aborted) {
+        setLoadingCitySuggestions(false);
+      }
+    }
+  }, []);
+
+  // Debounce pour la recherche de villes
+  useEffect(() => {
+    // Nettoyer le timer précédent
+    if (cityDebounceTimer.current) {
+      clearTimeout(cityDebounceTimer.current);
+    }
+
+    // Si le texte est vide, réinitialiser les suggestions
+    if (!createCity || createCity.trim().length < 2) {
+      setCitySuggestions([]);
+      return;
+    }
+
+    // Débouncer la recherche
+    cityDebounceTimer.current = setTimeout(() => {
+      searchCities(createCity);
+    }, 300); // Attendre 300ms après la dernière frappe
+
+    // Nettoyer le timer au démontage
+    return () => {
+      if (cityDebounceTimer.current) {
+        clearTimeout(cityDebounceTimer.current);
+      }
+    };
+  }, [createCity, searchCities]);
 
   const doCreateGroup = useCallback(async () => {
     const n = (createName || "").trim();
@@ -1314,6 +1528,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
         p_name: n,
         p_visibility: safeVisibility,
         p_join_policy: join_policy,
+        p_club_id: createClubId || null,
+        p_city: createCity?.trim() || null,
       });
       if (rpcErr) throw rpcErr;
 
@@ -1349,8 +1565,12 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
   const { activeRecord } = useMemo(() => {
     const a = (groups.mine ?? []).find((g) => g.id === activeGroup?.id) || null;
+    // Si activeRecord existe mais activeGroup n'a pas les données complètes, mettre à jour activeGroup
+    if (a && activeGroup && (!activeGroup.club_id && a.club_id || !activeGroup.city && a.city || !activeGroup.club_name && a.club_name)) {
+      setActiveGroup(a);
+    }
     return { activeRecord: a };
-  }, [groups, activeGroup?.id]);
+  }, [groups, activeGroup?.id, activeGroup, setActiveGroup]);
 
   // Fonctions pour rejoindre un groupe
   const handleJoinByGroupId = useCallback(async (groupId) => {
@@ -1734,6 +1954,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
                   </Text>
                 </View>
+                {(activeRecord?.club_name || activeRecord?.city) && (
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                    <Text style={{ color: "#6b7280", fontSize: 12 }}>
+                      {[
+                        activeRecord?.club_name && `🏟️ ${activeRecord.club_name}`,
+                        activeRecord?.city && `📍 ${activeRecord.city}`
+                      ].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -2092,9 +2322,12 @@ Padel Sync — Ton match en 3 clics 🎾`;
       </Modal>
 
       {/* Modal création */}
-      <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => setShowCreate(false)}>
+      <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => {
+        setShowCreate(false);
+        setCitySuggestions([]);
+      }}>
         <KeyboardAvoidingView style={s.qrWrap} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 16 }} keyboardShouldPersistTaps="always">
             <View style={[s.qrCard, { width: 320, alignSelf: "center", alignItems: "stretch" }]}>
               <Text style={{ fontWeight: "800", marginBottom: 12 }}>Nouveau groupe</Text>
               <TextInput
@@ -2156,8 +2389,83 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </TouchableOpacity>
               )}
 
+              {/* Localisation */}
+              <Text style={{ marginTop: 16, marginBottom: 8, fontWeight: "700", color: "#111827" }}>Localisation (facultatif)</Text>
+              
+              {/* Sélecteur de club - même structure que profil.js */}
+              <Pressable
+                onPress={() => {
+                  // Fermer la modale de création et ouvrir la modale de sélection de club
+                  setShowCreate(false);
+                  setTimeout(() => {
+                    setClubPickerVisible(true);
+                  }, 300); // Petit délai pour laisser la modale se fermer
+                }}
+                style={[
+                  s.input,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 4,
+                  },
+                  Platform.OS === 'web' && { cursor: 'pointer' }
+                ]}
+              >
+                <Text style={{ fontSize: 14, color: createClubId ? '#111827' : '#9ca3af', flex: 1 }}>
+                  {createClubId 
+                    ? clubsList.find(c => c.id === createClubId)?.name || 'Club sélectionné'
+                    : 'Sélectionner un club support (facultatif)'}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="#6b7280" />
+              </Pressable>
+
+              {/* Champ ville avec autocomplete */}
+              <View style={{ marginTop: 8 }}>
+                <TextInput
+                  placeholder="Ville (facultatif)"
+                  value={createCity}
+                  onChangeText={setCreateCity}
+                  style={s.input}
+                  returnKeyType="done"
+                />
+                {loadingCitySuggestions && (
+                  <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator size="small" color={BRAND} />
+                    <Text style={{ fontSize: 12, color: '#6b7280' }}>Recherche en cours...</Text>
+                  </View>
+                )}
+                {citySuggestions.length > 0 && (
+                  <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150, borderWidth: 1, borderColor: '#e5e7eb' }}>
+                    <ScrollView nestedScrollEnabled>
+                      {citySuggestions.map((sug, idx) => (
+                        <Pressable
+                          key={idx}
+                          onPress={() => {
+                            setCreateCity(sug.name);
+                            setCitySuggestions([]);
+                          }}
+                          style={({ pressed }) => ({
+                            paddingVertical: 12,
+                            paddingHorizontal: 12,
+                            backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
+                            borderBottomWidth: idx < citySuggestions.length - 1 ? 1 : 0,
+                            borderBottomColor: '#e5e7eb',
+                          })}
+                        >
+                          <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{sug.name}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
               <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
-                <Pressable onPress={press("create-cancel", () => setShowCreate(false))} style={[s.btn, { backgroundColor: "#9ca3af", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]} >
+                <Pressable onPress={press("create-cancel", () => {
+                  setShowCreate(false);
+                  setCitySuggestions([]);
+                })} style={[s.btn, { backgroundColor: "#9ca3af", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]} >
                   <Text style={s.btnTxt}>Annuler</Text>
                 </Pressable>
                 <Pressable onPress={press("create-confirm", doCreateGroup)} style={[s.btn, { backgroundColor: BRAND, flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]} >
@@ -2167,6 +2475,143 @@ Padel Sync — Ton match en 3 clics 🎾`;
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal sélection club (même style que dans profil.js) */}
+      <Modal
+        visible={clubPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          // Fermer la modale de sélection et rouvrir la modale de création
+          setClubPickerVisible(false);
+          setTimeout(() => {
+            setShowCreate(true);
+          }, 300); // Petit délai pour laisser la modale se fermer
+        }}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+          onPress={() => {
+            // Fermer la modale de sélection et rouvrir la modale de création
+            setClubPickerVisible(false);
+            setTimeout(() => {
+              setShowCreate(true);
+            }, 300); // Petit délai pour laisser la modale se fermer
+          }}
+        >
+          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20, maxHeight: '80%' }}>
+            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
+                Sélectionner un club support
+              </Text>
+              {addressHome?.lat && addressHome?.lng && (
+                <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                  Triés par distance du domicile
+                </Text>
+              )}
+            </View>
+            {loadingClubs ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={BRAND} />
+                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 500 }}>
+                {clubsList.map((c, idx) => (
+                  <Pressable
+                    key={c.id || idx}
+                    onPress={() => {
+                      // Sélectionner le club, fermer la modale de sélection et rouvrir la modale de création
+                      setCreateClubId(c.id);
+                      
+                      // Extraire la ville de l'adresse du club si disponible
+                      if (c.address) {
+                        const address = c.address.trim();
+                        let cityName = '';
+                        
+                        // Pattern 1: Chercher "Code Postal Ville" (5 chiffres suivis d'un espace et d'un nom)
+                        // Ex: "123 Rue Example, 59000 Lille, France" -> "Lille"
+                        const cpCityMatch = address.match(/(\d{5})\s+([^,]+?)(?:\s*,\s*|$)/);
+                        if (cpCityMatch) {
+                          cityName = cpCityMatch[2].trim();
+                        } else {
+                          // Pattern 2: Si pas de code postal, prendre l'avant-dernière partie si plusieurs virgules
+                          // Ex: "123 Rue Example, Ville, Pays" -> "Ville"
+                          const addressParts = address.split(',').map(part => part.trim());
+                          if (addressParts.length > 2) {
+                            // Prendre l'avant-dernière partie (généralement la ville, la dernière étant le pays)
+                            cityName = addressParts[addressParts.length - 2];
+                          } else if (addressParts.length === 2) {
+                            // Si seulement 2 parties, prendre la dernière (probablement "Code Postal Ville" ou "Ville")
+                            cityName = addressParts[1];
+                            // Enlever le code postal si présent
+                            cityName = cityName.replace(/^\d{5}\s*/, '').trim();
+                          } else {
+                            // Si pas de virgule, chercher un code postal dans la chaîne
+                            const cpMatch = address.match(/\d{5}\s+([^\s,]+)/);
+                            if (cpMatch) {
+                              cityName = cpMatch[1];
+                            } else {
+                              // Dernier recours: prendre la dernière partie après le dernier espace
+                              const parts = address.split(/\s+/);
+                              if (parts.length > 1) {
+                                cityName = parts[parts.length - 1];
+                              }
+                            }
+                          }
+                        }
+                        
+                        // Nettoyer: enlever "France" ou autres noms de pays communs
+                        cityName = cityName.replace(/\s*(France|FRANCE|france)\s*$/i, '').trim();
+                        
+                        if (cityName && cityName.length > 1) {
+                          setCreateCity(cityName);
+                        }
+                      }
+                      
+                      setClubPickerVisible(false);
+                      setTimeout(() => {
+                        setShowCreate(true);
+                      }, 300); // Petit délai pour laisser la modale se fermer
+                    }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 16,
+                      paddingHorizontal: 20,
+                      backgroundColor: pressed ? '#f3f4f6' : createClubId === c.id ? '#e0f2fe' : '#ffffff',
+                      borderBottomWidth: idx < clubsList.length - 1 ? 1 : 0,
+                      borderBottomColor: '#e5e7eb',
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 16, color: '#111827', fontWeight: createClubId === c.id ? '700' : '400' }}>
+                          {c.name}
+                        </Text>
+                        {c.address && (
+                          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                            {c.address}
+                          </Text>
+                        )}
+                        {c.distance !== undefined && c.distance !== Infinity && (
+                          <Text style={{ fontSize: 12, color: BRAND, marginTop: 2 }}>
+                            {c.distance} km
+                          </Text>
+                        )}
+                      </View>
+                      {createClubId === c.id && <Ionicons name="checkmark" size={20} color={BRAND} />}
+                    </View>
+                  </Pressable>
+                ))}
+                {clubsList.length === 0 && !loadingClubs && (
+                  <View style={{ padding: 40, alignItems: 'center' }}>
+                    <Text style={{ color: '#6b7280' }}>Aucun club disponible</Text>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </Pressable>
       </Modal>
 
       {/* Modal QR */}

@@ -115,7 +115,30 @@ Deno.serve(async () => {
     }
   }
 
-  await supabase.from("notification_jobs").delete().in("id", jobs.map((j: any) => j.id));
+  // IMPORTANT: Ne PAS supprimer les notifications pour qu'elles apparaissent dans l'historique
+  // Les notifications doivent rester dans la table pour être affichées dans l'app
+  // On ne marque que sent_at si la colonne existe, mais on ne supprime JAMAIS les notifications
+  
+  const now = new Date().toISOString();
+  const jobIds = jobs.map((j: any) => j.id);
+  
+  // Essayer d'ajouter sent_at si la colonne existe, sinon ne rien faire
+  // (les notifications resteront dans la table pour l'historique)
+  try {
+    await supabase
+      .from("notification_jobs")
+      .update({ sent_at: now })
+      .in("id", jobIds);
+    console.log(`[Dispatch] ${jobIds.length} notifications marquées comme envoyées (sent_at)`);
+  } catch (e) {
+    // Si la colonne sent_at n'existe pas, on ne fait rien
+    // Les notifications resteront dans la table pour l'historique
+    console.log('[Dispatch] Colonne sent_at non disponible, notifications conservées pour l\'historique');
+  }
+
+  // NE PLUS SUPPRIMER LES NOTIFICATIONS - Elles doivent rester pour l'historique
+  // Les notifications seront nettoyées manuellement ou via un script séparé si nécessaire
+  console.log(`[Dispatch] ${jobIds.length} notifications traitées et conservées dans la table`);
 
   return new Response(`ok ${messages.length}`, { status: 200 });
 });

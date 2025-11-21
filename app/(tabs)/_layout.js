@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { HelpModal } from '../../components/HelpModal';
 import { isNotificationsSupported, withNotifications } from '../../lib/notifications-wrapper';
+import { useActiveGroup } from '../../lib/activeGroup';
 
 
 export default function TabsLayout() {
@@ -19,6 +20,7 @@ export default function TabsLayout() {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const insets = useSafeAreaInsets();
+  const { activeGroup } = useActiveGroup();
 
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -53,18 +55,97 @@ export default function TabsLayout() {
         .single();
       const lastSeen = meProfile?.notifications_last_seen ? new Date(meProfile.notifications_last_seen) : null;
 
-      const { data, error } = await supabase
+      // Vérifier d'abord si des notifications existent dans la base (sans filtre)
+      const { data: allJobs, error: checkError } = await supabase
         .from('notification_jobs')
-        .select('id, created_at, kind, group_id, match_id, actor_id, recipients, payload')
-        .contains('recipients', [uid])
+        .select('id, recipients, created_at')
         .order('created_at', { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      const rows = data || [];
+        .limit(10);
+      
+      console.log('[notifications] Vérification base de données:');
+      console.log('[notifications] - Total jobs dans la table:', allJobs?.length || 0);
+      if (allJobs && allJobs.length > 0) {
+        console.log('[notifications] - Exemples de recipients:', allJobs.slice(0, 3).map(j => ({
+          id: j.id,
+          recipients: j.recipients,
+          created_at: j.created_at
+        })));
+      }
+      console.log('[notifications] - User ID recherché:', uid);
+      
+      // Récupérer les notifications via fonction RPC pour contourner les politiques RLS
+      let finalRows = [];
+      
+      const { data: rows, error } = await supabase.rpc('get_user_notifications', {
+        p_user_id: uid,
+        p_limit: 100
+      });
+      
+      if (error) {
+        console.warn('[notifications] Erreur lors du chargement (RPC):', error);
+        console.warn('[notifications] Code erreur:', error.code);
+        console.warn('[notifications] Message:', error.message);
+        
+        // Si la fonction n'existe pas, afficher un message clair
+        if (error.code === '42883' || error.message?.includes('does not exist') || error.message?.includes('n\'existe pas')) {
+          console.error('[notifications] ❌ La fonction RPC get_user_notifications n\'existe pas !');
+          console.error('[notifications] Exécutez la migration: supabase/migrations/get_user_notifications_rpc.sql');
+          Alert.alert(
+            'Configuration requise',
+            'La fonction de récupération des notifications n\'est pas installée.\n\n' +
+            'Veuillez exécuter la migration SQL dans Supabase:\n' +
+            'supabase/migrations/get_user_notifications_rpc.sql',
+            [{ text: 'OK' }]
+          );
+        }
+        
+        // Fallback: essayer avec une requête directe
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('notification_jobs')
+          .select('id, created_at, kind, group_id, match_id, actor_id, recipients, payload')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        
+        if (fallbackError) {
+          console.warn('[notifications] Erreur fallback:', fallbackError);
+          setNotifications([]);
+          setUnreadCount(0);
+          return;
+        }
+        
+        const fallbackRows = fallbackData || [];
+        console.log('[notifications] Notifications récupérées (fallback, avant filtre):', fallbackRows.length);
+        
+        // Filtrer côté client
+        finalRows = fallbackRows.filter(job => {
+          if (!job.recipients || !Array.isArray(job.recipients)) {
+            console.log('[notifications] Job sans recipients valides:', job.id, job.recipients);
+            return false;
+          }
+          const isRecipient = job.recipients.some(r => String(r) === String(uid));
+          if (isRecipient) {
+            console.log('[notifications] ✅ Notification trouvée pour utilisateur:', job.id, job.kind);
+          }
+          return isRecipient;
+        });
+        console.log('[notifications] Notifications récupérées (fallback, après filtre):', finalRows.length);
+      } else {
+        finalRows = rows || [];
+        console.log('[notifications] ✅ Total notifications récupérées (RPC):', finalRows.length);
+        if (finalRows.length > 0) {
+          console.log('[notifications] - Première notification:', {
+            id: finalRows[0].id,
+            kind: finalRows[0].kind,
+            created_at: finalRows[0].created_at
+          });
+        }
+      }
+      
+      console.log('[notifications] Notifications finales à afficher:', finalRows.length);
 
       // Build lookup maps for actor (profiles) and group names
-      const actorIds = Array.from(new Set(rows.map(j => j.actor_id).filter(Boolean)));
-      const groupIds = Array.from(new Set(rows.map(j => j.group_id).filter(Boolean)));
+      const actorIds = Array.from(new Set(finalRows.map(j => j.actor_id).filter(Boolean)));
+      const groupIds = Array.from(new Set(finalRows.map(j => j.group_id).filter(Boolean)));
 
       const [{ data: profs }, { data: grps }] = await Promise.all([
         actorIds.length
@@ -117,7 +198,7 @@ export default function TabsLayout() {
         'member_left': 'Membre parti',
       };
 
-      const mapped = rows.map((job) => {
+      const mapped = finalRows.map((job) => {
         const kind = String(job?.kind || '').toLowerCase();
         const actor = profilesById[job.actor_id] || {};
         const actorName =
@@ -150,8 +231,9 @@ export default function TabsLayout() {
         };
       });
 
+      const unread = mapped.filter(n => !n.is_read).length;
       setNotifications(mapped);
-      setUnreadCount(mapped.filter(n => !n.is_read).length);
+      setUnreadCount(unread);
     } catch (e) {
       console.warn('[notifications] load error', e);
     } finally {
@@ -318,6 +400,94 @@ export default function TabsLayout() {
     saveNotificationPreferences(newPrefs).catch(e => console.warn('[notifications] Error saving preferences:', e));
   }
 
+  // Fonction de test des notifications
+  async function testNotifications() {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) {
+        Alert.alert('Erreur', 'Vous devez être connecté pour tester les notifications.');
+        return;
+      }
+
+      if (!activeGroup?.id) {
+        Alert.alert('Erreur', 'Vous devez avoir un groupe actif pour tester les notifications.');
+        return;
+      }
+
+      // Créer une notification de test via fonction RPC pour contourner RLS
+      const { data, error } = await supabase.rpc('create_test_notification', {
+        p_user_id: uid,
+        p_group_id: activeGroup.id,
+        p_title: '🧪 Test de notification',
+        p_message: 'Ceci est une notification de test. Si vous voyez ce message, les notifications fonctionnent correctement !',
+      });
+
+      if (error) {
+        console.error('[Test Notifications] Erreur création:', error);
+        Alert.alert('Erreur', `Impossible de créer la notification de test: ${error.message}`);
+        return;
+      }
+
+      // data est l'UUID de la notification créée
+      const notificationId = data;
+      console.log('[Test Notifications] Notification de test créée:', notificationId);
+      
+      // Vérifier que la notification a bien été créée
+      const { data: createdNotif, error: checkError } = await supabase
+        .from('notification_jobs')
+        .select('*')
+        .eq('id', notificationId)
+        .single();
+      
+      if (checkError) {
+        console.warn('[Test Notifications] Erreur vérification:', checkError);
+      } else {
+        console.log('[Test Notifications] Notification vérifiée:', {
+          id: createdNotif.id,
+          kind: createdNotif.kind,
+          recipients: createdNotif.recipients,
+          group_id: createdNotif.group_id,
+          created_at: createdNotif.created_at,
+        });
+      }
+      
+      Alert.alert(
+        'Test envoyé ✅',
+        'Une notification de test a été créée. Elle devrait apparaître dans votre liste de notifications dans quelques secondes.\n\n' +
+        'Vérifiez :\n' +
+        '1. Que la notification apparaît dans la liste (icône clochette)\n' +
+        '2. Que vous recevez une notification push (si les permissions sont activées)\n' +
+        '3. Que le badge de notification s\'incrémente',
+        [
+          { text: 'OK', style: 'default' },
+          { 
+            text: 'Voir les notifications', 
+            onPress: async () => {
+              setNotifSettingsOpen(false);
+              // Attendre un peu pour que la notification soit disponible
+              setTimeout(async () => {
+                await loadNotifications();
+                setTimeout(() => {
+                  setNotifsOpen(true);
+                }, 100);
+              }, 1000);
+            }
+          }
+        ]
+      );
+
+      // Recharger les notifications après un court délai pour s'assurer qu'elle apparaît
+      setTimeout(async () => {
+        console.log('[Test Notifications] Rechargement des notifications...');
+        await loadNotifications();
+      }, 2000);
+    } catch (e) {
+      console.error('[Test Notifications] Erreur:', e);
+      Alert.alert('Erreur', `Erreur lors du test: ${e.message || String(e)}`);
+    }
+  }
+
   useEffect(() => { 
     loadNotifications(); 
     
@@ -367,6 +537,22 @@ export default function TabsLayout() {
       }
     };
   }, []);
+
+  // Mettre à jour le badge iOS/Android quand le nombre de notifications non lues change
+  useEffect(() => {
+    if (!isNotificationsSupported) return;
+    
+    (async () => {
+      await withNotifications(async (Notifications) => {
+        try {
+          await Notifications.setBadgeCountAsync(unreadCount);
+          console.log('[Notifications] Badge mis à jour:', unreadCount);
+        } catch (e) {
+          console.warn('[Notifications] Erreur setBadgeCount:', e);
+        }
+      });
+    })();
+  }, [unreadCount, isNotificationsSupported]);
 
   // Recharger le statut des permissions et les préférences quand la modale de paramètres s'ouvre
   useEffect(() => {
@@ -580,49 +766,51 @@ export default function TabsLayout() {
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'flex-start', padding: 16 }}>
           <View style={{ width: '96%', maxWidth: 460, marginTop: 60, backgroundColor: '#ffffff', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e5e7eb', maxHeight: '70%' }}>
+            {/* Bouton de fermeture en haut à droite */}
+            <View style={{ position: 'absolute', top: 12, right: 12, zIndex: 10 }}>
+              <Pressable onPress={async () => { 
+                setNotifsOpen(false); 
+                if (isNotificationsSupported) {
+                  await withNotifications(async (Notifications) => {
+                    try { 
+                      await Notifications.setBadgeCountAsync(0); 
+                    } catch (e) {
+                      console.warn('[notifications] Erreur setBadgeCount:', e);
+                    }
+                  });
+                }
+              }} style={({ pressed }) => [ { padding: 6, borderRadius: 8 }, pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null ]}>
+                <Ionicons name="close" size={20} color="#374151" />
+              </Pressable>
+            </View>
+            
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Pressable 
-                  onPress={async () => { 
-                    // Fermer d'abord la modale notifications
-                    setNotifsOpen(false);
-                    // Attendre un court instant pour que la modale se ferme
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                    // Ouvrir la modale paramètres
-                    setNotifSettingsOpen(true);
-                    // Charger les données de manière asynchrone sans bloquer
-                    loadNotificationPermissionStatus().catch(e => console.warn('[notifications] Error loading permission status:', e));
-                    loadNotificationPreferences().catch(e => console.warn('[notifications] Error loading preferences:', e));
-                  }} 
-                  style={({ pressed }) => [ 
-                    { padding: 6, borderRadius: 8, alignSelf: 'flex-start' }, 
-                    pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null 
-                  ]}
-                >
-                  <Ionicons name="settings-outline" size={20} color="#156BC9" />
-                </Pressable>
-              </View>
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Pressable onPress={markAllNotificationsRead} style={({ pressed }) => [ { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8 }, pressed ? { opacity: 0.8 } : null ]}>
-                  <Text style={{ color: '#156BC9', fontWeight: '800', fontSize: 13 }}>Tout marquer lu</Text>
-                </Pressable>
-              </View>
-              <View style={{ flex: 1, alignItems: 'flex-start' }}>
-                <Pressable onPress={async () => { 
-                  setNotifsOpen(false); 
-                  if (isNotificationsSupported) {
-                    await withNotifications(async (Notifications) => {
-                      try { 
-                        await Notifications.setBadgeCountAsync(0); 
-                      } catch (e) {
-                        console.warn('[notifications] Erreur setBadgeCount:', e);
-                      }
-                    });
-                  }
-                }} style={({ pressed }) => [ { padding: 6, borderRadius: 8 }, pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null ]}>
-                  <Ionicons name="close" size={20} color="#374151" />
-                </Pressable>
-              </View>
+              <Pressable 
+                onPress={async () => { 
+                  // Fermer d'abord la modale notifications
+                  setNotifsOpen(false);
+                  // Attendre un court instant pour que la modale se ferme
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                  // Ouvrir la modale paramètres
+                  setNotifSettingsOpen(true);
+                  // Charger les données de manière asynchrone sans bloquer
+                  loadNotificationPermissionStatus().catch(e => console.warn('[notifications] Error loading permission status:', e));
+                  loadNotificationPreferences().catch(e => console.warn('[notifications] Error loading preferences:', e));
+                }} 
+                style={({ pressed }) => [ 
+                  { padding: 6, borderRadius: 8 }, 
+                  pressed ? { opacity: 0.8, backgroundColor: '#f3f4f6' } : null 
+                ]}
+              >
+                <Ionicons name="settings-outline" size={20} color="#156BC9" />
+              </Pressable>
+              
+              <Pressable onPress={markAllNotificationsRead} style={({ pressed }) => [ { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8 }, pressed ? { opacity: 0.8 } : null ]}>
+                <Text style={{ color: '#156BC9', fontWeight: '800', fontSize: 13 }}>Tout marquer lu</Text>
+              </Pressable>
+              
+              {/* Espace pour équilibrer avec l'icône fermer en position absolue */}
+              <View style={{ width: 32, height: 32 }} />
             </View>
 
             {loadingNotifs ? (

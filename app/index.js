@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../context/auth';
 import { hasAvailabilityForGroup } from '../lib/availabilityCheck';
+import { validateActiveGroup } from '../lib/groupValidation';
 import { isProfileComplete } from '../lib/profileCheck';
 import { supabase } from '../lib/supabase';
 
@@ -38,18 +39,28 @@ export default function Index() {
             const complete = await isProfileComplete(userId);
             setProfileComplete(complete);
             
-            // Vérifier si un groupe est sélectionné
+            // Vérifier si un groupe est sélectionné et valide
             const savedGroupId = await AsyncStorage.getItem("active_group_id");
-            const hasGroup = !!savedGroupId;
-            setHasActiveGroup(hasGroup);
+            let hasGroup = false;
             
-            // Si groupe existe, vérifier les disponibilités
-            if (hasGroup && savedGroupId) {
-              const hasAvail = await hasAvailabilityForGroup(userId, savedGroupId);
-              setHasAvailability(hasAvail);
+            if (savedGroupId) {
+              // Valider que le groupe existe toujours et que l'utilisateur est toujours membre
+              const isValid = await validateActiveGroup(userId, savedGroupId);
+              if (isValid) {
+                hasGroup = true;
+                // Vérifier les disponibilités
+                const hasAvail = await hasAvailabilityForGroup(userId, savedGroupId);
+                setHasAvailability(hasAvail);
+              } else {
+                // Groupe invalide, nettoyer AsyncStorage
+                await AsyncStorage.removeItem("active_group_id");
+                setHasAvailability(false);
+              }
             } else {
               setHasAvailability(false);
             }
+            
+            setHasActiveGroup(hasGroup);
           } else {
             setProfileComplete(false);
             setHasActiveGroup(false);
