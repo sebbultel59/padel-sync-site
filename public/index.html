@@ -97,11 +97,33 @@
                     setTimeout(() => {
                         const container = document.getElementById('container');
                         if (container && window.location.href.includes('syncpadel.app')) {
+                            // Détecter la plateforme
+                            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                            const isAndroid = /Android/.test(navigator.userAgent);
+                            
+                            let appStoreLink = '';
+                            let appStoreText = '';
+                            
+                            if (isIOS) {
+                                // Lien App Store iOS (à mettre à jour avec l'ID réel de l'app)
+                                appStoreLink = 'https://apps.apple.com/app/id6739000000'; // Remplacez par l'ID réel
+                                appStoreText = 'Télécharger sur l\'App Store';
+                            } else if (isAndroid) {
+                                // Lien Google Play Store
+                                appStoreLink = 'https://play.google.com/store/apps/details?id=com.padelsync.app';
+                                appStoreText = 'Télécharger sur Google Play';
+                            } else {
+                                // Lien générique
+                                appStoreLink = 'https://apps.apple.com/app/id6739000000'; // Remplacez par l'ID réel
+                                appStoreText = 'Télécharger l\'application';
+                            }
+                            
                             container.innerHTML = `
                                 <h1>Application non trouvée</h1>
                                 <p>L'application Padel Sync n'est pas installée ou ne peut pas être ouverte.</p>
                                 <p>Veuillez installer l'application et réessayer.</p>
-                                <a href="https://apps.apple.com/app/padel-sync" class="button" style="margin-top: 1rem;">Télécharger l'app</a>
+                                <a href="${appStoreLink}" class="button" style="margin-top: 1rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">${appStoreText}</a>
+                                <p style="margin-top: 1.5rem; font-size: 0.9rem; opacity: 0.8;">Ou réessayez dans quelques instants si l'application est déjà installée.</p>
                             `;
                         }
                     }, 3000);
@@ -114,12 +136,36 @@
                     redirectToApp();
                 }
             } else {
-                // Sinon, afficher une page d'accueil simple
+                // Sinon, afficher une page d'accueil simple avec liens de téléchargement
                 const container = document.getElementById('container');
                 if (container) {
+                    // Détecter la plateforme
+                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                    const isAndroid = /Android/.test(navigator.userAgent);
+                    
+                    let downloadLinks = '';
+                    
+                    if (isIOS) {
+                        downloadLinks = `
+                            <a href="https://apps.apple.com/app/id6739000000" class="button" style="margin-top: 1rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Télécharger sur l'App Store</a>
+                        `;
+                    } else if (isAndroid) {
+                        downloadLinks = `
+                            <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" class="button" style="margin-top: 1rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Télécharger sur Google Play</a>
+                        `;
+                    } else {
+                        downloadLinks = `
+                            <div style="margin-top: 1.5rem;">
+                                <a href="https://apps.apple.com/app/id6739000000" class="button" style="margin: 0.5rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">App Store</a>
+                                <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" class="button" style="margin: 0.5rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Google Play</a>
+                            </div>
+                        `;
+                    }
+                    
                     container.innerHTML = `
                         <h1>Padel Sync</h1>
                         <p>Application mobile de gestion de matchs de padel</p>
+                        ${downloadLinks}
                     `;
                 }
             }
