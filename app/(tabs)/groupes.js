@@ -422,7 +422,7 @@ export default function GroupesScreen() {
         myGroups = (data ?? []).map(g => {
           const club = g.club_id ? (clubsMap.get(g.club_id) || null) : null;
           return {
-            ...g,
+          ...g,
             club_name: club?.name || null,
             club_lat: club?.lat || null,
             club_lng: club?.lng || null,
@@ -451,9 +451,9 @@ export default function GroupesScreen() {
           .map(g => {
             const club = g.club_id ? (publicClubsMap.get(g.club_id) || null) : null;
             return {
-              ...g,
-              visibility: String(g.visibility || "").toLowerCase(),
-              join_policy: String(g.join_policy || "").toLowerCase(),
+            ...g,
+            visibility: String(g.visibility || "").toLowerCase(),
+            join_policy: String(g.join_policy || "").toLowerCase(),
               club_name: club?.name || null,
               club_lat: club?.lat || null,
               club_lng: club?.lng || null,
@@ -996,7 +996,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         setSavingGroup(false);
         return;
       }
-      
+
       // Utiliser la fonction RPC pour mettre à jour le groupe (contourne les contraintes CHECK)
       const { data: updatedGroupId, error: updateError } = await supabase.rpc('rpc_update_group', {
         p_group_id: groupId,
@@ -1771,7 +1771,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
       // Préparer les paramètres de localisation
       const clubIdParam = (createClubId && String(createClubId).trim() !== '') ? String(createClubId).trim() : null;
       const cityParam = (createCity && String(createCity).trim() !== '') ? String(createCity).trim() : null;
-      
+
       console.log('[Groups][create] me =', me, 'visibility =', safeVisibility, 'join_policy =', join_policy);
       console.log('[Groups][create] club_id =', clubIdParam, 'city =', cityParam);
       console.log('[Groups][create] createClubId raw =', createClubId, 'type =', typeof createClubId);
@@ -1937,7 +1937,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
           console.log('[Groups][create] Location data correctly saved in DB');
         }
       }
-      
+
       await loadGroups();
       
       // Utiliser les données vérifiées depuis la DB
@@ -2612,7 +2612,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         {/* Groupes publics */}
         <View style={s.sectionHeader}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-            <Text style={s.sectionTitle}>Groupes publics</Text>
+          <Text style={s.sectionTitle}>Groupes publics</Text>
             <Pressable
               onPress={() => {
                 if (!publicGroupsGeoFilterVisible) {
@@ -2650,7 +2650,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 color={publicGroupsGeoFilter ? "#15803d" : "#9ca3af"}
               />
             </Pressable>
-          </View>
+        </View>
           {publicGroupsClubs.length > 0 && (
             <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
               <Pressable

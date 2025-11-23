@@ -3,7 +3,7 @@ export default {
     name: "Padel Sync",
     slug: "padel-sync",
     entryPoint: "./index.js",
-    scheme: "padelsync",
+    scheme: "syncpadel",
     version: "2.0.9",
     icon: "./assets/icon.png", // chemin par défaut pour éviter les erreurs build iOS
     ios: {
