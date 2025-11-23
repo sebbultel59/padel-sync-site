@@ -4,6 +4,10 @@
   "outputDirectory": "public",
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
       "source": "/invite",
       "destination": "/invite.html"
     },
@@ -18,6 +22,10 @@
     {
       "source": "/supprimer-compte",
       "destination": "/delete-account.html"
+    },
+    {
+      "source": "/reset-password",
+      "destination": "/reset-password.html"
     }
   ],
   "headers": [
