@@ -50,68 +50,81 @@
             background: #2a5ba7;
         }
     </style>
-    <script>
-        // Vérifier si l'URL contient un token de réinitialisation de mot de passe
-        const hash = window.location.hash;
-        
-        if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
-            // Construire l'URL du deep link avec le hash
-            const deepLink = 'syncpadel://reset-password' + hash;
-            
-            // Fonction pour rediriger vers le deep link
-            function redirectToApp() {
-                // Essayer d'ouvrir le deep link
-                window.location.href = deepLink;
-                
-                // Si après 2 secondes on est toujours sur la page, afficher un message
-                setTimeout(() => {
-                    document.querySelector('.container').innerHTML = `
-                        <h1>Application non trouvée</h1>
-                        <p>L'application Padel Sync n'est pas installée ou ne peut pas être ouverte.</p>
-                        <p>Veuillez installer l'application et réessayer.</p>
-                        <a href="https://apps.apple.com/app/padel-sync" class="button" style="margin-top: 1rem;">Télécharger l'app</a>
-                    `;
-                }, 2000);
-            }
-            
-            // Afficher le spinner
-            document.body.innerHTML = `
-                <div class="container">
-                    <div class="spinner"></div>
-                    <div class="message">
-                        <h1>Ouverture de l'application...</h1>
-                        <p>Redirection en cours vers Padel Sync</p>
-                    </div>
-                </div>
-            `;
-            
-            // Rediriger immédiatement
-            redirectToApp();
-            
-            // Essayer aussi avec un iframe (pour certains navigateurs)
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = deepLink;
-            document.body.appendChild(iframe);
-            
-            // Nettoyer l'iframe après 1 seconde
-            setTimeout(() => {
-                if (document.body.contains(iframe)) {
-                    document.body.removeChild(iframe);
-                }
-            }, 1000);
-        } else {
-            // Sinon, afficher une page d'accueil simple
-            document.body.innerHTML = `
-                <div class="container">
-                    <h1>Padel Sync</h1>
-                    <p>Application mobile de gestion de matchs de padel</p>
-                </div>
-            `;
-        }
-    </script>
 </head>
 <body>
+    <div class="container" id="container">
+        <div class="spinner"></div>
+        <div class="message">
+            <h1>Ouverture de l'application...</h1>
+            <p>Redirection en cours vers Padel Sync</p>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // Vérifier si l'URL contient un token de réinitialisation de mot de passe
+            const hash = window.location.hash;
+            
+            if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
+                // Construire l'URL du deep link avec le hash
+                const deepLink = 'syncpadel://reset-password' + hash;
+                
+                // Fonction pour rediriger vers le deep link
+                function redirectToApp() {
+                    console.log('Redirection vers:', deepLink);
+                    
+                    // Essayer d'ouvrir le deep link
+                    window.location.href = deepLink;
+                    
+                    // Essayer aussi avec un iframe (pour certains navigateurs)
+                    try {
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        iframe.src = deepLink;
+                        document.body.appendChild(iframe);
+                        
+                        // Nettoyer l'iframe après 1 seconde
+                        setTimeout(() => {
+                            if (document.body.contains(iframe)) {
+                                document.body.removeChild(iframe);
+                            }
+                        }, 1000);
+                    } catch (e) {
+                        console.error('Erreur iframe:', e);
+                    }
+                    
+                    // Si après 3 secondes on est toujours sur la page, afficher un message
+                    setTimeout(() => {
+                        const container = document.getElementById('container');
+                        if (container && window.location.href.includes('syncpadel.app')) {
+                            container.innerHTML = `
+                                <h1>Application non trouvée</h1>
+                                <p>L'application Padel Sync n'est pas installée ou ne peut pas être ouverte.</p>
+                                <p>Veuillez installer l'application et réessayer.</p>
+                                <a href="https://apps.apple.com/app/padel-sync" class="button" style="margin-top: 1rem;">Télécharger l'app</a>
+                            `;
+                        }
+                    }, 3000);
+                }
+                
+                // Attendre que le DOM soit prêt
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', redirectToApp);
+                } else {
+                    redirectToApp();
+                }
+            } else {
+                // Sinon, afficher une page d'accueil simple
+                const container = document.getElementById('container');
+                if (container) {
+                    container.innerHTML = `
+                        <h1>Padel Sync</h1>
+                        <p>Application mobile de gestion de matchs de padel</p>
+                    `;
+                }
+            }
+        })();
+    </script>
 </body>
 </html>
 
