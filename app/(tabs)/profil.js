@@ -1,10 +1,11 @@
 // app/(tabs)/profil.js
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GestureHandlerRootView, Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import {
   ActivityIndicator,
   Alert,
@@ -19,16 +20,44 @@ import {
   TextInput,
   View,
 } from "react-native";
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingModal } from "../../components/OnboardingModal";
 import { useAuth } from "../../context/auth";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
-import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
 import { isProfileComplete } from "../../lib/profileCheck";
+import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
+
+// Détecter si on est en Expo Go (où Worklets peut avoir des problèmes de version)
+const isExpoGo = Constants.executionEnvironment === 'storeClient';
+
+// Imports conditionnels pour éviter les erreurs Worklets en Expo Go
+let Gesture, GestureDetector, GestureHandlerRootView;
+let Animated, useAnimatedStyle, useSharedValue, withTiming;
+
+try {
+  const gestureHandler = require('react-native-gesture-handler');
+  Gesture = gestureHandler.Gesture;
+  GestureDetector = gestureHandler.GestureDetector;
+  GestureHandlerRootView = gestureHandler.GestureHandlerRootView;
+  
+  const reanimated = require('react-native-reanimated');
+  Animated = reanimated.default;
+  useAnimatedStyle = reanimated.useAnimatedStyle;
+  useSharedValue = reanimated.useSharedValue;
+  withTiming = reanimated.withTiming;
+} catch (e) {
+  console.warn('[Profil] Erreur lors du chargement des modules de gestes:', e);
+  // Fallback: créer des composants vides
+  GestureDetector = ({ children, gesture }) => children;
+  GestureHandlerRootView = ({ children, style }) => <View style={style}>{children}</View>;
+  Animated = { View: View };
+  useAnimatedStyle = () => ({});
+  useSharedValue = (val) => ({ value: val });
+  withTiming = (val) => val;
+  Gesture = { Pinch: () => ({ onUpdate: () => {}, onEnd: () => {} }), Pan: () => ({ onUpdate: () => {}, onEnd: () => {} }), Simultaneous: (...args) => null };
+}
 
 const BRAND = "#1a4b97";
 const AVATAR = 150;
@@ -58,6 +87,10 @@ export default function ProfilScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  
+  // Rôles
+  const isSuperAdmin = useIsSuperAdmin();
+  const { role, clubId } = useUserRole();
 
   const [me, setMe] = useState(null); // { id, email }
   const [displayName, setDisplayName] = useState("");
@@ -104,7 +137,9 @@ export default function ProfilScreen() {
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   const CACHE_MAX_SIZE = 50;
   
-  // Zoom et pan pour l'image des niveaux
+  // Zoom et pan pour l'image des niveaux (désactivé en Expo Go à cause des problèmes Worklets)
+  const gesturesEnabled = !isExpoGo && Gesture && typeof Gesture.Pinch === 'function' && typeof Gesture.Pan === 'function' && Animated;
+  
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -112,37 +147,60 @@ export default function ProfilScreen() {
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
   
-  const pinchGesture = Gesture.Pinch()
-    .onUpdate((event) => {
-      scale.value = Math.max(1, Math.min(savedScale.value * event.scale, 4));
-    })
-    .onEnd(() => {
-      savedScale.value = scale.value;
-      if (scale.value < 1) {
-        scale.value = withTiming(1);
-        savedScale.value = 1;
-        translateX.value = withTiming(0);
-        translateY.value = withTiming(0);
-        savedTranslateX.value = 0;
-        savedTranslateY.value = 0;
-      }
-    });
+  const pinchGesture = gesturesEnabled && Gesture.Pinch ? (() => {
+    try {
+      return Gesture.Pinch()
+        .onUpdate((event) => {
+          scale.value = Math.max(1, Math.min(savedScale.value * event.scale, 4));
+        })
+        .onEnd(() => {
+          savedScale.value = scale.value;
+          if (scale.value < 1) {
+            scale.value = withTiming(1);
+            savedScale.value = 1;
+            translateX.value = withTiming(0);
+            translateY.value = withTiming(0);
+            savedTranslateX.value = 0;
+            savedTranslateY.value = 0;
+          }
+        });
+    } catch (e) {
+      console.warn('[Profil] Erreur lors de la création du gesture Pinch:', e);
+      return null;
+    }
+  })() : null;
 
-  const panGesture = Gesture.Pan()
-    .onUpdate((event) => {
-      if (scale.value > 1) {
-        translateX.value = savedTranslateX.value + event.translationX;
-        translateY.value = savedTranslateY.value + event.translationY;
-      }
-    })
-    .onEnd(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    });
+  const panGesture = gesturesEnabled && Gesture.Pan ? (() => {
+    try {
+      return Gesture.Pan()
+        .onUpdate((event) => {
+          if (scale.value > 1) {
+            translateX.value = savedTranslateX.value + event.translationX;
+            translateY.value = savedTranslateY.value + event.translationY;
+          }
+        })
+        .onEnd(() => {
+          savedTranslateX.value = translateX.value;
+          savedTranslateY.value = translateY.value;
+        });
+    } catch (e) {
+      console.warn('[Profil] Erreur lors de la création du gesture Pan:', e);
+      return null;
+    }
+  })() : null;
 
-  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture);
+  const composedGesture = gesturesEnabled && pinchGesture && panGesture && typeof Gesture.Simultaneous === 'function'
+    ? (() => {
+        try {
+          return Gesture.Simultaneous(pinchGesture, panGesture);
+        } catch (e) {
+          console.warn('[Profil] Erreur lors de la création du gesture composé:', e);
+          return null;
+        }
+      })()
+    : null;
   
-  const animatedStyle = useAnimatedStyle(() => {
+  const animatedStyle = gesturesEnabled ? useAnimatedStyle(() => {
     return {
       transform: [
         { translateX: translateX.value },
@@ -150,7 +208,7 @@ export default function ProfilScreen() {
         { scale: scale.value },
       ],
     };
-  });
+  }) : {};
 
   const { signOut: signOutCtx } = useAuth();
 
@@ -217,7 +275,13 @@ export default function ProfilScreen() {
         setClubsList(allClubs);
       }
     } catch (e) {
-      console.error('[Profil] Erreur chargement clubs:', e);
+      console.error('[Profil] Erreur chargement clubs:', {
+        message: e?.message,
+        code: e?.code,
+        details: e?.details,
+        hint: e?.hint,
+        stack: e?.stack,
+      });
       Alert.alert('Erreur', 'Impossible de charger la liste des clubs');
     } finally {
       setLoadingClubs(false);
@@ -644,8 +708,12 @@ export default function ProfilScreen() {
         Alert.alert("Permission requise", "Autorise l'accès aux photos pour choisir un avatar.");
         return;
       }
+      const pickerMediaTypes = ImagePicker?.MediaType?.IMAGES
+        ? { mediaTypes: [ImagePicker.MediaType.IMAGES] }
+        : { mediaTypes: ImagePicker?.MediaTypeOptions?.Images };
+
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        ...pickerMediaTypes,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -1339,6 +1407,81 @@ export default function ProfilScreen() {
           <Text style={s.btnTxt}>{saving ? "Enregistrement..." : "Enregistrer"}</Text>
         </Pressable>
 
+        {/* Affichage du rôle actuel */}
+        {(isSuperAdmin || role) && (
+          <View style={[s.card, { marginBottom: 12 }]}>
+            <Text style={[s.sectionTitle, { marginBottom: 8 }]}>Rôle actuel</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 12,
+                backgroundColor: role === 'super_admin' ? '#fce7f3' :
+                                 role === 'admin' ? '#dbeafe' :
+                                 role === 'club_manager' ? '#fef3c7' : '#e5e7eb'
+              }}>
+                <Text style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: '#374151'
+                }}>
+                  {role === 'super_admin' ? '👑 Super Admin' :
+                   role === 'admin' ? '🔧 Admin' :
+                   role === 'club_manager' ? '🏢 Club Manager' :
+                   '👤 Joueur'}
+                </Text>
+              </View>
+              {clubId && (
+                <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                  Club ID: {clubId.substring(0, 8)}...
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Bouton gestion de club (club_manager uniquement) */}
+        {role === 'club_manager' && clubId && (
+          <Pressable
+            onPress={() => router.push(`/clubs/${clubId}/manage`)}
+            style={[
+              s.btn,
+              {
+                backgroundColor: "#fbbf24",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 12,
+              },
+              Platform.OS === "web" && { cursor: "pointer" }
+            ]}
+          >
+            <Ionicons name="business-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={s.btnTxt}>Gérer mon club</Text>
+          </Pressable>
+        )}
+
+        {/* Bouton gestion des rôles (super_admin uniquement) */}
+        {isSuperAdmin && (
+          <Pressable
+            onPress={() => router.push('/admin/roles')}
+            style={[
+              s.btn,
+              {
+                backgroundColor: "#7c3aed",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 12,
+              },
+              Platform.OS === "web" && { cursor: "pointer" }
+            ]}
+          >
+            <Ionicons name="shield-checkmark-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={s.btnTxt}>Gestion des rôles</Text>
+          </Pressable>
+        )}
+
         {/* Déconnexion (garde modifs) */}
         <Pressable
           onPress={press("profile-logout", onLogout)}
@@ -1407,12 +1550,14 @@ export default function ProfilScreen() {
                     onPress={() => {
                       setNiveauInfoModalVisible(false);
                       // Réinitialiser le zoom et la position quand on ferme
-                      scale.value = 1;
-                      savedScale.value = 1;
-                      translateX.value = 0;
-                      translateY.value = 0;
-                      savedTranslateX.value = 0;
-                      savedTranslateY.value = 0;
+                      if (gesturesEnabled) {
+                        scale.value = 1;
+                        savedScale.value = 1;
+                        translateX.value = 0;
+                        translateY.value = 0;
+                        savedTranslateX.value = 0;
+                        savedTranslateY.value = 0;
+                      }
                     }} 
                     style={{ padding: 8 }}
                   >
@@ -1420,14 +1565,29 @@ export default function ProfilScreen() {
                   </Pressable>
                 </View>
                 <View style={{ maxHeight: '80%', overflow: 'hidden', borderRadius: 8 }}>
-                  <GestureDetector gesture={composedGesture}>
-                    <Animated.View style={[{ overflow: 'visible' }, animatedStyle]}>
+                  {gesturesEnabled && composedGesture ? (
+                    <GestureDetector gesture={composedGesture}>
+                      <Animated.View style={[{ overflow: 'visible' }, animatedStyle]}>
+                        <Image
+                          source={require('../../assets/images/niveaux_padel_2025.jpg')}
+                          style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain' }}
+                        />
+                      </Animated.View>
+                    </GestureDetector>
+                  ) : (
+                    <ScrollView 
+                      maximumZoomScale={4} 
+                      minimumZoomScale={1} 
+                      showsHorizontalScrollIndicator={false}
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={{ alignItems: 'center', justifyContent: 'center' }}
+                    >
                       <Image
                         source={require('../../assets/images/niveaux_padel_2025.jpg')}
                         style={{ width: '100%', height: undefined, aspectRatio: 1, resizeMode: 'contain' }}
                       />
-                    </Animated.View>
-                  </GestureDetector>
+                    </ScrollView>
+                  )}
                 </View>
               </View>
             </View>

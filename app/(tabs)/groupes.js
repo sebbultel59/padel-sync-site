@@ -34,71 +34,9 @@ import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { validateActiveGroup } from "../../lib/groupValidation";
 import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
+import { useIsAdmin, useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
-
-// --- Super admin helper (UI guard) ---
-
-function useIsSuperAdmin() {
-  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const uid = auth?.user?.id;
-        if (!uid) return setIsSuperAdmin(false);
-
-        // Vérifie l'existence d'une ligne dans super_admins pour l'utilisateur courant
-        const { data: saRow, error: saErr } = await supabase
-          .from('super_admins')
-          .select('user_id')
-          .eq('user_id', uid)
-          .maybeSingle();
-        if (saErr) console.warn('[useIsSuperAdmin] super_admins check failed:', saErr.message);
-        const flag = !!saRow?.user_id;
-        setIsSuperAdmin(flag);
-      } catch (e) {
-        console.warn('[useIsSuperAdmin] fallback to false:', e?.message || e);
-        setIsSuperAdmin(false);
-      }
-    })();
-  }, []);
-
-  return isSuperAdmin;
-}
-
-// --- Admin helper (UI guard) ---
-
-function useIsGlobalAdmin() {
-  const [isGlobalAdmin, setIsGlobalAdmin] = React.useState(false);
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const uid = auth?.user?.id;
-        if (!uid) return setIsGlobalAdmin(false);
-
-        // Vérifie l'existence d'une ligne dans admins pour l'utilisateur courant
-        const { data: adminRow, error: adminErr } = await supabase
-          .from('admins')
-          .select('user_id')
-          .eq('user_id', uid)
-          .maybeSingle();
-        if (adminErr) console.warn('[useIsGlobalAdmin] admins check failed:', adminErr.message);
-        const flag = !!adminRow?.user_id;
-        setIsGlobalAdmin(flag);
-      } catch (e) {
-        console.warn('[useIsGlobalAdmin] fallback to false:', e?.message || e);
-        setIsGlobalAdmin(false);
-      }
-    })();
-  }, []);
-
-  return isGlobalAdmin;
-}
-// --- end helpers ---
 
 async function hapticSelect() {
   try {
@@ -263,7 +201,8 @@ export default function GroupesScreen() {
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const nav = useRouter();
   const isSuperAdmin = useIsSuperAdmin();
-  const isGlobalAdmin = useIsGlobalAdmin();
+  const isGlobalAdmin = useIsAdmin();
+  const { role: userRole, clubId: userClubId } = useUserRole();
   const insets = useSafeAreaInsets();
 
   // --- Auth guard ---
@@ -377,6 +316,11 @@ export default function GroupesScreen() {
     console.log('[openContactForProfile] Called with profile:', p?.name, p?.phone, p?.email);
     setContactProfile(p || null);
     setContactVisible(true);
+  }, []);
+
+  const openClubPage = useCallback((clubId) => {
+    if (!clubId) return;
+    router.push(`/clubs/${clubId}`);
   }, []);
 
   const openProfileForProfile = useCallback((p) => {
@@ -554,15 +498,24 @@ export default function GroupesScreen() {
         }
         setMembers(mapped);
 
+        // Vérifier si l'utilisateur peut gérer le groupe (utilise can_manage_group)
         if (meId) {
-          const { data: meRow, error: eMe } = await supabase
-            .from("group_members")
-            .select("role")
-            .eq("group_id", groupId)
-            .eq("user_id", meId)
-            .maybeSingle();
-          if (eMe) throw eMe;
-          setIsAdmin(meRow?.role === "admin" || meRow?.role === "owner");
+          const { data: canManage, error: eCanManage } = await supabase
+            .rpc('can_manage_group', { p_group_id: groupId, p_user_id: meId });
+          
+          if (eCanManage) {
+            // Fallback: vérifier si l'utilisateur est admin du groupe
+            const { data: meRow, error: eMe } = await supabase
+              .from("group_members")
+              .select("role")
+              .eq("group_id", groupId)
+              .eq("user_id", meId)
+              .maybeSingle();
+            if (eMe) throw eMe;
+            setIsAdmin(meRow?.role === "admin" || meRow?.role === "owner" || isSuperAdmin);
+          } else {
+            setIsAdmin(canManage === true || isSuperAdmin);
+          }
         }
       } catch (e) {
         Alert.alert("Erreur", e?.message ?? String(e));
@@ -570,7 +523,7 @@ export default function GroupesScreen() {
         setIsAdminLoading(false);
       }
     },
-    [meId]
+    [meId, isSuperAdmin]
   );
   const contactMember = useCallback((m) => {
     if (!m?.phone) {
@@ -887,8 +840,12 @@ Padel Sync — Ton match en 3 clics 🎾`;
     }
     try {
       console.log('[Avatar] picker:open');
+      const pickerMediaTypes = ImagePicker?.MediaType?.IMAGES
+        ? { mediaTypes: [ImagePicker.MediaType.IMAGES] }
+        : { mediaTypes: ImagePicker?.MediaTypeOptions?.Images };
+
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        ...pickerMediaTypes,
         // Ouvre l'éditeur natif de recadrage avec ratio carré
         allowsEditing: true,
         aspect: [1, 1],
@@ -960,9 +917,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
         return;
       }
     } else if (editingGroupVisibility === 'public' && editingGroupJoinPolicy === 'request') {
-      // Public sur demande : super admin ou admin
-      if (!isSuperAdmin && !isGlobalAdmin) {
-        Alert.alert('Restriction', 'Seuls les admins et super admins peuvent créer un groupe public sur demande.');
+      // Public sur demande : super admin, admin ou club_manager
+      if (!isSuperAdmin && !isGlobalAdmin && userRole !== 'club_manager') {
+        Alert.alert('Restriction', 'Seuls les admins, super admins et club managers peuvent créer un groupe public sur demande.');
         return;
       }
     } else if (editingGroupVisibility === 'private') {
@@ -1742,6 +1699,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
       // Super admin : peut créer tous les types
       // Admin : peut créer privé et public sur demande (mais pas public ouvert)
+      // Club Manager : peut créer privé et public sur demande (mais pas public ouvert)
       // Utilisateur : peut créer uniquement privé
 
       if (createVisibility === "public" && createJoinPolicy === "open") {
@@ -1752,9 +1710,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
           join_policy = "invite";
         }
       } else if (createVisibility === "public" && createJoinPolicy === "request") {
-        // Public sur demande : super admin ou admin
-        if (!isSuperAdmin && !isGlobalAdmin) {
-          Alert.alert('Restriction', 'Seuls les admins et super admins peuvent créer un groupe public sur demande.');
+        // Public sur demande : super admin, admin ou club_manager
+        if (!isSuperAdmin && !isGlobalAdmin && userRole !== 'club_manager') {
+          Alert.alert('Restriction', 'Seuls les admins, super admins et club managers peuvent créer un groupe public sur demande.');
           safeVisibility = "private";
           join_policy = "invite";
         }
@@ -1769,10 +1727,20 @@ Padel Sync — Ton match en 3 clics 🎾`;
       }
 
       // Préparer les paramètres de localisation
-      const clubIdParam = (createClubId && String(createClubId).trim() !== '') ? String(createClubId).trim() : null;
+      // Si l'utilisateur est club_manager, utiliser automatiquement son club_id
+      let clubIdParam = null;
+      if (userRole === 'club_manager' && userClubId) {
+        // Club manager : utiliser automatiquement son club_id
+        clubIdParam = userClubId;
+      } else if (createClubId && String(createClubId).trim() !== '') {
+        // Super admin peut spécifier n'importe quel club
+        clubIdParam = String(createClubId).trim();
+      }
+      
       const cityParam = (createCity && String(createCity).trim() !== '') ? String(createCity).trim() : null;
 
-      console.log('[Groups][create] me =', me, 'visibility =', safeVisibility, 'join_policy =', join_policy);
+      console.log('[Groups][create] me =', me, 'userRole =', userRole, 'userClubId =', userClubId);
+      console.log('[Groups][create] visibility =', safeVisibility, 'join_policy =', join_policy);
       console.log('[Groups][create] club_id =', clubIdParam, 'city =', cityParam);
       console.log('[Groups][create] createClubId raw =', createClubId, 'type =', typeof createClubId);
       console.log('[Groups][create] createCity raw =', createCity, 'type =', typeof createCity);
@@ -2396,13 +2364,28 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   </Text>
                 </View>
                 {(activeRecord?.club_name || activeRecord?.city) && (
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, flexWrap: "wrap", gap: 6 }}>
                     <Text style={{ color: "#6b7280", fontSize: 12 }}>
                       {[
                         activeRecord?.club_name && `🏟️ ${activeRecord.club_name}`,
                         activeRecord?.city && `📍 ${activeRecord.city}`
                       ].filter(Boolean).join(' · ')}
                     </Text>
+                    {activeRecord?.club_id && activeRecord?.club_name && (
+                      <Pressable
+                        onPress={press(`active-view-club-${activeRecord.club_id}`, () => openClubPage(activeRecord.club_id))}
+                        style={{
+                          paddingVertical: 4,
+                          paddingHorizontal: 10,
+                          borderRadius: 999,
+                          backgroundColor: "rgba(26,75,151,0.1)"
+                        }}
+                      >
+                        <Text style={{ color: BRAND, fontWeight: "700", fontSize: 12 }}>
+                          Voir {activeRecord.club_name}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 )}
               </View>
@@ -2883,6 +2866,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
                         <Text style={{ color: "#9ca3af" }}> · {typeof g.distanceKm === 'number' ? g.distanceKm.toFixed(1) : g.distanceKm} km</Text>
                       )}
                     </Text>
+                    {g.club_id && g.club_name && (
+                      <Pressable
+                        onPress={press(`view-club-${g.club_id}`, () => router.push(`/clubs/${g.club_id}`))}
+                        style={{ marginTop: 4, alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.1)" }}
+                      >
+                        <Text style={{ color: "#b0d4fb", fontWeight: "700", fontSize: 12 }}>
+                          Voir {g.club_name}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 </View>
                 <Pressable onPress={press("join-public", () => onJoinPublic(g.id))} style={[s.btnTiny, { backgroundColor: "#111827" }, Platform.OS === "web" && { cursor: "pointer" }]}>
@@ -2953,8 +2946,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </View>
               </TouchableOpacity>
 
-              {/* Public (sur demande) - pour super admin ou admin */}
-              {(isSuperAdmin || isGlobalAdmin) && (
+              {/* Public (sur demande) - pour super admin, admin et club_manager */}
+              {(isSuperAdmin || isGlobalAdmin || userRole === 'club_manager') && (
                 <TouchableOpacity
                   onPress={() => {
                     setEditingGroupVisibility("public");
@@ -3186,8 +3179,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </TouchableOpacity>
               )}
 
-              {/* Public (sur demande) - pour super admin et admin */}
-              {(isSuperAdmin || isGlobalAdmin) && (
+              {/* Public (sur demande) - pour super admin, admin et club_manager */}
+              {(isSuperAdmin || isGlobalAdmin || userRole === 'club_manager') && (
                 <TouchableOpacity
                   onPress={() => {
                     setCreateVisibility("public");

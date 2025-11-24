@@ -1,6 +1,6 @@
 function renderMessage(
     kind: string,
-    ctx: { actor_name?: string; starts_at?: string; ends_at?: string; group_name?: string }
+    ctx: { actor_name?: string; starts_at?: string; ends_at?: string; group_name?: string; payload?: any }
   ) {
     switch (kind) {
       // --- joueurs du match
@@ -8,7 +8,7 @@ function renderMessage(
       case "rsvp_accepted":   return { title: "Un joueur a confirmé", body: `${ctx.actor_name ?? "Un joueur"} a confirmé sa participation.` };
       case "rsvp_declined":   return { title: "Un joueur a refusé", body: `${ctx.actor_name ?? "Un joueur"} a refusé le match.` };
       case "rsvp_withdraw":   return { title: "Un joueur s'est retiré", body: `${ctx.actor_name ?? "Un joueur"} s'est retiré du match.` };
-      case "match_confirmed": return { title: "Match validé", body: "Les 4 joueurs ont confirmé, c’est validé !" };
+      case "match_confirmed": return { title: "Match validé", body: "Les 4 joueurs ont confirmé, c'est validé !" };
       case "match_canceled":  return { title: "Match annulé", body: "Le match a été annulé." };
   
       // --- membres du groupe (NOUVEAU)
@@ -21,6 +21,17 @@ function renderMessage(
       case "group_slot_hot_3":      return { title: "Ça se chauffe à 3 🔥", body: "Un créneau atteint 3 joueurs disponibles." };
       case "group_slot_ready_4":    return { title: "Match possible ✅", body: "Un créneau atteint 4 joueurs disponibles." };
   
+      // --- notifications de club (NOUVEAU)
+      case "club_notification":     
+        // Priorité: message > body > fallback
+        const clubMessage = ctx.payload?.message || ctx.payload?.body || "Nouvelle notification de votre club";
+        const clubTitle = ctx.payload?.title || "Message de votre club";
+        console.log('[renderMessage] club_notification - title:', clubTitle, 'message:', clubMessage);
+        return { 
+          title: clubTitle, 
+          body: clubMessage
+        };
+  
       default: return { title: "Padel Sync", body: "Mise à jour." };
     }
 }
@@ -29,14 +40,37 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
-async function sendExpoPush(messages: any[]) {
-  const res = await fetch(EXPO_PUSH_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(messages),
-  });
-  if (!res.ok) {
-    console.error("[expo] push error", await res.text());
+async function sendExpoPush(messages: any[]): Promise<boolean> {
+  try {
+    console.log(`[Expo] Envoi de ${messages.length} notification(s) à Expo...`);
+    const res = await fetch(EXPO_PUSH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(messages),
+    });
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("[Expo] ❌ Erreur lors de l'envoi:", res.status, errorText);
+      return false;
+    }
+    
+    const result = await res.json();
+    console.log(`[Expo] ✅ Réponse Expo:`, JSON.stringify(result));
+    
+    // Vérifier si Expo a retourné des erreurs dans la réponse
+    if (result.data && Array.isArray(result.data)) {
+      const errors = result.data.filter((r: any) => r.status === 'error');
+      if (errors.length > 0) {
+        console.error(`[Expo] ⚠️ ${errors.length} erreur(s) dans la réponse Expo:`, errors);
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("[Expo] ❌ Exception lors de l'envoi:", error);
+    return false;
   }
 }
 
@@ -48,15 +82,30 @@ Deno.serve(async () => {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(url, key);
 
-  const { data: jobs } = await supabase
+  // Récupérer uniquement les jobs non envoyés
+  // Filtrer directement dans la requête SQL pour éviter de traiter les anciens jobs
+  let jobsQuery = supabase
     .from("notification_jobs")
     .select("*")
     .order("created_at", { ascending: true })
     .limit(50);
 
+  // Filtrer les jobs non envoyés (sent_at IS NULL) directement dans la requête
+  // Limiter aussi aux jobs créés dans les dernières 24h pour éviter de traiter d'anciens jobs
+  const oneDayAgo = new Date();
+  oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+  
+  jobsQuery = jobsQuery
+    .is("sent_at", null)  // Seulement les jobs non envoyés
+    .gte("created_at", oneDayAgo.toISOString());  // Seulement les jobs récents (24h)
+
+  const { data: jobs } = await jobsQuery;
+  
   if (!jobs?.length) {
-    return new Response("no jobs", { status: 200 });
+    return new Response("no pending jobs", { status: 200 });
   }
+
+  console.log(`[Dispatch] ${jobs.length} job(s) à traiter`);
 
   const userIds = Array.from(
     new Set(jobs.flatMap((j: any) => [j.actor_id, ...(j.recipients || [])].filter(Boolean)))
@@ -75,30 +124,72 @@ Deno.serve(async () => {
   const groupById = new Map((groups || []).map((g: any) => [g.id, g]));
 
   const messages: any[] = [];
+  const processedJobIds: string[] = [];
+  const jobsWithMessages: any[] = []; // Jobs qui ont des messages à envoyer
+  const allSentTokens = new Set<string>(); // Tous les tokens uniques pour le log
+  
+  console.log(`[Dispatch] Début traitement de ${jobs.length} job(s)`);
 
   for (const job of jobs) {
+    
     console.log('[Dispatch] Job reçu:', {
+        id: job.id,
         kind: job.kind,
         match_id: job.match_id,
         group_id: job.group_id,
         actor_id: job.actor_id,
         recipients: job.recipients,
+        payload: job.payload,
       });
     const m = matchById.get(job.match_id);
     const g = groupById.get(job.group_id);
     const actor = job.actor_id ? profById.get(job.actor_id) : null;
+
+    // Pour les notifications de club, logger le payload pour debug
+    if (job.kind === 'club_notification') {
+      console.log('[Dispatch] Notification de club - payload:', JSON.stringify(job.payload));
+      console.log('[Dispatch] Notification de club - message:', job.payload?.message);
+      console.log('[Dispatch] Notification de club - title:', job.payload?.title);
+    }
 
     const { title, body } = renderMessage(job.kind, {
       actor_name: actor?.display_name,
       starts_at: m?.time_slots?.starts_at,
       ends_at: m?.time_slots?.ends_at,
       group_name: g?.name,
+      payload: job.payload,
     });
 
+    // Logger le résultat pour les notifications de club
+    if (job.kind === 'club_notification') {
+      console.log('[Dispatch] Notification de club - titre final:', title);
+      console.log('[Dispatch] Notification de club - message final:', body);
+    }
+
     const recips: string[] = Array.isArray(job.recipients) ? job.recipients : [];
-    for (const uid of recips) {
+    // Dédupliquer les destinataires pour éviter les doublons
+    const uniqueRecips = Array.from(new Set(recips));
+    
+    if (uniqueRecips.length !== recips.length) {
+      console.log(`[Dispatch] ⚠️ Doublons détectés dans recipients: ${recips.length} -> ${uniqueRecips.length} uniques`);
+    }
+    
+    // Utiliser un Set pour éviter les doublons de tokens
+    const sentTokens = new Set<string>();
+    
+    for (const uid of uniqueRecips) {
       const p = profById.get(uid);
       if (!p?.expo_push_token?.startsWith("ExponentPushToken")) continue;
+      
+      // Éviter d'envoyer plusieurs fois au même token
+      if (sentTokens.has(p.expo_push_token)) {
+        console.log(`[Dispatch] ⚠️ Token déjà ajouté pour user ${uid}, ignoré`);
+        continue;
+      }
+      
+      sentTokens.add(p.expo_push_token);
+      allSentTokens.add(p.expo_push_token); // Ajouter au Set global pour le log
+      console.log(`[Dispatch] Ajout message pour user ${uid}, token: ${p.expo_push_token.substring(0, 20)}...`);
       messages.push({
         to: p.expo_push_token,
         sound: "default",
@@ -107,38 +198,80 @@ Deno.serve(async () => {
         data: { kind: job.kind, match_id: job.match_id, group_id: job.group_id },
       });
     }
-  }
-
-  if (messages.length) {
-    for (const batch of chunk(messages, 99)) {
-      await sendExpoPush(batch);
+    
+    // Si des messages ont été créés pour ce job, l'ajouter à la liste
+    if (sentTokens.size > 0) {
+      jobsWithMessages.push(job);
+    } else {
+      console.log(`[Dispatch] ⚠️ Job ${job.id} n'a pas de destinataires valides, ignoré`);
     }
+  }
+  
+  if (messages.length) {
+    // IMPORTANT: Marquer les jobs comme envoyés JUSTE AVANT l'envoi pour éviter les doublons
+    // mais dans un try-catch pour annuler si l'envoi échoue
+    const now = new Date().toISOString();
+    const jobIdsToMark = jobsWithMessages.map((j: any) => j.id);
+    
+    // Marquer les jobs comme envoyés AVANT l'envoi pour éviter les doublons
+    const { data: updatedJobs, error: updateError } = await supabase
+      .from("notification_jobs")
+      .update({ sent_at: now })
+      .in("id", jobIdsToMark)
+      .is("sent_at", null) // Seulement si pas déjà envoyé
+      .select("id");
+    
+    if (updateError) {
+      console.log('[Dispatch] Erreur lors du marquage sent_at:', updateError);
+      // Si on ne peut pas marquer, ne pas envoyer pour éviter les doublons
+      return new Response(JSON.stringify({ error: 'Failed to mark jobs as sent' }), { status: 500 });
+    }
+    
+    const updatedCount = updatedJobs?.length || 0;
+    console.log(`[Dispatch] ${updatedCount} job(s) marqué(s) comme envoyés (sur ${jobIdsToMark.length} total)`);
+    
+    // Si certains jobs n'ont pas été mis à jour, ils ont déjà été envoyés
+    if (updatedCount < jobIdsToMark.length) {
+      console.log(`[Dispatch] ⚠️ ${jobIdsToMark.length - updatedCount} job(s) déjà envoyé(s), ignoré(s)`);
+    }
+    
+    processedJobIds.push(...(updatedJobs || []).map((j: any) => j.id));
+    
+    // Envoyer les notifications
+    let sendSuccess = true;
+    try {
+      console.log(`[Dispatch] Préparation envoi de ${messages.length} message(s) à ${allSentTokens.size} token(s) unique(s)`);
+      for (const batch of chunk(messages, 99)) {
+        console.log(`[Dispatch] Envoi batch de ${batch.length} message(s)...`);
+        const result = await sendExpoPush(batch);
+        if (!result) {
+          sendSuccess = false;
+          console.log('[Dispatch] ⚠️ Erreur lors de l\'envoi à Expo');
+        }
+      }
+      
+      if (sendSuccess) {
+        console.log(`[Dispatch] ✅ ${messages.length} notification(s) envoyée(s) avec succès pour ${processedJobIds.length} job(s)`);
+      } else {
+        console.log(`[Dispatch] ⚠️ ${messages.length} notification(s) partiellement envoyée(s) (certaines ont échoué)`);
+      }
+    } catch (error) {
+      console.error('[Dispatch] ❌ Erreur lors de l\'envoi des notifications:', error);
+      // Les jobs sont déjà marqués comme envoyés, mais l'envoi a échoué
+      // On ne peut pas les "dé-marquer" car cela pourrait causer des doublons
+      // On log juste l'erreur
+    }
+  } else if (jobsWithMessages.length > 0) {
+    // Aucun message à envoyer (pas de tokens valides) mais des jobs ont des destinataires
+    console.log(`[Dispatch] ⚠️ ${jobsWithMessages.length} job(s) avec destinataires mais aucun token Expo valide`);
   }
 
   // IMPORTANT: Ne PAS supprimer les notifications pour qu'elles apparaissent dans l'historique
   // Les notifications doivent rester dans la table pour être affichées dans l'app
-  // On ne marque que sent_at si la colonne existe, mais on ne supprime JAMAIS les notifications
-  
-  const now = new Date().toISOString();
-  const jobIds = jobs.map((j: any) => j.id);
-  
-  // Essayer d'ajouter sent_at si la colonne existe, sinon ne rien faire
-  // (les notifications resteront dans la table pour l'historique)
-  try {
-    await supabase
-      .from("notification_jobs")
-      .update({ sent_at: now })
-      .in("id", jobIds);
-    console.log(`[Dispatch] ${jobIds.length} notifications marquées comme envoyées (sent_at)`);
-  } catch (e) {
-    // Si la colonne sent_at n'existe pas, on ne fait rien
-    // Les notifications resteront dans la table pour l'historique
-    console.log('[Dispatch] Colonne sent_at non disponible, notifications conservées pour l\'historique');
-  }
 
   // NE PLUS SUPPRIMER LES NOTIFICATIONS - Elles doivent rester pour l'historique
   // Les notifications seront nettoyées manuellement ou via un script séparé si nécessaire
-  console.log(`[Dispatch] ${jobIds.length} notifications traitées et conservées dans la table`);
+  console.log(`[Dispatch] ${processedJobIds.length} notifications traitées et conservées dans la table`);
 
   return new Response(`ok ${messages.length}`, { status: 200 });
 });

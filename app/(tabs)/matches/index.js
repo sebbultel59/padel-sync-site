@@ -1,29 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-    ActionSheetIOS,
-    ActivityIndicator,
-    Alert,
-    DeviceEventEmitter,
-    FlatList,
-    Image,
-    InteractionManager,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    SectionList,
-    Text,
-    TextInput,
-    useWindowDimensions,
-    View
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  DeviceEventEmitter,
+  FlatList,
+  Image,
+  InteractionManager,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  SectionList,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View
 } from "react-native";
-import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
@@ -4796,6 +4796,9 @@ const HourSlotRow = ({ item }) => {
     const [loadingClubs, setLoadingClubs] = React.useState(false);
     const [userLocation, setUserLocation] = React.useState(null);
     
+    // État pour le club du match (pour le bouton d'appel)
+    const [matchClub, setMatchClub] = React.useState(null);
+    
     // États pour le modal de remplacement
     const [replacementModalOpen, setReplacementModalOpen] = React.useState(false);
     const [replacementMembers, setReplacementMembers] = React.useState([]);
@@ -4839,6 +4842,32 @@ const HourSlotRow = ({ item }) => {
         console.error('[MatchCardConfirmed] ❌ Pas de time_slot_id pour le match:', m?.id);
       }
     }, [m?.time_slot_id, loadedSlot, m?.time_slots]);
+    
+    // Charger les informations du club du match pour le bouton d'appel
+    React.useEffect(() => {
+      const clubId = m?.club_id || slot?.club_id;
+      if (!clubId) {
+        setMatchClub(null);
+        return;
+      }
+      
+      (async () => {
+        const { data: clubData, error } = await supabase
+          .from('clubs')
+          .select('id, name, call_button_enabled, call_button_label, call_phone')
+          .eq('id', clubId)
+          .maybeSingle();
+        
+        if (error) {
+          console.warn('[MatchCardConfirmed] Erreur chargement club:', error);
+          setMatchClub(null);
+        } else if (clubData && clubData.call_button_enabled && clubData.call_phone) {
+          setMatchClub(clubData);
+        } else {
+          setMatchClub(null);
+        }
+      })();
+    }, [m?.club_id, slot?.club_id]);
     
     const rsvps = rsvpsByMatch[m.id] || [];
     const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
@@ -5313,33 +5342,67 @@ const HourSlotRow = ({ item }) => {
             gap: 8,
           }}
         >
-          {/* Bouton contacter un club */}
-          <Pressable
-            onPress={() => setClubModalOpen(true)}
-            style={{
-              flex: 1,
-              backgroundColor: '#480c3d', // violine
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 8,
-              alignSelf: 'center',
+          {/* Bouton appeler le club (si configuré) ou contacter un club */}
+          {matchClub ? (
+            <Pressable
+              onPress={() => {
+                const phoneUrl = `tel:${matchClub.call_phone}`;
+                Linking.openURL(phoneUrl).catch(() => {
+                  Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
+                });
+              }}
+              style={{
+                flex: 1,
+                backgroundColor: '#15803d', // vert
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                alignSelf: 'center',
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-            }}
-          >
-            <Ionicons name="call" size={24} color="#ffffff" style={{ marginRight: 8 }} />
+              }}
+            >
+              <Ionicons name="call" size={24} color="#ffffff" style={{ marginRight: 8 }} />
               <Text
                 style={{
-                color: '#ffffff',
-                fontWeight: '800',
+                  color: '#ffffff',
+                  fontWeight: '800',
                   fontSize: 14,
                   textAlign: 'center',
                 }}
               >
-              APPELER un{'\n'}club
+                {matchClub.call_button_label || `Appeler ${matchClub.name || 'le club'}`}
               </Text>
-          </Pressable>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => setClubModalOpen(true)}
+              style={{
+                flex: 1,
+                backgroundColor: '#480c3d', // violine
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                alignSelf: 'center',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name="call" size={24} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text
+                style={{
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: 14,
+                  textAlign: 'center',
+                }}
+              >
+                APPELER un{'\n'}club
+              </Text>
+            </Pressable>
+          )}
 
           {/* Bouton réserver / réservé */}
           <Pressable

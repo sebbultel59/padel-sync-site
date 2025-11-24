@@ -15,6 +15,7 @@ import { OnboardingModal } from "../../components/OnboardingModal";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
+import { useIsSuperAdmin, useCanManageGroup } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
 import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
@@ -110,8 +111,9 @@ export default function Semaine() {
   const [persistedGroupId, setPersistedGroupId] = useState(null);
   const [groupMembers, setGroupMembers] = useState([]); // membres du groupe actuel
   const [applyToAllGroups, setApplyToAllGroups] = useState(true); // toggle global vs groupe spécifique
-  const [isAdmin, setIsAdmin] = useState(false); // admin du groupe ou super admin
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // super admin
+  // Utiliser les nouveaux hooks de rôles
+  const isSuperAdmin = useIsSuperAdmin();
+  const { canManage: isAdmin, loading: isAdminLoading } = useCanManageGroup(groupId);
   // Sélecteur de groupe
   const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
   const [myGroups, setMyGroups] = useState([]);
@@ -217,46 +219,7 @@ export default function Semaine() {
     loadGroupMembers(groupId);
   }, [groupId, loadGroupMembers]);
 
-  // Charger le statut admin et super admin
-  useEffect(() => {
-    (async () => {
-      if (!meId || !groupId) {
-        setIsAdmin(false);
-        setIsSuperAdmin(false);
-        return;
-      }
-      
-      try {
-        // Vérifier si l'utilisateur est admin du groupe (via group_members.role)
-        const { data: meRow, error: eMe } = await supabase
-          .from("group_members")
-          .select("role")
-          .eq("group_id", groupId)
-          .eq("user_id", meId)
-          .maybeSingle();
-        
-        if (eMe) throw eMe;
-        
-        const isGroupAdmin = meRow?.role === "admin" || meRow?.role === "owner";
-        
-        // Vérifier si l'utilisateur est super admin
-        const { data: saRow, error: saErr } = await supabase
-          .from('super_admins')
-          .select('user_id')
-          .eq('user_id', meId)
-          .maybeSingle();
-        
-        if (saErr) console.warn('[Semaine] super_admins check failed:', saErr.message);
-        
-        setIsSuperAdmin(!!saRow?.user_id);
-        setIsAdmin(isGroupAdmin || !!saRow?.user_id);
-      } catch (e) {
-        console.warn('[Semaine] Erreur chargement admin:', e?.message ?? String(e));
-        setIsAdmin(false);
-        setIsSuperAdmin(false);
-      }
-    })();
-  }, [meId, groupId]);
+  // Les hooks useIsSuperAdmin et useCanManageGroup gèrent automatiquement les vérifications
 
   const params = useLocalSearchParams();
 
