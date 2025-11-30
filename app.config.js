@@ -5,6 +5,7 @@ export default {
     entryPoint: "./index.js",
     scheme: "syncpadel",
     version: "3.0.0",
+    newArchEnabled: true,
     icon: "./assets/icon.png", // chemin par défaut pour éviter les erreurs build iOS
     ios: {
       bundleIdentifier: "app.syncpadel.mobile",
@@ -25,6 +26,7 @@ export default {
     android: {
       package: "com.padelsync.app",
       versionCode: 33,
+      newArchEnabled: true,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png", // chemin corrigé
         backgroundColor: "#001831"
@@ -41,9 +43,6 @@ export default {
         {
           ios: { deploymentTarget: "15.1" },
           android: {
-            // ⚠️ Désactiver la nouvelle architecture pour stabiliser le build Android
-            newArchEnabled: false,
-            // Augmenter la mémoire pour les builds
             gradleProperties: {
               "org.gradle.jvmargs":
                 "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError"
