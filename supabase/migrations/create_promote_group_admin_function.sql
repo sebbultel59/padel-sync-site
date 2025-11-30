@@ -81,3 +81,8 @@ GRANT EXECUTE ON FUNCTION rpc_promote_group_admin(UUID, UUID) TO authenticated;
 COMMENT ON FUNCTION rpc_promote_group_admin(UUID, UUID) IS 
   'Promouvoit un membre en admin de groupe. Les club_managers peuvent promouvoir dans les groupes de leur club. Les super_admins peuvent promouvoir dans tous les groupes.';
 
+
+
+
+
+

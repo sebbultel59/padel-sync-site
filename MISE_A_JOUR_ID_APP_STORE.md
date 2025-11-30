@@ -59,3 +59,8 @@ Le lien Google Play utilise déjà le bon package ID : `com.padelsync.app`
 
 Si votre app a un ID différent sur Google Play, modifiez-le aussi dans les mêmes fichiers.
 
+
+
+
+
+

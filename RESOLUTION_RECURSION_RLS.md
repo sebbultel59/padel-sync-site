@@ -79,3 +79,8 @@ Cette fonction utilise `SECURITY DEFINER` pour contourner RLS :
 
 Une fois les migrations exécutées, l'erreur de récursion devrait disparaître et l'application devrait démarrer normalement.
 
+
+
+
+
+

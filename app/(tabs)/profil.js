@@ -1456,8 +1456,8 @@ export default function ProfilScreen() {
               Platform.OS === "web" && { cursor: "pointer" }
             ]}
           >
-            <Ionicons name="business-outline" size={24} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={s.btnTxt}>Gérer mon club</Text>
+            <Ionicons name="business-outline" size={24} color="#001831" style={{ marginRight: 8 }} />
+            <Text style={[s.btnTxt, { color: '#001831' }]}>Gérer mon club</Text>
           </Pressable>
         )}
 
@@ -1926,7 +1926,7 @@ const s = StyleSheet.create({
 
   // boutons
   btn: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, backgroundColor: BRAND, alignItems: "center" },
-  btnTxt: { color: "white", fontWeight: "900", fontSize: 12 },
+  btnTxt: { color: "white", fontWeight: "900", fontSize: 16 },
   btnSm: { paddingVertical: 8, paddingHorizontal: 10 },
   btnTxtSm: { fontSize: 16 },
   btnGhost: { backgroundColor: "#f3f4f6" },

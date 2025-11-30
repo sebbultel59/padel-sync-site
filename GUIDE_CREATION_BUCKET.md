@@ -56,3 +56,8 @@ Après avoir créé le bucket, testez l'upload d'un logo depuis l'application :
 
 La **SERVICE_ROLE_KEY** a des permissions élevées. Ne la partagez jamais publiquement et ne la commitez pas dans Git. Utilisez toujours un fichier `.env` qui est dans `.gitignore`.
 
+
+
+
+
+

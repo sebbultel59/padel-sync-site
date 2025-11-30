@@ -57,3 +57,8 @@ Dans Vercel Dashboard > Settings > General :
 
 Les fichiers doivent être **committés et poussés sur Git** pour que Vercel les déploie. Si vous avez créé les fichiers localement mais ne les avez pas poussés, ils ne seront pas déployés.
 
+
+
+
+
+

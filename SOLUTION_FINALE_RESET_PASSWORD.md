@@ -112,3 +112,8 @@ Si l'erreur persiste :
 - [ ] Le deep link ouvre l'app automatiquement
 - [ ] La page de réinitialisation s'affiche correctement
 
+
+
+
+
+

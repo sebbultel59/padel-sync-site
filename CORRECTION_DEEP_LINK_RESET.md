@@ -92,3 +92,8 @@ Cela signifie que Supabase n'a pas la bonne URL de redirection. Vérifiez :
 - [Documentation Supabase - Password Reset](https://supabase.com/docs/guides/auth/auth-password-reset)
 - [Documentation Supabase - Deep Links](https://supabase.com/docs/guides/auth/deep-linking)
 
+
+
+
+
+

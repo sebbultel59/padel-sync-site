@@ -90,3 +90,8 @@ WHERE role IS NULL;
 COMMENT ON COLUMN profiles.role IS 'Rôle de l''utilisateur : player (par défaut), admin, club_manager, super_admin';
 COMMENT ON COLUMN profiles.club_id IS 'ID du club géré par l''utilisateur (uniquement pour les club_managers)';
 
+
+
+
+
+

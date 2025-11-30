@@ -28,6 +28,32 @@ const BRAND = "#1a4b97";
 export default function ClubManageScreen() {
   const params = useLocalSearchParams();
   const clubId = params?.id;
+  const { role, clubId: userClubId, loading: roleLoading } = useUserRole();
+  
+  // Rediriger vers le dashboard si club_manager
+  useEffect(() => {
+    if (roleLoading) return;
+    if (role === 'club_manager' && userClubId && String(userClubId) === String(clubId)) {
+      router.replace(`/clubs/${clubId}/dashboard`);
+    }
+  }, [role, userClubId, clubId, roleLoading]);
+
+  // Si pas club_manager, afficher un message ou rediriger
+  if (!roleLoading && role !== 'club_manager') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <Text>Accès refusé</Text>
+      </View>
+    );
+  }
+
+  return null; // Pendant la redirection
+}
+
+// Ancien code conservé pour référence mais non utilisé
+function _OldClubManageScreen() {
+  const params = useLocalSearchParams();
+  const clubId = params?.id;
   const insets = useSafeAreaInsets();
   const { role, clubId: userClubId, loading: roleLoading } = useUserRole();
   const isClubManager = useIsClubManager(clubId);

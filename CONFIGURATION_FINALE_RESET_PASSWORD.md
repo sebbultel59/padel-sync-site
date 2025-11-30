@@ -100,3 +100,8 @@ Cela signifie que l'app n'est pas installée ou que le deep link ne fonctionne p
 2. Que le scheme `syncpadel://` est bien configuré
 3. Testez avec une build native (pas Expo Go)
 
+
+
+
+
+

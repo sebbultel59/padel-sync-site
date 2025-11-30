@@ -137,3 +137,8 @@ const redirectTo = 'https://VOTRE-DOMAINE.com/reset-password';
 2. **Vérifiez que le Site URL est correct**
 3. **Redemandez un nouvel email** après avoir modifié la configuration
 
+
+
+
+
+

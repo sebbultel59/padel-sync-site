@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   Platform,
   Pressable,
@@ -13,18 +14,31 @@ import {
   StyleSheet,
   Text,
   View,
-  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AgendaClub from "../../../components/AgendaClub";
 import { useUserRole } from "../../../lib/roles";
 import { supabase } from "../../../lib/supabase";
 
 const BRAND = "#1a4b97";
 
 export default function ClubPublicScreen() {
-  const { id: clubId } = useLocalSearchParams();
+  const { id: clubId, returnTo } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
-  const { role, clubId: userClubId } = useUserRole();
+  const { role, clubId: userClubId, loading: roleLoading } = useUserRole();
+  
+  // Fonction pour gérer le retour vers la page d'origine
+  const handleBack = useCallback(() => {
+    if (returnTo === 'groupes') {
+      router.replace('/(tabs)/groupes');
+    } else if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/groupes');
+    }
+  }, [returnTo]);
+
+  console.log("[ClubPublic] Render - clubId:", clubId, "roleLoading:", roleLoading, "role:", role);
 
   const [loading, setLoading] = useState(true);
   const [club, setClub] = useState(null);
@@ -32,9 +46,13 @@ export default function ClubPublicScreen() {
   const [posts, setPosts] = useState([]);
 
   const loadClub = useCallback(async () => {
-    if (!clubId) return;
+    if (!clubId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
+      console.log("[ClubPublic] Début chargement club:", clubId);
 
       const { data: clubData, error } = await supabase
         .from("clubs")
@@ -42,27 +60,55 @@ export default function ClubPublicScreen() {
         .eq("id", clubId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("[ClubPublic] Erreur chargement club:", error);
+        throw error;
+      }
+      
+      if (!clubData) {
+        console.warn("[ClubPublic] Club non trouvé:", clubId);
+        setClub(null);
+        setLoading(false);
+        return;
+      }
+
+      console.log("[ClubPublic] Club chargé:", clubData.name);
       setClub(clubData);
 
-      const { data: groupsData } = await supabase
+      // Charger les groupes en parallèle (non bloquant)
+      supabase
         .from("groups")
         .select("id, name, visibility, join_policy")
         .eq("club_id", clubId)
         .order("created_at", { ascending: false })
-        .limit(6);
-      setGroups(groupsData || []);
+        .limit(6)
+        .then(({ data: groupsData }) => {
+          setGroups(groupsData || []);
+        })
+        .catch((e) => {
+          console.warn("[ClubPublic] Erreur chargement groupes:", e);
+          setGroups([]);
+        });
 
-      const { data: postsData } = await supabase
+      // Charger les posts en parallèle (non bloquant)
+      supabase
         .from("club_posts")
         .select("id, title, content, created_at, image_url")
         .eq("club_id", clubId)
         .order("created_at", { ascending: false })
-        .limit(5);
-      setPosts(postsData || []);
+        .limit(5)
+        .then(({ data: postsData }) => {
+          setPosts(postsData || []);
+        })
+        .catch((e) => {
+          console.warn("[ClubPublic] Erreur chargement posts:", e);
+          setPosts([]);
+        });
     } catch (e) {
-      console.error("[ClubPublic] load error:", e);
+      console.error("[ClubPublic] Erreur fatale:", e);
+      setClub(null);
     } finally {
+      console.log("[ClubPublic] Fin chargement, setLoading(false)");
       setLoading(false);
     }
   }, [clubId]);
@@ -70,6 +116,17 @@ export default function ClubPublicScreen() {
   useEffect(() => {
     loadClub();
   }, [loadClub]);
+
+  // Timeout de sécurité pour éviter le chargement infini
+  useEffect(() => {
+    if (loading && !roleLoading) {
+      const timeout = setTimeout(() => {
+        console.warn("[ClubPublic] Timeout de chargement, arrêt du loading");
+        setLoading(false);
+      }, 10000); // 10 secondes max
+      return () => clearTimeout(timeout);
+    }
+  }, [loading, roleLoading]);
 
   const handleCall = useCallback(() => {
     if (!club?.call_button_enabled || !club?.call_phone) return;
@@ -184,23 +241,65 @@ export default function ClubPublicScreen() {
     socialLinks.facebook || socialLinks.instagram || socialLinks.website
   );
 
+  // Formater les horaires d'ouverture
+  const formatOpeningHours = useCallback((openingHours) => {
+    if (!openingHours || typeof openingHours !== 'object') return null;
+    
+    const days = [
+      { key: 'monday', label: 'Lundi' },
+      { key: 'tuesday', label: 'Mardi' },
+      { key: 'wednesday', label: 'Mercredi' },
+      { key: 'thursday', label: 'Jeudi' },
+      { key: 'friday', label: 'Vendredi' },
+      { key: 'saturday', label: 'Samedi' },
+      { key: 'sunday', label: 'Dimanche' },
+    ];
+
+    return days.map(({ key, label }) => {
+      const dayHours = openingHours[key];
+      if (!dayHours) return null;
+      
+      if (dayHours.closed) {
+        return { day: label, hours: 'Fermé' };
+      }
+      
+      const open = dayHours.open || '';
+      const close = dayHours.close || '';
+      
+      if (open && close) {
+        return { day: label, hours: `${open} - ${close}` };
+      }
+      
+      return null;
+    }).filter(Boolean);
+  }, []);
+
+  const openingHoursList = useMemo(() => {
+    return club?.opening_hours ? formatOpeningHours(club.opening_hours) : null;
+  }, [club?.opening_hours, formatOpeningHours]);
+
+  const hasOpeningHours = Boolean(openingHoursList && openingHoursList.length > 0);
+
   const isMyClub = Boolean(
     role === "club_manager" && userClubId && clubId && String(userClubId) === String(clubId)
   );
 
-  if (!clubId) {
-    return (
-      <View style={styles.center}>
-        <Text>ID du club manquant.</Text>
-      </View>
-    );
-  }
+  // Rediriger vers le dashboard si club_manager
+  useEffect(() => {
+    if (roleLoading) return; // Attendre que le rôle soit chargé
+    if (isMyClub && role && userClubId) {
+      router.replace(`/clubs/${clubId}/dashboard`);
+      return;
+    }
+  }, [isMyClub, clubId, role, userClubId, roleLoading]);
 
-  if (loading) {
+  // Si club_manager, ne pas afficher cette page (redirection en cours)
+  if (roleLoading) {
+    console.log("[ClubPublic] Affichage spinner - roleLoading");
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </Pressable>
           <Text style={styles.headerTitle}>Club</Text>
@@ -213,18 +312,53 @@ export default function ClubPublicScreen() {
     );
   }
 
-  if (!club) {
+  if (isMyClub && role && userClubId) {
+    console.log("[ClubPublic] Affichage spinner - isMyClub (redirection)");
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </Pressable>
           <Text style={styles.headerTitle}>Club</Text>
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.center}>
-          <Text>Club introuvable.</Text>
+          <ActivityIndicator size="large" color={BRAND} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!clubId) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Club</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.center}>
+          <Text>ID du club manquant.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (loading && !roleLoading) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Club</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={BRAND} />
         </View>
       </View>
     );
@@ -232,32 +366,26 @@ export default function ClubPublicScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </Pressable>
-        <Text style={styles.headerTitle}>{club.name || "Club"}</Text>
-        {isMyClub && (
-          <Pressable
-            onPress={() => router.push(`/clubs/${clubId}/manage`)}
-            style={styles.manageButton}
-          >
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Gérer</Text>
-          </Pressable>
-        )}
-      </View>
-
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 0 }}>
         <View style={styles.card}>
-          {club.logo_url ? (
-            <Image source={{ uri: club.logo_url }} style={styles.logo} />
-          ) : (
-            <View style={[styles.logo, styles.logoFallback]}>
-              <Text style={{ color: BRAND, fontWeight: "800", fontSize: 22 }}>
-                {club.name?.slice(0, 2)?.toUpperCase() || "CL"}
-              </Text>
-            </View>
-          )}
+          <View style={styles.cardHeaderRow}>
+            <Pressable
+              onPress={handleBack}
+              style={styles.cardBackButton}
+            >
+              <Ionicons name="arrow-back" size={24} color="#001831" />
+            </Pressable>
+            {club.logo_url ? (
+              <Image source={{ uri: club.logo_url }} style={styles.logo} />
+            ) : (
+              <View style={[styles.logo, styles.logoFallback]}>
+                <Text style={{ color: BRAND, fontWeight: "800", fontSize: 28 }}>
+                  {club.name?.slice(0, 2)?.toUpperCase() || "CL"}
+                </Text>
+              </View>
+            )}
+            <View style={styles.cardHeaderSpacer} />
+          </View>
           <Text style={styles.clubName}>{club.name}</Text>
           {club.description && (
             <Text style={styles.description}>{club.description}</Text>
@@ -282,10 +410,25 @@ export default function ClubPublicScreen() {
           </Pressable>
         )}
 
+        {hasOpeningHours && (
+          <>
+            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 8, marginTop: 16 }}>Horaires du club</Text>
+            <View style={[styles.card, { paddingVertical: 12 }]}>
+              {openingHoursList.map((item, index) => (
+                <View key={index} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderBottomWidth: index < openingHoursList.length - 1 ? 1 : 0, borderBottomColor: "#e5e7eb" }}>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: "#111827" }}>{item.day}</Text>
+                  <Text style={{ fontSize: 14, color: "#6b7280" }}>{item.hours}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {hasSocialLinks && (
-          <View style={[styles.card, { paddingVertical: 12 }]}>
-            <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Liens sociaux</Text>
-            <View style={styles.socialRow}>
+          <>
+            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 8, marginTop: 16 }}>Liens sociaux</Text>
+            <View style={[styles.card, { paddingVertical: 12 }]}>
+              <View style={styles.socialRow}>
               {socialLinks.facebook ? (
                 <Pressable
                   style={[styles.socialButton, { backgroundColor: "rgba(24,119,242,0.12)" }]}
@@ -313,13 +456,23 @@ export default function ClubPublicScreen() {
                   <Text style={styles.socialText}>Site web</Text>
                 </Pressable>
               ) : null}
+              </View>
             </View>
-          </View>
+          </>
+        )}
+
+        {/* Événements à venir - mode sans calendrier */}
+        {club && clubId && (
+          <AgendaClub
+            clubId={clubId}
+            isManager={false}
+            showCalendar={false}
+          />
         )}
 
         {!!groups.length && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Groupes du club</Text>
+            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 12 }}>Groupes du club</Text>
             {groups.map((g) => (
               <View key={g.id} style={styles.rowCard}>
                 <View>
@@ -342,7 +495,7 @@ export default function ClubPublicScreen() {
 
         {club.photos && Array.isArray(club.photos) && club.photos.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Photos du club</Text>
+            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 12 }}>Photos du club</Text>
             <View style={styles.photosGrid}>
               {club.photos.map((photoUrl, index) => (
                 <Pressable
@@ -383,22 +536,7 @@ export default function ClubPublicScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#e5e7eb",
-    backgroundColor: "#fff",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
+    backgroundColor: "#001831",
   },
   backButton: {
     width: 40,
@@ -408,11 +546,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#f3f4f6",
   },
-  manageButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  cardBackButton: {
+    padding: 8,
     borderRadius: 999,
-    backgroundColor: BRAND,
+    backgroundColor: "rgba(0,24,49,0.08)",
+  },
+  cardHeaderSpacer: {
+    width: 40,
   },
   card: {
     backgroundColor: "#fff",
@@ -425,11 +571,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   logo: {
-    width: 90,
-    height: 90,
-    borderRadius: 16,
-    alignSelf: "center",
-    marginBottom: 12,
+    width: 120,
+    height: 120,
+    borderRadius: 24,
+    marginBottom: 8,
   },
   logoFallback: {
     backgroundColor: "rgba(26,75,151,0.1)",
@@ -479,7 +624,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: BRAND,
+    backgroundColor: "#ff8d02",
     marginBottom: 16,
   },
   callText: {

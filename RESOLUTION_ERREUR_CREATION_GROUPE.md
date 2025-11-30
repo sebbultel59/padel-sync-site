@@ -76,3 +76,8 @@ Une fois les migrations exécutées, vous devriez pouvoir :
 - ✅ Créer des groupes en tant que player (privés uniquement)
 - ✅ Créer des groupes en tant que super_admin (tous types)
 
+
+
+
+
+

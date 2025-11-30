@@ -102,14 +102,9 @@ export default function Index() {
     }
     
     if (profileComplete === true && hasActiveGroup === true) {
-      // Profil OK et groupe sélectionné -> vérifier dispos
-      if (hasAvailability === false) {
-        // Pas de dispos -> dispos avec popup
-        router.replace('/(tabs)/semaine?showDisposPrompt=true');
-      } else if (hasAvailability === true) {
-        // Dispos présentes -> matches sans popup
-        router.replace('/(tabs)/matches');
-      }
+      // Profil OK et groupe sélectionné -> rediriger vers matches
+      // La popup de disponibilités s'affichera automatiquement si nécessaire lors de la visite de la page semaine
+      router.replace('/(tabs)/matches');
       return;
     }
   }, [isLoading, checking, profileComplete, hasActiveGroup, hasAvailability]);

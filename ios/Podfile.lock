@@ -16,9 +16,9 @@ PODS:
   - EXJSONUtils (0.15.0)
   - EXManifests (0.16.6):
     - ExpoModulesCore
-  - EXNotifications (0.32.12):
+  - EXNotifications (0.32.13):
     - ExpoModulesCore
-  - Expo (54.0.23):
+  - Expo (54.0.25):
     - boost
     - DoubleConversion
     - ExpoModulesCore
@@ -316,19 +316,19 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - ExpoAsset (12.0.9):
+  - ExpoAsset (12.0.10):
     - ExpoModulesCore
   - ExpoBlur (15.0.7):
     - ExpoModulesCore
   - ExpoDevice (8.0.9):
     - ExpoModulesCore
-  - ExpoFileSystem (19.0.17):
+  - ExpoFileSystem (19.0.19):
     - ExpoModulesCore
   - ExpoFont (14.0.9):
     - ExpoModulesCore
   - ExpoHaptics (15.0.7):
     - ExpoModulesCore
-  - ExpoHead (6.0.14):
+  - ExpoHead (6.0.15):
     - ExpoModulesCore
     - RNScreens
   - ExpoImage (3.0.10):
@@ -346,11 +346,11 @@ PODS:
     - ExpoModulesCore
   - ExpoKeepAwake (15.0.7):
     - ExpoModulesCore
-  - ExpoLinking (8.0.8):
+  - ExpoLinking (8.0.9):
     - ExpoModulesCore
   - ExpoLocation (19.0.7):
     - ExpoModulesCore
-  - ExpoModulesCore (3.0.25):
+  - ExpoModulesCore (3.0.26):
     - boost
     - DoubleConversion
     - fast_float
@@ -381,7 +381,7 @@ PODS:
     - Yoga
   - ExpoSecureStore (15.0.7):
     - ExpoModulesCore
-  - ExpoSplashScreen (31.0.10):
+  - ExpoSplashScreen (31.0.11):
     - ExpoModulesCore
   - ExpoSymbols (1.0.7):
     - ExpoModulesCore
@@ -390,7 +390,7 @@ PODS:
   - ExpoWebBrowser (15.0.9):
     - ExpoModulesCore
   - EXStructuredHeaders (5.0.0)
-  - EXUpdates (29.0.12):
+  - EXUpdates (29.0.13):
     - boost
     - DoubleConversion
     - EASClient
@@ -3107,7 +3107,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - RNWorklets (0.5.1):
+  - RNWorklets (0.6.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -3134,10 +3134,10 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNWorklets/worklets (= 0.5.1)
+    - RNWorklets/worklets (= 0.6.1)
     - SocketRocket
     - Yoga
-  - RNWorklets/worklets (0.5.1):
+  - RNWorklets/worklets (0.6.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -3164,10 +3164,10 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNWorklets/worklets/apple (= 0.5.1)
+    - RNWorklets/worklets/apple (= 0.6.1)
     - SocketRocket
     - Yoga
-  - RNWorklets/worklets/apple (0.5.1):
+  - RNWorklets/worklets/apple (0.6.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -3223,9 +3223,9 @@ DEPENDENCIES:
   - EXNotifications (from `../node_modules/expo-notifications/ios`)
   - Expo (from `../node_modules/expo`)
   - expo-dev-client (from `../node_modules/expo-dev-client/ios`)
-  - expo-dev-launcher (from `../node_modules/expo-dev-launcher`)
-  - expo-dev-menu (from `../node_modules/expo-dev-menu`)
-  - expo-dev-menu-interface (from `../node_modules/expo-dev-menu-interface/ios`)
+  - expo-dev-launcher (from `../node_modules/expo-dev-client/node_modules/expo-dev-launcher`)
+  - expo-dev-menu (from `../node_modules/expo-dev-client/node_modules/expo-dev-menu`)
+  - expo-dev-menu-interface (from `../node_modules/expo-dev-client/node_modules/expo-dev-menu-interface/ios`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
   - ExpoDevice (from `../node_modules/expo-device/ios`)
@@ -3369,11 +3369,11 @@ EXTERNAL SOURCES:
   expo-dev-client:
     :path: "../node_modules/expo-dev-client/ios"
   expo-dev-launcher:
-    :path: "../node_modules/expo-dev-launcher"
+    :path: "../node_modules/expo-dev-client/node_modules/expo-dev-launcher"
   expo-dev-menu:
-    :path: "../node_modules/expo-dev-menu"
+    :path: "../node_modules/expo-dev-client/node_modules/expo-dev-menu"
   expo-dev-menu-interface:
-    :path: "../node_modules/expo-dev-menu-interface/ios"
+    :path: "../node_modules/expo-dev-client/node_modules/expo-dev-menu-interface/ios"
   ExpoAsset:
     :path: "../node_modules/expo-asset/ios"
   ExpoBlur:
@@ -3590,33 +3590,33 @@ SPEC CHECKSUMS:
   EXImageLoader: 189e3476581efe3ad4d1d3fb4735b7179eb26f05
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: 691a779b04e4f2c96da46fb9bef4f86174fefcb5
-  EXNotifications: 7cff475adb5d7a255a9ea46bbd2589cb3b454506
-  Expo: 16984713b53bd8ff2a6f9079e90c7c9a3de86704
+  EXNotifications: a62e1f8e3edd258dc3b155d3caa49f32920f1c6c
+  Expo: 22c06b7185706d92688f6e943576198540836bc1
   expo-dev-client: 9b1e78baf0dd87b005f035d180bbb07c05917fad
   expo-dev-launcher: 89abfe871293a5120299c8853f3adfa879f9d3aa
   expo-dev-menu: 34adc71e878be2d1a716636fd5d532f239878567
   expo-dev-menu-interface: 609c35ae8b97479cdd4c9e23c8cf6adc44beea0e
-  ExpoAsset: 9ba6fbd677fb8e241a3899ac00fa735bc911eadf
+  ExpoAsset: d839c8eae8124470332408427327e8f88beb2dfd
   ExpoBlur: 2dd8f64aa31f5d405652c21d3deb2d2588b1852f
   ExpoDevice: 148accb4071873d19fba80a2506c58ffa433d620
-  ExpoFileSystem: b79eadbda7b7f285f378f95f959cc9313a1c9c61
+  ExpoFileSystem: 77157a101e03150a4ea4f854b4dd44883c93ae0a
   ExpoFont: cf9d90ec1d3b97c4f513211905724c8171f82961
   ExpoHaptics: 807476b0c39e9d82b7270349d6487928ce32df84
-  ExpoHead: e317214fa14edeaf17748d39ec9e550a3d1194fb
+  ExpoHead: 95a6ee0be1142320bccf07961d6a1502ded5d6ac
   ExpoImage: 9c3428921c536ab29e5c6721d001ad5c1f469566
   ExpoImageManipulator: ead6e7cca441603bfaecc898a69a093adef8b4ef
   ExpoImagePicker: d251aab45a1b1857e4156fed88511b278b4eee1c
   ExpoKeepAwake: 1a2e820692e933c94a565ec3fbbe38ac31658ffe
-  ExpoLinking: f051f28e50ea9269ff539317c166adec81d9342d
+  ExpoLinking: 77455aa013e9b6a3601de03ecfab09858ee1b031
   ExpoLocation: 93d7faa0c2adbd5a04686af0c1a61bc6ed3ee2f7
-  ExpoModulesCore: 7eaa19cca3ef107c81a65e6eb554dc606214218b
+  ExpoModulesCore: b94afa7f5899dee038f3c4d049bac115bdc9654e
   ExpoSecureStore: 9c6571fe3fcb045a671c4011c451546eaaab98fd
-  ExpoSplashScreen: cbb839de72110dea1851dd3e85080b7923af2540
+  ExpoSplashScreen: 268b2f128dc04284c21010540a6c4dd9f95003e3
   ExpoSymbols: 1ae04ce686de719b9720453b988d8bc5bf776c68
   ExpoSystemUI: 2761aa6875849af83286364811d46e8ed8ea64c7
   ExpoWebBrowser: b973e1351fdcf5fec0c400997b1851f5a8219ec3
   EXStructuredHeaders: c951e77f2d936f88637421e9588c976da5827368
-  EXUpdates: ed39659f9d3e482eb61e606f5736a02b7f8f55ad
+  EXUpdates: 5e0c6e0a35914e7c6a61f1706abf434773516b80
   EXUpdatesInterface: 7ff005b7af94ee63fa452ea7bb95d7a8ff40277a
   fast_float: b32c788ed9c6a8c584d114d0047beda9664e7cc6
   FBLazyVector: 5beb8028d5a2e75dd9634917f23e23d3a061d2aa
@@ -3700,7 +3700,7 @@ SPEC CHECKSUMS:
   RNReanimated: 142b5513b136714ea7abef65b46e04c12ce7194e
   RNScreens: 0bbf16c074ae6bb1058a7bf2d1ae017f4306797c
   RNSVG: 6f39605a4c4d200b11435c35bd077553c6b5963a
-  RNWorklets: ad0606bee2a8103c14adb412149789c60b72bfb2
+  RNWorklets: ab618bf7d1c7fd2cb793b9f0f39c3e29274b3ebf
   SDWebImage: 9f177d83116802728e122410fb25ad88f5c7608a
   SDWebImageAVIFCoder: afe194a084e851f70228e4be35ef651df0fc5c57
   SDWebImageSVGCoder: 15a300a97ec1c8ac958f009c02220ac0402e936c

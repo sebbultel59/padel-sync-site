@@ -103,3 +103,8 @@ Si l'authentification ne fonctionne pas :
 5. Exécuter `node scripts/check-oauth-config.js` pour vérifier la configuration locale
 
 
+
+
+
+
+

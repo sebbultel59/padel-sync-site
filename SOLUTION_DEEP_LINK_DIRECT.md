@@ -105,3 +105,8 @@ Cliquez sur **Save changes**.
 - [ ] Le lien dans l'email pointe vers `syncpadel://reset-password#...`
 - [ ] L'app s'ouvre automatiquement sur mobile
 
+
+
+
+
+

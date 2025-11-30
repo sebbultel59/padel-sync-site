@@ -58,3 +58,8 @@ END $$;
 COMMENT ON POLICY "RPC functions can create groups" ON groups IS 
   'Permet aux fonctions RPC (SECURITY DEFINER) de créer des groupes. Les permissions réelles sont gérées dans les fonctions RPC.';
 
+
+
+
+
+

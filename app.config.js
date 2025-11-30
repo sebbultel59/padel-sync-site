@@ -4,12 +4,12 @@ export default {
     slug: "padel-sync",
     entryPoint: "./index.js",
     scheme: "syncpadel",
-    version: "2.0.9",
+    version: "3.0.0",
     icon: "./assets/icon.png", // chemin par défaut pour éviter les erreurs build iOS
     ios: {
       bundleIdentifier: "app.syncpadel.mobile",
       supportsTablet: false,
-      buildNumber: "31",
+      buildNumber: "33",
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
@@ -24,7 +24,7 @@ export default {
     },
     android: {
       package: "com.padelsync.app",
-      versionCode: 31,
+      versionCode: 33,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png", // chemin corrigé
         backgroundColor: "#001831"
@@ -36,7 +36,21 @@ export default {
       ]
     },
     plugins: [
-      ["expo-build-properties", { ios: { deploymentTarget: "15.1" } }],
+      [
+        "expo-build-properties",
+        {
+          ios: { deploymentTarget: "15.1" },
+          android: {
+            // ⚠️ Désactiver la nouvelle architecture pour stabiliser le build Android
+            newArchEnabled: false,
+            // Augmenter la mémoire pour les builds
+            gradleProperties: {
+              "org.gradle.jvmargs":
+                "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError"
+            }
+          }
+        }
+      ],
       "expo-router",
       "expo-secure-store",
       [
@@ -47,6 +61,10 @@ export default {
         }
       ]
     ],
+    // Exclure expo-dev-client de l'autolinking pour éviter les erreurs de build Android
+    _internal: {
+      isDebuggingRemotely: false
+    },
     extra: {
       eas: {
         projectId: "527d2473-fc9c-4070-a4d7-dfe710a64830"

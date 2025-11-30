@@ -51,3 +51,8 @@ Si Vercel ne déploie pas automatiquement, vous pouvez :
 
 Après le déploiement, **redemandez un nouvel email** de réinitialisation car l'ancien lien pointe vers une version non déployée.
 
+
+
+
+
+

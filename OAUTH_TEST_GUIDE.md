@@ -149,3 +149,8 @@ cat app.config.js | grep scheme
 3. Tester avec de vrais comptes utilisateurs (pas seulement des comptes de test)
 
 
+
+
+
+
+

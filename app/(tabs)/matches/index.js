@@ -273,6 +273,27 @@ export default function MatchesScreen() {
   }, []);
 
   const tabBarHeight = useBottomTabBarHeight();
+  const safeBottomInset = Math.max(insets.bottom || 0, 0);
+  const BUTTON_BAR_HEIGHT = 12;
+  const WEEK_BAR_HEIGHT = 22;
+  const FILTER_BAR_HEIGHT = 28;
+  const STACK_SPACING = 4;
+  const BUTTON_BAR_GAP = -2;
+  const [buttonBarMeasuredHeight, setButtonBarMeasuredHeight] = useState(BUTTON_BAR_HEIGHT);
+  const [weekBarMeasuredHeight, setWeekBarMeasuredHeight] = useState(WEEK_BAR_HEIGHT);
+  const [filterBarMeasuredHeight, setFilterBarMeasuredHeight] = useState(FILTER_BAR_HEIGHT);
+  const updateMeasuredHeight = useCallback(
+    (setter, min = 0) => (event) => {
+      const nextHeight = Math.max(event?.nativeEvent?.layout?.height || 0, min);
+      setter((prev) => (Math.abs(prev - nextHeight) > 1 ? nextHeight : prev));
+    },
+    []
+  );
+
+  const buttonBarBottom = Math.max((tabBarHeight || 0) + BUTTON_BAR_GAP, safeBottomInset);
+  const weekNavigatorBottom = buttonBarBottom + buttonBarMeasuredHeight + STACK_SPACING;
+  const filterButtonsBottom = weekNavigatorBottom + weekBarMeasuredHeight + STACK_SPACING;
+  const filterConfigBottom = filterButtonsBottom + filterBarMeasuredHeight + STACK_SPACING;
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
 
@@ -2295,7 +2316,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       if (myIds.length) {
         const { data, error } = await supabase
           .from("groups")
-          .select("id, name, avatar_url")
+          .select("id, name, avatar_url, club_id")
           .in("id", myIds)
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -6672,22 +6693,24 @@ const HourSlotRow = ({ item }) => {
       {tab === 'proposes' && (
         <>
           {/* Icônes filtres pour afficher/masquer les configurations - Positionnées en bas, au-dessus du sélecteur de semaine */}
-          <View style={{ 
-            position: 'absolute',
-            bottom: (tabBarHeight || 0) + 76,
-            left: 16,
-            right: 16,
-            flexDirection: 'row', 
-            flexWrap: 'nowrap',
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            gap: 4,
-            paddingVertical: 4,
-            paddingHorizontal: 16,
-            backgroundColor: '#001831',
-            zIndex: 1000,
-            elevation: 10,
-          }}>
+          <View
+            onLayout={updateMeasuredHeight(setFilterBarMeasuredHeight, FILTER_BAR_HEIGHT)}
+            style={{ 
+              position: 'absolute',
+              bottom: filterButtonsBottom,
+              left: 16,
+              right: 16,
+              flexDirection: 'row', 
+              flexWrap: 'nowrap',
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: 2,
+              paddingVertical: 0,
+              paddingHorizontal: 4,
+              backgroundColor: '#001831',
+              zIndex: 1000,
+              elevation: 10,
+            }}>
             <Pressable
               onPress={() => {
                 if (!filterConfigVisible) {
@@ -6791,7 +6814,7 @@ const HourSlotRow = ({ item }) => {
           {filterConfigVisible && (
             <View style={{ 
               position: 'absolute',
-              bottom: (tabBarHeight || 0) + 116,
+              bottom: filterConfigBottom,
               left: 16,
               right: 16,
               backgroundColor: '#f3f4f6', 
@@ -6858,7 +6881,7 @@ const HourSlotRow = ({ item }) => {
           {filterGeoVisible && (
             <View style={{ 
               position: 'absolute',
-              bottom: (tabBarHeight || 0) + 116,
+              bottom: filterConfigBottom,
               left: 16,
               right: 16,
               backgroundColor: '#f3f4f6', 
@@ -11438,17 +11461,18 @@ const HourSlotRow = ({ item }) => {
 
       {/* Week navigator - Positionné en bas */}
       <View
+        onLayout={updateMeasuredHeight(setWeekBarMeasuredHeight, WEEK_BAR_HEIGHT)}
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 28,
+          bottom: weekNavigatorBottom,
           left: 0,
           right: 0,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 16,
-          paddingVertical: 8,
-          paddingHorizontal: 16,
+          gap: 4,
+          paddingVertical: 0,
+          paddingHorizontal: 6,
           backgroundColor: '#001831',
           zIndex: 999,
           elevation: 9,
@@ -11480,32 +11504,100 @@ const HourSlotRow = ({ item }) => {
         </Pressable>
       </View>
 
-      {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
-      <Pressable
-        onPress={() => setGroupSelectorOpen(true)}
+      {/* Sélecteur de groupe + Lien page club */}
+      <View
+        onLayout={updateMeasuredHeight(setButtonBarMeasuredHeight, BUTTON_BAR_HEIGHT)}
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0),
+          bottom: buttonBarBottom,
           left: 0,
           right: 0,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: 8,
-          paddingHorizontal: 16,
+          paddingTop: 0,
+          paddingBottom: safeBottomInset > 0 ? safeBottomInset : 0,
+          paddingHorizontal: 6,
           backgroundColor: '#001831',
           zIndex: 998,
           elevation: 8,
           marginTop: 0,
-          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
         }}
       >
-        <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-        <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-          {activeGroup?.name || 'Sélectionner un groupe'}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
-      </Pressable>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'stretch',
+            justifyContent: 'center',
+            gap: 4,
+            flexWrap: 'nowrap',
+          }}
+        >
+          <Pressable
+            onPress={() => setGroupSelectorOpen(true)}
+            style={{
+              flexBasis: '50%',
+              minWidth: 120,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: 0,
+              paddingHorizontal: 4,
+              borderRadius: 10,
+              borderWidth: 0,
+              backgroundColor: '#001831',
+              ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+            }}
+          >
+            <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
+            <Text style={{ fontWeight: '700', color: '#e0ff00', fontSize: 16, textAlign: 'center' }}>
+              {activeGroup?.name || 'Sélectionner un groupe'}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+          </Pressable>
+
+          {activeGroup?.club_id ? (
+            <Pressable
+              onPress={() => router.push(`/clubs/${activeGroup.club_id}`)}
+              style={{
+                flexBasis: '50%',
+                minWidth: 120,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 0,
+                paddingHorizontal: 4,
+                borderRadius: 10,
+                borderWidth: 0,
+                backgroundColor: 'transparent',
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+              }}
+            >
+              <Ionicons
+                name="home"
+                size={16}
+                color="#cfe9ff"
+                style={{
+                  marginRight: 4,
+                  textShadowColor: 'rgba(207, 233, 255, 0.75)',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 6,
+                }}
+              />
+              <Text
+                style={{
+                  fontWeight: '700',
+                  color: '#cfe9ff',
+                  fontSize: 16,
+                  textAlign: 'center',
+                  textShadowColor: 'rgba(207, 233, 255, 0.75)',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 6,
+                }}
+              >
+                Page club
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
 
       {/* Popup pas de groupe sélectionné */}
       <OnboardingModal

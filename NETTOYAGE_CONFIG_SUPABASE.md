@@ -67,3 +67,8 @@ Les URLs avec des hash (`#access_token=...`) ne sont **PAS** valides dans les Re
    ```
 3. **Cliquez sur le lien** - L'erreur "requested path is invalid" ne devrait plus apparaître
 
+
+
+
+
+

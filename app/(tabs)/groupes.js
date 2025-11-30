@@ -32,6 +32,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingModal } from "../../components/OnboardingModal";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
+import { haversineKm } from "../../lib/geography";
 import { validateActiveGroup } from "../../lib/groupValidation";
 import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
 import { useIsAdmin, useIsSuperAdmin, useUserRole } from "../../lib/roles";
@@ -74,6 +75,11 @@ const LEVEL_COLORS = {
   8: '#a78bfa', // Elite
 };
 const colorForLevel = (n) => LEVEL_COLORS[n] || '#9ca3af';
+
+const toNumberOrNull = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
 
 
 // Helper: base64 -> ArrayBuffer (sans atob, compatible Hermes)
@@ -258,7 +264,8 @@ export default function GroupesScreen() {
   // --- Données groupes ---
   const [groups, setGroups] = useState({ mine: [], open: [] });
   const [loading, setLoading] = useState(true);
-  const [publicGroupsClubFilter, setPublicGroupsClubFilter] = useState(null); // null = tous les clubs
+const [publicGroupsClubFilter, setPublicGroupsClubFilter] = useState(null); // null = tous les clubs
+const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useState(false);
   
   // Filtre géographique avancé
   const [publicGroupsGeoFilterVisible, setPublicGroupsGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
@@ -320,7 +327,7 @@ export default function GroupesScreen() {
 
   const openClubPage = useCallback((clubId) => {
     if (!clubId) return;
-    router.push(`/clubs/${clubId}`);
+    router.push(`/clubs/${clubId}?returnTo=groupes`);
   }, []);
 
   const openProfileForProfile = useCallback((p) => {
@@ -360,7 +367,12 @@ export default function GroupesScreen() {
             .from("clubs")
             .select("id, name, lat, lng")
             .in("id", clubIds);
-          clubsMap = new Map((clubsData || []).map(c => [c.id, { name: c.name, lat: c.lat, lng: c.lng }]));
+          clubsMap = new Map(
+            (clubsData || []).map((c) => [
+              c.id,
+              { name: c.name, lat: toNumberOrNull(c.lat), lng: toNumberOrNull(c.lng) },
+            ])
+          );
         }
         
         myGroups = (data ?? []).map(g => {
@@ -368,8 +380,8 @@ export default function GroupesScreen() {
           return {
           ...g,
             club_name: club?.name || null,
-            club_lat: club?.lat || null,
-            club_lng: club?.lng || null,
+            club_lat: toNumberOrNull(club?.lat),
+            club_lng: toNumberOrNull(club?.lng),
           };
         });
       }
@@ -388,7 +400,12 @@ export default function GroupesScreen() {
           .from("clubs")
           .select("id, name, lat, lng")
           .in("id", publicClubIds);
-        publicClubsMap = new Map((publicClubsData || []).map(c => [c.id, { name: c.name, lat: c.lat, lng: c.lng }]));
+        publicClubsMap = new Map(
+          (publicClubsData || []).map((c) => [
+            c.id,
+            { name: c.name, lat: toNumberOrNull(c.lat), lng: toNumberOrNull(c.lng) },
+          ])
+        );
       }
       
         const openList = (openPublic ?? [])
@@ -399,8 +416,8 @@ export default function GroupesScreen() {
             visibility: String(g.visibility || "").toLowerCase(),
             join_policy: String(g.join_policy || "").toLowerCase(),
               club_name: club?.name || null,
-              club_lat: club?.lat || null,
-              club_lng: club?.lng || null,
+              club_lat: toNumberOrNull(club?.lat),
+              club_lng: toNumberOrNull(club?.lng),
             };
           })
           .filter((g) => !myIds.includes(g.id));
@@ -419,42 +436,159 @@ export default function GroupesScreen() {
   }, [authChecked, loadGroups]);
 
   // Liste des clubs uniques des groupes publics pour le filtre
-  const publicGroupsClubs = useMemo(() => {
+  const selectPublicGroupClub = useCallback((clubId) => {
+    setPublicGroupsClubFilter(clubId);
+    setPublicGroupsClubPickerVisible(false);
+  }, []);
+
+  // Calculer les clubs publics avec distances (comme dans profil.js)
+  const calculatePublicGroupsClubs = useCallback(() => {
     const clubsMap = new Map();
     (groups.open ?? []).forEach(g => {
       if (g.club_id && g.club_name) {
-        clubsMap.set(g.club_id, { id: g.club_id, name: g.club_name });
+        clubsMap.set(g.club_id, {
+          id: g.club_id,
+          name: g.club_name,
+          lat: g.club_lat ?? null,
+          lng: g.club_lng ?? null,
+        });
       }
     });
-    return Array.from(clubsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [groups.open]);
+    let arr = Array.from(clubsMap.values());
+    
+    // Déterminer le point de référence : filtre géographique activé, sinon domicile
+    let refPoint = null;
+    if (publicGroupsGeoRefPoint && publicGroupsGeoRefPoint.lat != null && publicGroupsGeoRefPoint.lng != null) {
+      refPoint = {
+        lat: toNumberOrNull(publicGroupsGeoRefPoint.lat),
+        lng: toNumberOrNull(publicGroupsGeoRefPoint.lng),
+      };
+      if (refPoint.lat == null || refPoint.lng == null) {
+        refPoint = null;
+      }
+    } else if (addressHome?.lat && addressHome?.lng) {
+      // Utiliser directement addressHome comme dans profil.js
+      refPoint = {
+        lat: addressHome.lat,
+        lng: addressHome.lng,
+      };
+    }
+    
+    if (refPoint && refPoint.lat != null && refPoint.lng != null) {
+      arr = arr
+        .map((club) => {
+          const clubLat = toNumberOrNull(club.lat);
+          const clubLng = toNumberOrNull(club.lng);
+          const distance = clubLat != null && clubLng != null
+            ? haversineKm(refPoint, { lat: clubLat, lng: clubLng })
+            : Infinity;
+          return {
+            ...club,
+            lat: clubLat,
+            lng: clubLng,
+            distanceKm: distance,
+          };
+        })
+        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+    } else {
+      arr = arr
+        .map((club) => ({ ...club, distanceKm: null }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+    return arr;
+  }, [groups.open, publicGroupsGeoRefPoint, addressHome]);
+
+  const [publicGroupsClubs, setPublicGroupsClubs] = useState([]);
+
+  // Recalculer quand les dépendances changent ou quand la modale s'ouvre
+  useEffect(() => {
+    setPublicGroupsClubs(calculatePublicGroupsClubs());
+  }, [calculatePublicGroupsClubs]);
+
+  useEffect(() => {
+    if (publicGroupsClubPickerVisible) {
+      setPublicGroupsClubs(calculatePublicGroupsClubs());
+    }
+  }, [publicGroupsClubPickerVisible, calculatePublicGroupsClubs]);
+
+  const selectedPublicGroupClub = useMemo(() => {
+    if (!publicGroupsClubFilter) return null;
+    return publicGroupsClubs.find((club) => club.id === publicGroupsClubFilter) || null;
+  }, [publicGroupsClubFilter, publicGroupsClubs]);
 
   // Groupes publics filtrés par club et/ou distance
   const filteredPublicGroups = useMemo(() => {
     let filtered = groups.open ?? [];
-    
+
     // Filtre par club
     if (publicGroupsClubFilter) {
-      filtered = filtered.filter(g => g.club_id === publicGroupsClubFilter);
+      filtered = filtered.filter((g) => g.club_id === publicGroupsClubFilter);
     }
-    
-    // Filtre géographique par distance
-    if (publicGroupsGeoFilter && publicGroupsGeoRefPoint && publicGroupsGeoRefPoint.lat != null && publicGroupsGeoRefPoint.lng != null && publicGroupsGeoRadiusKm != null) {
+
+    // Déterminer le point de référence (filtre actif sinon domicile)
+    let refPoint = null;
+    if (
+      publicGroupsGeoFilter &&
+      publicGroupsGeoRefPoint &&
+      publicGroupsGeoRefPoint.lat != null &&
+      publicGroupsGeoRefPoint.lng != null
+    ) {
+      refPoint = {
+        lat: toNumberOrNull(publicGroupsGeoRefPoint.lat),
+        lng: toNumberOrNull(publicGroupsGeoRefPoint.lng),
+      };
+    } else if (addressHome && addressHome.lat != null && addressHome.lng != null) {
+      refPoint = {
+        lat: toNumberOrNull(addressHome.lat),
+        lng: toNumberOrNull(addressHome.lng),
+      };
+    }
+
+    // Enrichir avec distance
+    if (refPoint && refPoint.lat != null && refPoint.lng != null) {
       filtered = filtered
-        .map(g => {
-          // Calculer la distance si le groupe a des coordonnées de club
+        .map((g) => {
+          const clubLat = toNumberOrNull(g.club_lat);
+          const clubLng = toNumberOrNull(g.club_lng);
           let distance = null;
-          if (g.club_lat && g.club_lng) {
-            distance = haversineKm(publicGroupsGeoRefPoint, { lat: g.club_lat, lng: g.club_lng });
+          if (clubLat != null && clubLng != null) {
+            distance = haversineKm(refPoint, { lat: clubLat, lng: clubLng });
           }
           return { ...g, distanceKm: distance };
         })
-        .filter(g => g.distanceKm !== null && g.distanceKm !== Infinity && g.distanceKm <= publicGroupsGeoRadiusKm) // Garder seulement ceux dans le rayon
-        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)); // Trier par distance croissante
+        .map((g) =>
+          g.distanceKm === Infinity ? { ...g, distanceKm: null } : g
+        );
+
+      if (
+        publicGroupsGeoFilter &&
+        publicGroupsGeoRadiusKm != null &&
+        Number.isFinite(publicGroupsGeoRadiusKm)
+      ) {
+        filtered = filtered
+          .filter(
+            (g) =>
+              g.distanceKm !== null &&
+              g.distanceKm !== Infinity &&
+              g.distanceKm <= publicGroupsGeoRadiusKm
+          )
+          .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+      } else {
+        filtered = filtered.sort(
+          (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)
+        );
+      }
     }
-    
+
     return filtered;
-  }, [groups.open, publicGroupsClubFilter, publicGroupsGeoFilter, publicGroupsGeoRefPoint, publicGroupsGeoRadiusKm, haversineKm]);
+  }, [
+    groups.open,
+    publicGroupsClubFilter,
+    publicGroupsGeoFilter,
+    publicGroupsGeoRefPoint,
+    publicGroupsGeoRadiusKm,
+    addressHome,
+  ]);
 
   // Membres & droits admin du groupe actif
   const loadMembersAndAdmin = useCallback(
@@ -704,7 +838,7 @@ export default function GroupesScreen() {
       // 6) Feedback utilisateur (uniquement haptique / vibrate)
       await hapticSelect();
 
-      // 7) Vérifier les disponibilités pour ce groupe
+      // 7) Vérifier les disponibilités pour ce groupe et afficher popup si nécessaire
       try {
         const { data: u } = await supabase.auth.getUser();
         const uid = u?.user?.id;
@@ -712,25 +846,13 @@ export default function GroupesScreen() {
         if (uid) {
           const hasAvail = await hasAvailabilityForGroup(uid, g.id);
           
-          if (hasAvail) {
-            // Dispos présentes -> matches
-            router.replace("/(tabs)/matches");
-          } else {
-            // Pas de dispos -> dispos avec popup
+          if (!hasAvail) {
+            // Pas de dispos -> afficher popup (sans redirection)
             setNoAvailabilityModalVisible(true);
-            // Rediriger après un court délai pour laisser la popup s'afficher
-            setTimeout(() => {
-              router.replace("/(tabs)/semaine");
-            }, 500);
           }
-        } else {
-          // Pas d'utilisateur, rediriger vers matches par défaut
-          router.replace("/(tabs)/matches");
         }
       } catch (e) {
         console.warn('[Groupes] Error checking availability after activate:', e);
-        // En cas d'erreur, rediriger vers matches par défaut
-        router.replace("/(tabs)/matches");
       }
 
     } catch (e) {
@@ -1084,14 +1206,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
           if (wasFirstJoin) {
             await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
             setGroupJoinedModalVisible(true);
-            // Toujours rediriger vers dispos après rejoin (première fois)
-            setTimeout(() => {
-              router.replace("/(tabs)/semaine");
-            }, 500);
           } else {
             Alert.alert("Bienvenue 👍", "Tu as rejoint le groupe !");
-            // Toujours rediriger vers dispos après rejoin
-            router.replace("/(tabs)/semaine");
           }
           return;
         }
@@ -1364,21 +1480,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
     setShowCreate(true);
   }, []);
   
-  // Fonction de calcul de distance (même que dans profil.js)
-  const haversineKm = useCallback((a, b) => {
-    if (!a || !b || !a.lat || !a.lng || !b.lat || !b.lng) return Infinity;
-    const R = 6371; // Rayon de la Terre en km
-    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-    const dLon = ((b.lng - a.lng) * Math.PI) / 180;
-    const lat1 = (a.lat * Math.PI) / 180;
-    const lat2 = (b.lat * Math.PI) / 180;
-    const x =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-    return Math.round(R * c * 10) / 10; // 0.1 km
-  }, []);
-
   // Charger les clubs pour le sélecteur (même logique que dans profil.js)
   const loadClubs = useCallback(async () => {
     setLoadingClubs(true);
@@ -1427,28 +1528,45 @@ Padel Sync — Ton match en 3 clics 🎾`;
     } finally {
       setLoadingClubs(false);
     }
-  }, [addressHome, haversineKm]);
+  }, [addressHome]);
   
   // Charger l'adresse du domicile de l'utilisateur
   useEffect(() => {
-    if (meId && showCreate) {
+    console.log('[Groupes] useEffect addressHome - meId:', meId);
+    if (meId) {
       (async () => {
         try {
-          const { data: profile } = await supabase
+          console.log('[Groupes] Chargement address_home pour meId:', meId);
+          const { data: profile, error } = await supabase
             .from('profiles')
             .select('address_home')
             .eq('id', meId)
             .single();
           
+          console.log('[Groupes] Réponse profil:', { profile, error });
+          
           if (profile?.address_home) {
-            setAddressHome(profile.address_home);
+            console.log('[Groupes] addressHome chargé:', {
+              lat: profile.address_home.lat,
+              lng: profile.address_home.lng,
+              address: profile.address_home.address,
+              typeLat: typeof profile.address_home.lat,
+              typeLng: typeof profile.address_home.lng,
+              fullObject: profile.address_home
+            });
+            // Créer un nouvel objet pour forcer la mise à jour du useMemo
+            setAddressHome({ ...profile.address_home });
+          } else {
+            console.log('[Groupes] Pas d\'address_home dans le profil, profile:', profile);
           }
         } catch (e) {
-          console.warn('[Groupes] Erreur chargement adresse:', e);
+          console.error('[Groupes] Erreur chargement adresse:', e);
         }
       })();
+    } else {
+      console.log('[Groupes] Pas de meId, impossible de charger addressHome');
     }
-  }, [meId, showCreate]);
+  }, [meId]);
   
   // Charger le profil complet pour le filtre géographique
   useEffect(() => {
@@ -2005,14 +2123,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
         if (wasFirstJoin) {
           await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
           setGroupJoinedModalVisible(true);
-          // Toujours rediriger vers dispos après rejoin (première fois)
-          setTimeout(() => {
-            router.replace("/(tabs)/semaine");
-          }, 500);
         } else {
           Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-          // Toujours rediriger vers dispos après rejoin
-          router.replace("/(tabs)/semaine");
         }
         return;
       }
@@ -2041,14 +2153,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
         if (wasFirstJoin) {
           await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
           setGroupJoinedModalVisible(true);
-          // Toujours rediriger vers dispos après rejoin (première fois)
-          setTimeout(() => {
-            router.replace("/(tabs)/semaine");
-          }, 500);
         } else {
           Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-          // Toujours rediriger vers dispos après rejoin
-          router.replace("/(tabs)/semaine");
         }
         return;
       }
@@ -2201,6 +2307,90 @@ Padel Sync — Ton match en 3 clics 🎾`;
         </View>
       </Modal>
 
+      {/* Modal filtre clubs publics */}
+      <Modal
+        visible={publicGroupsClubPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPublicGroupsClubPickerVisible(false)}
+      >
+        <View style={[s.qrWrap, { padding: 24 }]}>
+          <View style={[s.qrCard, { width: 360, maxHeight: '75%', alignItems: 'stretch' }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ fontWeight: '800', fontSize: 16 }}>Filtrer par club</Text>
+              <Pressable onPress={() => setPublicGroupsClubPickerVisible(false)}>
+                <Ionicons name="close" size={22} color="#6b7280" />
+              </Pressable>
+            </View>
+            <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ paddingBottom: 12, gap: 8 }}>
+              {(() => {
+                console.log('=== MODAL OUVERTE ===');
+                console.log('addressHome:', JSON.stringify(addressHome));
+                console.log('publicGroupsClubs:', publicGroupsClubs.map(c => ({ name: c.name, distanceKm: c.distanceKm, lat: c.lat, lng: c.lng })));
+                return null;
+              })()}
+              <Pressable
+                onPress={() => selectPublicGroupClub(null)}
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: publicGroupsClubFilter === null ? BRAND : "#e5e7eb",
+                  backgroundColor: publicGroupsClubFilter === null ? "rgba(26,75,151,0.08)" : "#ffffff",
+                }}
+              >
+                <Text style={{ fontWeight: '700', color: publicGroupsClubFilter === null ? BRAND : "#111827" }}>
+                  Tous les clubs
+                </Text>
+                <Text style={{ color: "#6b7280", fontSize: 12 }}>Afficher tous les groupes</Text>
+              </Pressable>
+              {publicGroupsClubs.length === 0 ? (
+                <Text style={{ color: "#9ca3af", fontStyle: "italic", paddingVertical: 8 }}>
+                  Aucun club disponible pour le moment.
+                </Text>
+              ) : (
+                publicGroupsClubs.map((club) => {
+                  const isSelected = publicGroupsClubFilter === club.id;
+                  const hasDistance = club.distanceKm != null && Number.isFinite(club.distanceKm) && club.distanceKm !== Infinity;
+                  if (__DEV__ && club.name === "Le miras padel") {
+                    console.log('[Modal] Miras padel dans la liste:', {
+                      club,
+                      distanceKm: club.distanceKm,
+                      hasDistance,
+                      lat: club.lat,
+                      lng: club.lng
+                    });
+                  }
+                  return (
+                    <Pressable
+                      key={club.id}
+                      onPress={() => selectPublicGroupClub(club.id)}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: isSelected ? BRAND : "#e5e7eb",
+                        backgroundColor: isSelected ? "rgba(26,75,151,0.08)" : "#ffffff",
+                        gap: 4,
+                      }}
+                    >
+                      <Text style={{ fontWeight: '700', color: isSelected ? BRAND : "#111827" }}>
+                        {club.name}
+                      </Text>
+                      {hasDistance && (
+                        <Text style={{ color: "#6b7280", fontSize: 12 }}>
+                          {club.distanceKm.toFixed(1)} km
+                        </Text>
+                      )}
+                    </Pressable>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Profile Modal */}
       <Modal
         visible={profileVisible}
@@ -2310,85 +2500,97 @@ Padel Sync — Ton match en 3 clics 🎾`;
         {/* Groupe actif */}
         {activeRecord ? (
           <View style={[s.card, s.activeCard]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Avatar url={activeRecord.avatar_url} fallback={activeRecord.name} size={56} />
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={{ fontWeight: "800", fontSize: 18, color: "#001831", textTransform: 'uppercase' }}>
-                    {activeRecord.name}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  <Text style={{ color: "#5b89b8", fontWeight: "700" }}>
-                    {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
-                  </Text>
-                  {isAdmin && (
-                    <>
-                      <View style={{
-                        backgroundColor: '#ef4444',
-                        borderWidth: 1,
-                        borderColor: '#ef4444',
-                        borderRadius: 4,
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                      }}>
-                        <Text style={{ color: '#ffffff', fontWeight: "700", fontSize: 12 }}>
-                          Admin
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => {
-                          setEditingGroupId(activeRecord.id);
-                          setEditingGroupName(activeRecord.name || "");
-                          setEditingGroupVisibility(activeRecord.visibility || "private");
-                          setEditingGroupJoinPolicy(activeRecord.join_policy || "invite");
-                          setEditingGroupClubId(activeRecord.club_id || null);
-                          setEditingGroupCity(activeRecord.city || "");
-                          setEditingCitySuggestions([]);
-                          setShowEditGroup(true);
-                        }}
-                        style={{
-                          padding: 4,
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Modifier le groupe"
-                      >
-                        <Ionicons name="create" size={20} color="#007cfd" />
-                      </Pressable>
-                    </>
-                  )}
-                </View>
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
-                  <Text style={{ color: "#5b89b8" }}>
-                    {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
-                  </Text>
-                </View>
-                {(activeRecord?.club_name || activeRecord?.city) && (
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, flexWrap: "wrap", gap: 6 }}>
-                    <Text style={{ color: "#6b7280", fontSize: 12 }}>
-                      {[
-                        activeRecord?.club_name && `🏟️ ${activeRecord.club_name}`,
-                        activeRecord?.city && `📍 ${activeRecord.city}`
-                      ].filter(Boolean).join(' · ')}
-                    </Text>
-                    {activeRecord?.club_id && activeRecord?.club_name && (
-                      <Pressable
-                        onPress={press(`active-view-club-${activeRecord.club_id}`, () => openClubPage(activeRecord.club_id))}
-                        style={{
-                          paddingVertical: 4,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          backgroundColor: "rgba(26,75,151,0.1)"
-                        }}
-                      >
-                        <Text style={{ color: BRAND, fontWeight: "700", fontSize: 12 }}>
-                          Voir {activeRecord.club_name}
-                        </Text>
-                      </Pressable>
-                    )}
-                  </View>
+            <View style={{ alignItems: "center", marginBottom: 0 }}>
+              <Avatar
+                url={activeRecord.avatar_url}
+                fallback={activeRecord.name}
+                size={100}
+                onPress={
+                  activeRecord?.club_id
+                    ? press(
+                        `active-group-club-avatar-${activeRecord.club_id}`,
+                        () => openClubPage(activeRecord.club_id)
+                      )
+                    : undefined
+                }
+              />
+            </View>
+            <View style={{ alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
+                <Text style={{ fontWeight: "800", fontSize: 24, color: "#001831", textTransform: 'uppercase', textAlign: 'center' }}>
+                  {activeRecord.name}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <Text style={{ color: "#5b89b8", fontWeight: "700" }}>
+                  {activeRecord.visibility === 'public' ? 'Public' : 'Privé'}
+                </Text>
+                {isAdmin && (
+                  <>
+                    <View style={{
+                      backgroundColor: '#ef4444',
+                      borderWidth: 1,
+                      borderColor: '#ef4444',
+                      borderRadius: 4,
+                      paddingHorizontal: 6,
+                      paddingVertical: 2,
+                    }}>
+                      <Text style={{ color: '#ffffff', fontWeight: "700", fontSize: 12 }}>
+                        Admin
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        setEditingGroupId(activeRecord.id);
+                        setEditingGroupName(activeRecord.name || "");
+                        setEditingGroupVisibility(activeRecord.visibility || "private");
+                        setEditingGroupJoinPolicy(activeRecord.join_policy || "invite");
+                        setEditingGroupClubId(activeRecord.club_id || null);
+                        setEditingGroupCity(activeRecord.city || "");
+                        setEditingCitySuggestions([]);
+                        setShowEditGroup(true);
+                      }}
+                      style={{
+                        padding: 4,
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Modifier le groupe"
+                    >
+                      <Ionicons name="create" size={20} color="#007cfd" />
+                    </Pressable>
+                  </>
                 )}
               </View>
+              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, justifyContent: "center" }}>
+                <Text style={{ color: "#5b89b8", textAlign: 'center' }}>
+                  {`Groupe actif · ${members.length} membre${members.length > 1 ? "s" : ""}`}
+                </Text>
+              </View>
+              {(activeRecord?.club_name || activeRecord?.city) && (
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                  <Text style={{ color: "#6b7280", fontSize: 16, textAlign: 'center', fontWeight: "600" }}>
+                    {[
+                      activeRecord?.club_name && `🏟️ ${activeRecord.club_name}`,
+                      activeRecord?.city && `📍 ${activeRecord.city}`
+                    ].filter(Boolean).join(' · ')}
+                  </Text>
+                  {activeRecord?.club_id && activeRecord?.club_name && (
+                    <Pressable
+                      onPress={press(`active-view-club-${activeRecord.club_id}`, () => openClubPage(activeRecord.club_id))}
+                      style={{
+                        paddingVertical: 6,
+                        paddingHorizontal: 12,
+                        borderRadius: 8,
+                        backgroundColor: "#10b981"
+                      }}
+                    >
+                      <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 14 }}>
+                        voir la page club
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
             </View>
 
             {/* Membres */}
@@ -2554,7 +2756,19 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   accessibilityLabel={`Activer le groupe ${g.name}`}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                    <Avatar url={g.avatar_url} fallback={g.name} size={40} />
+                    <Avatar
+                      url={g.avatar_url}
+                      fallback={g.name}
+                      size={40}
+                      onPress={
+                        g.club_id
+                          ? press(
+                              `my-group-club-avatar-${g.id}`,
+                              () => openClubPage(g.club_id)
+                            )
+                          : undefined
+                      }
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
                       <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
@@ -2594,8 +2808,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
         {/* Groupes publics */}
         <View style={s.sectionHeader}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
           <Text style={s.sectionTitle}>Groupes publics</Text>
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", marginTop: 6 }}>
             <Pressable
               onPress={() => {
                 if (!publicGroupsGeoFilterVisible) {
@@ -2608,74 +2822,49 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 {
                   flexDirection: "row",
                   alignItems: "center",
-                  paddingVertical: 4,
-                  paddingHorizontal: 12,
-                  paddingLeft: 4,
-                  borderRadius: 8,
+                  paddingVertical: 6,
+                  paddingHorizontal: 16,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: publicGroupsGeoFilter ? "#15803d" : "rgba(156,163,175,0.4)",
                   backgroundColor: "transparent",
-                  gap: 8,
+                  gap: 6,
                 },
                 Platform.OS === "web" && { cursor: "pointer" }
               ]}
               accessibilityRole="button"
               accessibilityLabel={publicGroupsGeoFilter ? `Filtre géo (${publicGroupsGeoRadiusKm}km)` : "Filtre géographique"}
             >
-              <Text style={{ 
-                color: publicGroupsGeoFilter ? "#15803d" : "#9ca3af", 
-                fontWeight: "700", 
-                fontSize: 12 
-              }}>
-                {publicGroupsGeoFilter && publicGroupsGeoRadiusKm ? `Filtre géo (${publicGroupsGeoRadiusKm}km)` : "Filtre géographique"}
+              <Ionicons name="location" size={16} color={publicGroupsGeoFilter ? "#15803d" : "#9ca3af"} />
+              <Text style={{ fontWeight: "700", color: publicGroupsGeoFilter ? "#15803d" : "#9ca3af", fontSize: 12 }}>
+                Géo
               </Text>
-              <Ionicons 
-                name="location" 
-                size={20} 
-                color={publicGroupsGeoFilter ? "#15803d" : "#9ca3af"}
-              />
+              <Ionicons name="chevron-down" size={16} color={publicGroupsGeoFilter ? "#15803d" : "#9ca3af"} />
             </Pressable>
-        </View>
-          {publicGroupsClubs.length > 0 && (
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-              <Pressable
-                onPress={() => setPublicGroupsClubFilter(null)}
-                style={[
-                  { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
-                  publicGroupsClubFilter === null
-                    ? { backgroundColor: BRAND, borderColor: BRAND }
-                    : { backgroundColor: "transparent", borderColor: "#6b7280" },
-                  Platform.OS === "web" && { cursor: "pointer" }
-                ]}
-              >
-                <Text style={[
-                  { fontWeight: "700", fontSize: 12 },
-                  publicGroupsClubFilter === null ? { color: "#ffffff" } : { color: "#9ca3af" }
-                ]}>
-                  Tous
-                </Text>
-              </Pressable>
-              {publicGroupsClubs.map((club) => (
-                <Pressable
-                  key={club.id}
-                  onPress={() => setPublicGroupsClubFilter(club.id)}
-                  style={[
-                    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
-                    publicGroupsClubFilter === club.id
-                      ? { backgroundColor: BRAND, borderColor: BRAND }
-                      : { backgroundColor: "transparent", borderColor: "#6b7280" },
-                    Platform.OS === "web" && { cursor: "pointer" }
-                  ]}
-                >
-                  <Text style={[
-                    { fontWeight: "700", fontSize: 12 },
-                    publicGroupsClubFilter === club.id ? { color: "#ffffff" } : { color: "#9ca3af" }
-                  ]}>
-                    {club.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-          
+            <Pressable
+              onPress={() => setPublicGroupsClubPickerVisible(true)}
+              style={[
+                {
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 6,
+                  paddingHorizontal: 16,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: selectedPublicGroupClub ? "#e0ff00" : "rgba(156,163,175,0.4)",
+                  backgroundColor: "transparent",
+                  gap: 6,
+                },
+                Platform.OS === "web" && { cursor: "pointer" }
+              ]}
+            >
+              <Ionicons name="trophy" size={16} color={selectedPublicGroupClub ? "#e0ff00" : "#9ca3af"} />
+              <Text style={{ fontWeight: "700", color: selectedPublicGroupClub ? "#e0ff00" : "#9ca3af", fontSize: 12 }}>
+                {selectedPublicGroupClub ? selectedPublicGroupClub.name : "Clubs"}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color={selectedPublicGroupClub ? "#e0ff00" : "#9ca3af"} />
+            </Pressable>
+          </View>
           {/* Zone de configuration du filtre géographique */}
           {publicGroupsGeoFilterVisible && (
             <View style={{ 
@@ -2856,23 +3045,35 @@ Padel Sync — Ton match en 3 clics 🎾`;
             {filteredPublicGroups.map((g) => (
               <View key={g.id} style={s.rowCard} pointerEvents="box-none">
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                  <Avatar url={g.avatar_url} fallback={g.name} size={40} />
+                  <Avatar
+                    url={g.avatar_url}
+                    fallback={g.name}
+                    size={40}
+                    onPress={
+                      g.club_id
+                        ? press(
+                            `public-group-club-avatar-${g.id}`,
+                            () => openClubPage(g.club_id)
+                          )
+                        : undefined
+                    }
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
                     <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
                       {g.visibility === 'public' ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}` : 'Privé'}
                       {g.club_name && ` · ${g.club_name}`}
-                      {publicGroupsGeoFilter && g.distanceKm !== null && g.distanceKm !== Infinity && (
+                      {g.distanceKm !== null && g.distanceKm !== Infinity && (
                         <Text style={{ color: "#9ca3af" }}> · {typeof g.distanceKm === 'number' ? g.distanceKm.toFixed(1) : g.distanceKm} km</Text>
                       )}
                     </Text>
                     {g.club_id && g.club_name && (
                       <Pressable
-                        onPress={press(`view-club-${g.club_id}`, () => router.push(`/clubs/${g.club_id}`))}
+                        onPress={press(`view-club-${g.club_id}`, () => router.push(`/clubs/${g.club_id}?returnTo=groupes`))}
                         style={{ marginTop: 4, alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.1)" }}
                       >
                         <Text style={{ color: "#b0d4fb", fontWeight: "700", fontSize: 12 }}>
-                          Voir {g.club_name}
+                          voir la page club
                         </Text>
                       </Pressable>
                     )}

@@ -74,3 +74,8 @@ Le hook `useUserRole` dans `lib/roles.js` a été rendu plus robuste pour gérer
 
 Une fois les migrations exécutées, redémarrez l'application. L'erreur devrait disparaître.
 
+
+
+
+
+

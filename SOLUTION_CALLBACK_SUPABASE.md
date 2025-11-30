@@ -122,3 +122,8 @@ Si vous voulez que l'app s'ouvre directement sans passer par le navigateur, vous
 - [ ] Le lien dans l'email pointe vers le callback Supabase
 - [ ] L'app détecte le callback et ouvre la page de réinitialisation
 
+
+
+
+
+

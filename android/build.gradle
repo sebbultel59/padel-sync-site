@@ -35,6 +35,14 @@ allprojects {
   
   // Force Kotlin version for all subprojects including plugins
   afterEvaluate { project ->
+    // Force Kotlin version for all projects
+    project.extensions.findByType(org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension)?.apply {
+      compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
+      }
+    }
+    
     if (project.hasProperty('android')) {
       project.android {
         compileOptions {
