@@ -1,7 +1,6 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-  ext.kotlinVersion = '2.1.20'
   repositories {
     google()
     mavenCentral()
@@ -9,64 +8,15 @@ buildscript {
   dependencies {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
   }
 }
 
-def reactNativeAndroidDir = new File(
-  providers.exec {
-    workingDir(rootDir)
-    commandLine("node", "--print", "require.resolve('react-native/package.json')")
-  }.standardOutput.asText.get().trim(),
-  "../android"
-)
-
 allprojects {
   repositories {
-    maven {
-      // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
-      url(reactNativeAndroidDir)
-    }
-
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
-  }
-  
-  // Force Kotlin version for all subprojects including plugins
-  afterEvaluate { project ->
-    // Force Kotlin version for all projects
-    project.extensions.findByType(org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension)?.apply {
-      compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        freeCompilerArgs.add("-Xskip-metadata-version-check")
-      }
-    }
-    
-    if (project.hasProperty('android')) {
-      project.android {
-        compileOptions {
-          sourceCompatibility JavaVersion.VERSION_17
-          targetCompatibility JavaVersion.VERSION_17
-        }
-      }
-    }
-    // Force Kotlin compiler options for all Kotlin projects
-    project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-      kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += ["-Xskip-metadata-version-check"]
-      }
-    }
-    // Also configure for Kotlin JVM projects
-    if (project.plugins.hasPlugin('org.jetbrains.kotlin.jvm')) {
-      project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-        kotlinOptions {
-          jvmTarget = "17"
-          freeCompilerArgs += ["-Xskip-metadata-version-check"]
-        }
-      }
-    }
   }
 }
 
