@@ -114,9 +114,17 @@ export default function ClubNotificationsScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.section}>
+      <ScrollView 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="notifications" size={20} color="#e0ff00" />
           <Text style={styles.sectionTitle}>Envoyer une notification</Text>
+        </View>
+        <View style={styles.section}>
           <Text style={styles.sectionDescription}>
             Envoyez une notification push à vos membres
           </Text>
@@ -274,13 +282,14 @@ export default function ClubNotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#001833",
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: 16,
+    paddingBottom: 100,
   },
   loadingContainer: {
     flex: 1,
@@ -293,11 +302,19 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+    marginTop: 8,
+    paddingHorizontal: 16,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
+    color: "#e0ff00",
   },
   sectionDescription: {
     fontSize: 14,

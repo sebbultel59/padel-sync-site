@@ -243,22 +243,24 @@ export default function AgendaClub({
     <>
       {/* En-tête avec bouton créer (si manager) */}
       <View style={styles.header}>
-        <Text style={styles.title}>🗓️ Agenda du club</Text>
+        <View style={styles.titleRow}>
+          <Ionicons name="calendar" size={20} color="#e0ff00" />
+          <Text style={styles.title}>Agenda du club</Text>
+        </View>
         {isManagerOfThisClub && (
           <TouchableOpacity
             style={styles.createButton}
             onPress={() => router.push(`/clubs/${clubId}/create-event`)}
           >
-            <Ionicons name="add" size={20} color="#fff" />
+            <Ionicons name="add" size={20} color="#000" />
             <Text style={styles.createButtonText}>Créer</Text>
           </TouchableOpacity>
         )}
       </View>
       <View style={styles.container}>
-
-      {/* Calendrier condensé */}
-      {showCalendar && (
-        <View style={styles.calendarContainer}>
+        {/* Calendrier condensé */}
+        {showCalendar && (
+          <View style={styles.calendarContainer}>
           <View style={styles.calendarHeader}>
             <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNav}>
               <Ionicons name="chevron-back" size={20} color={BRAND} />
@@ -318,13 +320,17 @@ export default function AgendaClub({
             })}
           </View>
         </View>
-      )}
+        )}
+      </View>
 
       {/* Liste des événements à venir */}
-      <View style={styles.eventsList}>
+      <View style={styles.eventsListTitleRow}>
+        <Ionicons name="arrow-forward" size={20} color="#e0ff00" />
         <Text style={styles.eventsListTitle}>
-          👉 Événements à venir {events.length > 0 && `(${events.length})`}
+          Événements à venir {events.length > 0 && `(${events.length})`}
         </Text>
+      </View>
+      <View style={[styles.container, styles.eventsList]}>
         {events.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="calendar-outline" size={48} color="#d1d5db" />
@@ -393,7 +399,6 @@ export default function AgendaClub({
           </ScrollView>
         )}
       </View>
-      </View>
     </>
   );
 }
@@ -413,8 +418,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
-    marginTop: 16,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    flex: 1,
   },
   title: {
     fontSize: 18,
@@ -425,13 +437,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: BRAND,
+    backgroundColor: "#e0ff00",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
   },
   createButtonText: {
-    color: "#fff",
+    color: "#000",
     fontSize: 14,
     fontWeight: "600",
   },
@@ -505,11 +517,18 @@ const styles = StyleSheet.create({
   eventsList: {
     marginTop: 0,
   },
+  eventsListTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
   eventsListTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#000",
-    marginBottom: 12,
+    color: "#e0ff00",
   },
   eventsScroll: {
     maxHeight: 400,

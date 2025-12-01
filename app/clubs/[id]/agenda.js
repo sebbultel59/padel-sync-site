@@ -42,6 +42,15 @@ export default function ClubAgendaScreen() {
   const [newPostInstagramLink, setNewPostInstagramLink] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
 
+  // États pour l'édition
+  const [editPostModalVisible, setEditPostModalVisible] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
+  const [editPostTitle, setEditPostTitle] = useState("");
+  const [editPostContent, setEditPostContent] = useState("");
+  const [editPostImageUrl, setEditPostImageUrl] = useState("");
+  const [updatingPost, setUpdatingPost] = useState(false);
+  const [uploadingEditImage, setUploadingEditImage] = useState(false);
+
   const loadPosts = useCallback(async () => {
     if (!clubId) return;
 
@@ -182,12 +191,178 @@ export default function ClubAgendaScreen() {
     }
   }, [uploadPostImage]);
 
+  // Uploader l'image pour l'édition
+  const uploadEditPostImage = useCallback(async (uri) => {
+    if (!clubId) return;
+
+    try {
+      setUploadingEditImage(true);
+
+      const timestamp = Date.now();
+      const filename = `club-posts/${clubId}/${timestamp}.jpg`;
+
+      const arrayBuffer = await (await fetch(uri)).arrayBuffer();
+
+      const { data, error } = await supabase.storage
+        .from("club-assets")
+        .upload(filename, arrayBuffer, {
+          contentType: "image/jpeg",
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("club-assets").getPublicUrl(filename);
+
+      setEditPostImageUrl(publicUrl);
+    } catch (e) {
+      console.error("[ClubAgenda] Erreur upload image édition:", e);
+      Alert.alert("Erreur", "Impossible d'uploader l'image");
+    } finally {
+      setUploadingEditImage(false);
+    }
+  }, [clubId]);
+
+  // Sélectionner une image pour l'édition
+  const pickEditImage = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission requise", "L'accès à la galerie est nécessaire pour ajouter une image");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadEditPostImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error("[ClubAgenda] Erreur sélection image édition:", error);
+      Alert.alert("Erreur", "Impossible de sélectionner l'image");
+    }
+  }, [uploadEditPostImage]);
+
+  // Ouvrir le modal d'édition
+  const handleEditPost = useCallback((post) => {
+    setEditingPost(post);
+    setEditPostTitle(post.title || "");
+    setEditPostContent(post.content || "");
+    setEditPostImageUrl(post.image_url || "");
+    setEditPostModalVisible(true);
+  }, []);
+
+  // Modifier un post
+  const handleUpdatePost = useCallback(async () => {
+    if (!editingPost || !editPostTitle.trim()) {
+      Alert.alert("Erreur", "Le titre est obligatoire");
+      return;
+    }
+
+    // Validation du contenu
+    if (!editPostContent.trim()) {
+      Alert.alert("Oups !", "Tu as oublié de saisir du contenu");
+      return;
+    }
+
+    try {
+      setUpdatingPost(true);
+
+      const updateData = {
+        title: editPostTitle.trim(),
+        content: editPostContent.trim(),
+        image_url: editPostImageUrl || null,
+      };
+
+      const { error } = await supabase
+        .from("club_posts")
+        .update(updateData)
+        .eq("id", editingPost.id);
+
+      if (error) throw error;
+
+      Alert.alert("Succès", "Post modifié avec succès");
+      setEditPostModalVisible(false);
+      setEditingPost(null);
+      setEditPostTitle("");
+      setEditPostContent("");
+      setEditPostImageUrl("");
+      loadPosts();
+    } catch (error) {
+      console.error("[ClubAgenda] Erreur modification post:", error);
+      
+      // Messages d'erreur compréhensibles pour l'utilisateur
+      let errorMessage = "Impossible de modifier le post";
+      
+      if (error.message) {
+        if (error.message.includes("Tu as oublié de saisir du contenu")) {
+          errorMessage = "Tu as oublié de saisir du contenu";
+        } else if (error.message.includes("content") && error.message.includes("not-null")) {
+          errorMessage = "Tu as oublié de saisir du contenu";
+        } else if (error.message.includes("title") && error.message.includes("not-null")) {
+          errorMessage = "Le titre est obligatoire";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      Alert.alert("Erreur", errorMessage);
+    } finally {
+      setUpdatingPost(false);
+    }
+  }, [editingPost, editPostTitle, editPostContent, editPostImageUrl, loadPosts]);
+
+  // Supprimer un post
+  const handleDeletePost = useCallback((postId, postTitle) => {
+    Alert.alert(
+      "Supprimer le post",
+      `Êtes-vous sûr de vouloir supprimer "${postTitle}" ?\n\nCette action est irréversible.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("club_posts")
+                .delete()
+                .eq("id", postId);
+
+              if (error) throw error;
+
+              Alert.alert("Succès", "Post supprimé avec succès");
+              loadPosts();
+            } catch (error) {
+              console.error("[ClubAgenda] Erreur suppression post:", error);
+              Alert.alert("Erreur", error.message || "Impossible de supprimer le post");
+            }
+          }
+        }
+      ]
+    );
+  }, [loadPosts]);
+
   // Créer un post
   const handleCreatePost = useCallback(async () => {
     if (!clubId) return;
 
+    // Validation du titre
     if (!newPostTitle.trim()) {
       Alert.alert("Erreur", "Le titre est obligatoire");
+      return;
+    }
+
+    // Validation du contenu
+    if (!newPostContent.trim()) {
+      Alert.alert("Oups !", "Tu as oublié de saisir du contenu");
       return;
     }
 
@@ -204,7 +379,7 @@ export default function ClubAgendaScreen() {
       const postData = {
         club_id: clubId,
         title: newPostTitle.trim(),
-        content: newPostContent.trim() || null,
+        content: newPostContent.trim(),
         image_url: newPostImageUrl || null,
         source: newPostIsInstagram ? 'instagram' : 'manual',
         created_by: user.id,
@@ -219,7 +394,13 @@ export default function ClubAgendaScreen() {
         .from("club_posts")
         .insert(postData);
 
-      if (error) throw error;
+      if (error) {
+        // Gérer les erreurs de contrainte avec des messages compréhensibles
+        if (error.message?.includes('content') && error.message?.includes('not-null')) {
+          throw new Error("Tu as oublié de saisir du contenu");
+        }
+        throw error;
+      }
 
       Alert.alert("Succès", "Post créé avec succès");
       
@@ -235,7 +416,23 @@ export default function ClubAgendaScreen() {
       loadPosts();
     } catch (error) {
       console.error("[ClubAgenda] Erreur création post:", error);
-      Alert.alert("Erreur", error.message || "Impossible de créer le post");
+      
+      // Messages d'erreur compréhensibles pour l'utilisateur
+      let errorMessage = "Impossible de créer le post";
+      
+      if (error.message) {
+        if (error.message.includes("Tu as oublié de saisir du contenu")) {
+          errorMessage = "Tu as oublié de saisir du contenu";
+        } else if (error.message.includes("content") && error.message.includes("not-null")) {
+          errorMessage = "Tu as oublié de saisir du contenu";
+        } else if (error.message.includes("title") && error.message.includes("not-null")) {
+          errorMessage = "Le titre est obligatoire";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      Alert.alert("Erreur", errorMessage);
     } finally {
       setCreatingPost(false);
     }
@@ -261,18 +458,20 @@ export default function ClubAgendaScreen() {
         <AgendaClub clubId={clubId} isManager={true} />
 
         {/* Posts (liste) */}
-        <View style={styles.section}>
+        <View style={styles.sectionTitleContainer}>
           <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleEmoji}>🌟</Text>
+            <Ionicons name="star" size={20} color="#e0ff00" />
             <Text style={styles.sectionTitle}>Actualités ({posts.length})</Text>
+          </View>
             <TouchableOpacity
               style={styles.addPostButton}
               onPress={() => setCreatePostModalVisible(true)}
             >
-              <Ionicons name="add" size={20} color="#fff" />
+            <Ionicons name="add" size={20} color="#000" />
               <Text style={styles.addPostButtonText}>Ajouter</Text>
             </TouchableOpacity>
           </View>
+        <View style={styles.section}>
           {posts.length === 0 ? (
             <Text style={styles.emptyText}>Aucun post</Text>
           ) : (
@@ -302,6 +501,25 @@ export default function ClubAgendaScreen() {
                     <Text style={styles.instagramLinkText}>Voir sur Instagram</Text>
                   </TouchableOpacity>
                 )}
+                
+                {/* Actions pour le club manager */}
+                <View style={styles.postActions}>
+                  <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={() => handleEditPost(post)}
+                  >
+                    <Ionicons name="pencil" size={16} color={BRAND} />
+                    <Text style={styles.editButtonText}>Modifier</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => handleDeletePost(post.id, post.title)}
+                  >
+                    <Ionicons name="trash" size={16} color="#ef4444" />
+                    <Text style={styles.deleteButtonText}>Supprimer</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))
           )}
@@ -349,7 +567,7 @@ export default function ClubAgendaScreen() {
               </View>
 
               <View style={styles.modalInputGroup}>
-                <Text style={styles.modalLabel}>Contenu</Text>
+                <Text style={styles.modalLabel}>Contenu *</Text>
                 <TextInput
                   style={[styles.modalInput, styles.modalTextArea]}
                   value={newPostContent}
@@ -437,14 +655,158 @@ export default function ClubAgendaScreen() {
                   <Text style={styles.modalButtonTextCancel}>Annuler</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.modalButtonConfirm]}
+                  style={[
+                    styles.modalButton,
+                    newPostTitle.trim() && newPostContent.trim() && !creatingPost
+                      ? styles.modalButtonConfirmActive
+                      : styles.modalButtonConfirmDisabled
+                  ]}
                   onPress={handleCreatePost}
-                  disabled={creatingPost || !newPostTitle.trim()}
+                  disabled={creatingPost || !newPostTitle.trim() || !newPostContent.trim()}
                 >
                   {creatingPost ? (
-                    <ActivityIndicator color="#fff" size="small" />
+                    <ActivityIndicator color="#000" size="small" />
                   ) : (
-                    <Text style={styles.modalButtonTextConfirm}>Créer</Text>
+                    <Text
+                      style={[
+                        newPostTitle.trim() && newPostContent.trim()
+                          ? styles.modalButtonTextConfirm
+                          : styles.modalButtonTextConfirmDisabled
+                      ]}
+                    >
+                      Créer
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal pour modifier un post */}
+      <Modal
+        visible={editPostModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setEditPostModalVisible(false);
+          setEditingPost(null);
+          setEditPostTitle("");
+          setEditPostContent("");
+          setEditPostImageUrl("");
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Modifier le post</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditPostModalVisible(false);
+                  setEditingPost(null);
+                  setEditPostTitle("");
+                  setEditPostContent("");
+                  setEditPostImageUrl("");
+                }}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalLabel}>Titre *</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={editPostTitle}
+                  onChangeText={setEditPostTitle}
+                  placeholder="Titre du post"
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalLabel}>Contenu *</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.modalTextArea]}
+                  value={editPostContent}
+                  onChangeText={setEditPostContent}
+                  placeholder="Description du post..."
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={4}
+                />
+              </View>
+
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalLabel}>Image</Text>
+                {editPostImageUrl ? (
+                  <View style={styles.imagePreviewContainer}>
+                    <Image source={{ uri: editPostImageUrl }} style={styles.imagePreview} />
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => setEditPostImageUrl("")}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.imagePickerButton}
+                    onPress={pickEditImage}
+                    disabled={uploadingEditImage}
+                  >
+                    {uploadingEditImage ? (
+                      <ActivityIndicator size="small" color={BRAND} />
+                    ) : (
+                      <>
+                        <Ionicons name="image-outline" size={24} color={BRAND} />
+                        <Text style={styles.imagePickerButtonText}>Choisir une image</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCancel]}
+                  onPress={() => {
+                    setEditPostModalVisible(false);
+                    setEditingPost(null);
+                    setEditPostTitle("");
+                    setEditPostContent("");
+                    setEditPostImageUrl("");
+                  }}
+                >
+                  <Text style={styles.modalButtonTextCancel}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    editPostTitle.trim() && editPostContent.trim() && !updatingPost
+                      ? styles.modalButtonConfirmActive
+                      : styles.modalButtonConfirmDisabled
+                  ]}
+                  onPress={handleUpdatePost}
+                  disabled={updatingPost || !editPostTitle.trim() || !editPostContent.trim()}
+                >
+                  {updatingPost ? (
+                    <ActivityIndicator color="#000" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        editPostTitle.trim() && editPostContent.trim()
+                          ? styles.modalButtonTextConfirm
+                          : styles.modalButtonTextConfirmDisabled
+                      ]}
+                    >
+                      Enregistrer
+                    </Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -459,7 +821,7 @@ export default function ClubAgendaScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#001833",
   },
   loadingContainer: {
     flex: 1,
@@ -484,19 +846,25 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  sectionTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    marginTop: 8,
+    paddingHorizontal: 16,
+  },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
-    marginBottom: 16,
-  },
-  sectionTitleEmoji: {
-    fontSize: 18,
+    flex: 1,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#000",
+    color: "#e0ff00",
   },
   emptyText: {
     fontSize: 14,
@@ -566,13 +934,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: BRAND,
+    backgroundColor: "#e0ff00",
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
   },
   addPostButtonText: {
-    color: "#fff",
+    color: "#000",
     fontSize: 12,
     fontWeight: "600",
   },
@@ -707,8 +1075,11 @@ const styles = StyleSheet.create({
   modalButtonCancel: {
     backgroundColor: "#f3f4f6",
   },
-  modalButtonConfirm: {
-    backgroundColor: BRAND,
+  modalButtonConfirmActive: {
+    backgroundColor: "#e0ff00", // Vert clair
+  },
+  modalButtonConfirmDisabled: {
+    backgroundColor: "#9ca3af", // Gris
   },
   modalButtonTextCancel: {
     fontSize: 16,
@@ -718,7 +1089,56 @@ const styles = StyleSheet.create({
   modalButtonTextConfirm: {
     fontSize: 16,
     fontWeight: "600",
+    color: "#000",
+  },
+  modalButtonTextConfirmDisabled: {
+    fontSize: 16,
+    fontWeight: "600",
     color: "#fff",
+  },
+  postActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+  },
+  editButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#f3f4f6",
+    borderWidth: 1,
+    borderColor: BRAND,
+  },
+  editButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: BRAND,
+  },
+  deleteButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#ef4444",
   },
 });
 

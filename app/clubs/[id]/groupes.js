@@ -150,7 +150,7 @@ export default function ClubGroupesScreen() {
           style={styles.createButton}
           onPress={() => setShowCreateModal(true)}
         >
-          <Ionicons name="add" size={20} color="#fff" />
+          <Ionicons name="add" size={20} color="#000" />
           <Text style={styles.createButtonText}>Créer un groupe</Text>
         </TouchableOpacity>
       </View>
@@ -256,15 +256,13 @@ export default function ClubGroupesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#001833",
   },
   createButtonContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-    alignItems: "flex-end",
+    backgroundColor: "#001833",
+    alignItems: "center",
   },
   createButton: {
     flexDirection: "row",
@@ -272,11 +270,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: BRAND,
+    backgroundColor: "#e0ff00",
     gap: 8,
   },
   createButtonText: {
-    color: "#fff",
+    color: "#000",
     fontSize: 14,
     fontWeight: "600",
   },
@@ -303,13 +301,13 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   emptyButton: {
-    backgroundColor: BRAND,
+    backgroundColor: "#e0ff00",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   emptyButtonText: {
-    color: "#fff",
+    color: "#000",
     fontWeight: "600",
   },
   groupCard: {

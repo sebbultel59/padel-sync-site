@@ -261,7 +261,25 @@ L'interface est organisée en **6 onglets principaux** :
 ## 📝 Notes Importantes
 
 ### Limitations actuelles
-- Les posts/actus du club sont créés mais l'interface de gestion n'est pas encore complètement implémentée
+
+#### Posts/Actus du club
+Les posts/actus du club sont créés et affichés, mais certaines fonctionnalités de gestion ne sont pas encore complètement implémentées :
+
+**✅ Fonctionnel :**
+- Création de posts (titre, contenu, image)
+- Upload d'images vers Supabase Storage
+- Affichage de la liste des posts
+- Synchronisation automatique avec Instagram
+- Support des posts manuels et Instagram
+
+**❌ Manquant :**
+- Modification des posts existants (interface manquante, permissions OK)
+- Suppression des posts (interface manquante, permissions OK)
+- Fonctionnalités avancées (statuts, catégories, pagination, etc.)
+
+📄 **Voir le document détaillé :** `ETAT_POSTS_ACTUS_CLUB.md` pour plus d'informations techniques et les recommandations d'implémentation.
+
+#### Autres limitations
 - L'envoi de notifications par groupe spécifique est en cours de développement
 - Certaines statistiques avancées peuvent être ajoutées dans le futur
 

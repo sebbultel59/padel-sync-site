@@ -89,7 +89,7 @@ export default function ClubManagerLayout() {
     { id: 'agenda', label: 'Agenda', icon: 'calendar', route: `/clubs/${clubId}/agenda` },
     { id: 'matchs', label: 'Matchs', icon: 'calendar-outline', route: `/clubs/${clubId}/matchs` },
     { id: 'notifications', label: 'Notifs', icon: 'notifications', route: `/clubs/${clubId}/notifications` },
-    { id: 'dashboard', label: 'Dashboard', icon: 'stats-chart', route: `/clubs/${clubId}/dashboard` },
+    { id: 'dashboard', label: 'Stats', icon: 'stats-chart', route: `/clubs/${clubId}/dashboard` },
   ];
 
   // Déterminer l'onglet actif depuis les segments
@@ -173,11 +173,13 @@ export default function ClubManagerLayout() {
                 style={[styles.tab, isActive && styles.tabActive]}
                 onPress={() => router.push(tab.route)}
               >
+                <View style={isActive && styles.iconGlow}>
                 <Ionicons 
                   name={tab.icon} 
                   size={24} 
-                  color={isActive ? '#ff751d' : '#6b7280'} 
+                  color={isActive ? '#e0ff00' : '#6b7280'} 
                 />
+                </View>
                 <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                   {tab.label}
                 </Text>
@@ -196,9 +198,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   header: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    backgroundColor: '#001833',
     paddingBottom: 16,
     paddingHorizontal: 16,
     flexDirection: 'row',
@@ -223,15 +223,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     marginBottom: 8,
   },
   logoPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -240,11 +240,11 @@ const styles = StyleSheet.create({
   clubName: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: '#fff',
     textAlign: 'center',
   },
   tabBarContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#001833',
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
     paddingTop: 12,
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: '#001833',
     justifyContent: 'space-around',
     alignItems: 'center',
     paddingHorizontal: 4,
@@ -272,6 +272,13 @@ const styles = StyleSheet.create({
   tabActive: {
     // L'état actif est géré par les couleurs de l'icône et du texte
   },
+  iconGlow: {
+    shadowColor: '#e0ff00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   tabLabel: {
     fontSize: 11,
     fontWeight: '500',
@@ -280,7 +287,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   tabLabelActive: {
-    color: '#ff751d',
+    color: '#e0ff00',
     fontWeight: '600',
   },
   content: {

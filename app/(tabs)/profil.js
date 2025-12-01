@@ -1005,7 +1005,7 @@ export default function ProfilScreen() {
         </View>
 
         {/* Tiles d'informations du profil */}
-        <View style={{ gap: 1, marginTop: 8 }}>
+        <View style={{ marginTop: 8 }}>
           {/* Ligne 1 : Pseudo à 100% */}
           <View style={[s.tile, s.tileFull]}>
             <View style={s.tileHeader}>
@@ -1023,13 +1023,13 @@ export default function ProfilScreen() {
           </View>
 
           {/* Ligne 2 : Adresses */}
-          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent' }]}>
-            <Text style={[s.label, { color: '#dcff13' }]}>📍 Adresses</Text>
-            <Text style={{ fontSize: 14, fontWeight: '400', color: '#e0ff00', marginTop: 2 }}>(pour trouver des matchs à proximité)</Text>
+          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 8 }]}>
+            <Text style={[s.label, { color: '#001833' }]}>📍 Adresses</Text>
+            <Text style={{ fontSize: 14, fontWeight: '400', color: '#001833', marginTop: 2 }}>(pour trouver des matchs à proximité)</Text>
             
             {/* Domicile */}
             <View style={{ marginTop: 8 }}>
-              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>🏠 Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
+              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#001833' }]}>🏠 Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
               <TextInput
                 value={addressHomeInput}
                 onChangeText={(text) => {
@@ -1109,7 +1109,7 @@ export default function ProfilScreen() {
 
             {/* Travail */}
             <View style={{ marginTop: 12 }}>
-              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#dcff13' }]}>💼 Travail</Text>
+              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#001833' }]}>💼 Travail</Text>
               <TextInput
                 value={addressWorkInput}
                 onChangeText={(text) => {
@@ -1361,7 +1361,7 @@ export default function ProfilScreen() {
         </View>
 
         {/* Ligne 8 : Rayon à 100% */}
-        <View style={[s.tile, s.tileFull, { marginTop: 0 }]}>
+        <View style={[s.tile, s.tileFull]}>
           <View style={s.tileHeader}>
             <Text style={s.tileIcon}>🚗</Text>
             <Text style={s.tileTitle}>Rayon de jeu possible <Text style={{ color: '#dc2626' }}>*</Text></Text>
@@ -1839,8 +1839,9 @@ const s = StyleSheet.create({
 
   avatarCard: {
     backgroundColor: "transparent",
-    borderWidth: 0, borderColor: "gold",
+    borderWidth: 0, borderColor: "transparent",
     borderRadius: 12, padding: 12, alignItems: "center",
+    marginBottom: 8,
   },
   avatarWrap: { alignItems: "center", justifyContent: "center" },
   avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#f3f4f6", borderWidth: 5, borderColor: "gold" },
@@ -1851,21 +1852,21 @@ const s = StyleSheet.create({
 
   card: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "gold", borderRadius: 12, padding: 12 },
 
-  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#001833" },
 
-  label: { fontSize: 18, color: "#001831", fontWeight: "800" },
+  label: { fontSize: 18, color: "#001833", fontWeight: "800" },
   value: { fontSize: 16, color: "#001831", marginTop: 4 },
 
   // Tiles
   tile: {
-    backgroundColor: "transparent",
-    borderWidth: 0,
-    borderColor: "transparent",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
     borderRadius: 12,
-    padding: 8,
+    padding: 12,
     minWidth: 0,
     width: '100%',
-    marginBottom: 1,
+    marginBottom: 8,
   },
   tileFull: {
     width: '100%',
@@ -1892,7 +1893,7 @@ const s = StyleSheet.create({
   },
   tileTitle: {
     fontSize: 16,
-    color: "#dcff13",
+    color: "#001833",
     fontWeight: "700",
     textTransform: 'uppercase',
     flexShrink: 1,

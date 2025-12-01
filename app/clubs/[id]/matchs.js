@@ -337,7 +337,7 @@ export default function ClubMatchsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#001833",
   },
   filtersContainer: {
     backgroundColor: "#fff",

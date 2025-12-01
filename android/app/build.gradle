@@ -116,9 +116,13 @@ android {
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
+            
+            // Generate mapping file for deobfuscation (required by Google Play Console)
+            // The mapping file will be located at: app/build/outputs/mapping/release/mapping.txt
+            // This file is automatically included in the AAB when uploaded via EAS Build
         }
     }
     packagingOptions {

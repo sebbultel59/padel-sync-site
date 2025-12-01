@@ -7,8 +7,39 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
+# React Native
+-keep,allowobfuscation @interface com.facebook.proguard.annotations.DoNotStrip
+-keep,allowobfuscation @interface com.facebook.proguard.annotations.KeepGettersAndSetters
+-keep @com.facebook.proguard.annotations.DoNotStrip class *
+-keepclassmembers class * {
+    @com.facebook.proguard.annotations.DoNotStrip *;
+}
+-keepclassmembers @com.facebook.proguard.annotations.KeepGettersAndSetters class * {
+    void set*(***);
+    *** get*();
+}
+-keepclassmembers class * {
+    @react.bridge.ReactMethod *;
+}
+-keepclassmembers class * {
+    native <methods>;
+}
+
 # react-native-reanimated
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
+
+# Expo
+-keepclassmembers class * {
+  @expo.modules.core.interfaces.DoNotStrip *;
+}
+-keep @expo.modules.core.interfaces.DoNotStrip class *
+-keepclassmembers class * {
+  @expo.modules.core.interfaces.ExpoProp *;
+}
+
+# Hermes
+-keep class com.facebook.hermes.unicode.** { *; }
+-keep class com.facebook.jni.** { *; }
 
 # Add any project specific keep options here:

@@ -155,7 +155,10 @@ export default function ClubDashboardScreen() {
 
         {/* Matchs */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Matchs</Text>
+          <View style={styles.sectionTitleRow}>
+            <Ionicons name="tennisball" size={20} color="#e0ff00" />
+            <Text style={styles.sectionTitle}>Matchs</Text>
+          </View>
           <View style={styles.matchStatsRow}>
             <View style={styles.matchStatBox}>
               <Text style={styles.matchStatValue}>{stats.matchesThisWeek}</Text>
@@ -170,7 +173,10 @@ export default function ClubDashboardScreen() {
 
         {/* Créneaux les plus utilisés */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Créneaux les plus utilisés</Text>
+          <View style={styles.sectionTitleRow}>
+            <Ionicons name="flame" size={20} color="#e0ff00" />
+            <Text style={styles.sectionTitle}>Créneaux les plus utilisés</Text>
+          </View>
           {stats.popularTimeSlots.length === 0 ? (
             <Text style={styles.emptyText}>Aucun créneau enregistré</Text>
           ) : (
@@ -192,7 +198,7 @@ export default function ClubDashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#001833",
   },
   scrollView: {
     flex: 1,
@@ -236,11 +242,17 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
   },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#000",
-    marginBottom: 12,
+    color: "#e0ff00",
   },
   matchStatsRow: {
     flexDirection: "row",

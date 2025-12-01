@@ -788,11 +788,11 @@ export default function ClubPageScreen() {
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {/* Informations générales */}
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="information-circle" size={20} color="#e0ff00" />
+          <Text style={styles.sectionTitle}>Informations générales</Text>
+        </View>
         <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleEmoji}>🏟️</Text>
-            <Text style={styles.sectionTitle}>Informations générales</Text>
-          </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Nom du club *</Text>
@@ -840,11 +840,11 @@ export default function ClubPageScreen() {
         </View>
 
         {/* Adresse */}
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="location" size={20} color="#e0ff00" />
+          <Text style={styles.sectionTitle}>Adresse</Text>
+        </View>
         <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleEmoji}>🗺️</Text>
-            <Text style={styles.sectionTitle}>Adresse</Text>
-          </View>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Adresse du club</Text>
             <TextInput
@@ -927,11 +927,11 @@ export default function ClubPageScreen() {
         </View>
 
         {/* Bouton d'appel */}
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="call" size={20} color="#e0ff00" />
+          <Text style={styles.sectionTitle}>Bouton d'appel</Text>
+        </View>
         <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleEmoji}>📞</Text>
-            <Text style={styles.sectionTitle}>Bouton d'appel</Text>
-          </View>
           <View style={styles.inputGroup}>
             <View style={styles.switchRow}>
               <Text style={styles.label}>Activer le bouton d'appel</Text>
@@ -978,11 +978,11 @@ export default function ClubPageScreen() {
         </View>
 
         {/* Horaires d'ouverture */}
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="time" size={20} color="#e0ff00" />
+          <Text style={styles.sectionTitle}>Horaires d'ouverture</Text>
+        </View>
         <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleEmoji}>⌚️</Text>
-            <Text style={styles.sectionTitle}>Horaires d'ouverture</Text>
-          </View>
 
           {[
             { key: "monday", label: "Lundi" },
@@ -1048,11 +1048,11 @@ export default function ClubPageScreen() {
         </View>
 
         {/* Liens sociaux */}
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="globe" size={20} color="#e0ff00" />
+          <Text style={styles.sectionTitle}>Liens sociaux</Text>
+        </View>
         <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitleEmoji}>🌎</Text>
-            <Text style={styles.sectionTitle}>Liens sociaux</Text>
-          </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Facebook</Text>
@@ -1451,7 +1451,7 @@ export default function ClubPageScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
+    backgroundColor: "#001833",
   },
   scrollView: {
     flex: 1,
@@ -1474,8 +1474,11 @@ const styles = StyleSheet.create({
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
+    marginTop: 8,
+    paddingHorizontal: 16,
   },
   sectionTitleEmoji: {
     fontSize: 18,
@@ -1483,7 +1486,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#000",
+    color: "#e0ff00",
   },
   inputGroup: {
     marginBottom: 16,
