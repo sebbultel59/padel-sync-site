@@ -412,7 +412,10 @@ export default function ClubPublicScreen() {
 
         {hasOpeningHours && (
           <>
-            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 8, marginTop: 16 }}>Horaires du club</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 16 }}>
+              <Ionicons name="time-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Horaires du club</Text>
+            </View>
             <View style={[styles.card, { paddingVertical: 12 }]}>
               {openingHoursList.map((item, index) => (
                 <View key={index} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, borderBottomWidth: index < openingHoursList.length - 1 ? 1 : 0, borderBottomColor: "#e5e7eb" }}>
@@ -426,7 +429,10 @@ export default function ClubPublicScreen() {
 
         {hasSocialLinks && (
           <>
-            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 8, marginTop: 16 }}>Liens sociaux</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, marginTop: 16 }}>
+              <Ionicons name="share-social-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Liens sociaux</Text>
+            </View>
             <View style={[styles.card, { paddingVertical: 12 }]}>
               <View style={styles.socialRow}>
               {socialLinks.facebook ? (
@@ -472,7 +478,10 @@ export default function ClubPublicScreen() {
 
         {!!groups.length && (
           <View style={styles.section}>
-            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 12 }}>Groupes du club</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="people-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Groupes du club</Text>
+            </View>
             {groups.map((g) => (
               <View key={g.id} style={styles.rowCard}>
                 <View>
@@ -495,7 +504,10 @@ export default function ClubPublicScreen() {
 
         {club.photos && Array.isArray(club.photos) && club.photos.length > 0 && (
           <View style={styles.section}>
-            <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00", marginBottom: 12 }}>Photos du club</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="images-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Photos du club</Text>
+            </View>
             <View style={styles.photosGrid}>
               {club.photos.map((photoUrl, index) => (
                 <Pressable
@@ -514,7 +526,10 @@ export default function ClubPublicScreen() {
 
         {!!posts.length && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Actualités</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="newspaper-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Actualités</Text>
+            </View>
             {posts.map((post) => (
               <View key={post.id} style={styles.postCard}>
                 <Text style={{ fontWeight: "700", fontSize: 16 }}>{post.title}</Text>

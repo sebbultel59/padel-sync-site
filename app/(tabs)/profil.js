@@ -1092,8 +1092,8 @@ export default function ProfilScreen() {
                 </View>
               )}
               {addressHome && (
-                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
-                  <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressHome.address}</Text>
+                <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
                   <Pressable
                     onPress={() => {
                       setAddressHome(null);
@@ -1172,8 +1172,8 @@ export default function ProfilScreen() {
                 </View>
               )}
               {addressWork && (
-                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8 }}>
-                  <Text style={{ fontSize: 12, color: '#15803d', flex: 1 }}>✓ {addressWork.address}</Text>
+                <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
                   <Pressable
                     onPress={() => {
                       setAddressWork(null);

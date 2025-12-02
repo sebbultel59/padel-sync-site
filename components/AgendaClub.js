@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     gap: 8,
     flex: 1,
   },
@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
   eventsListTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     gap: 8,
     marginBottom: 12,
     paddingHorizontal: 16,
