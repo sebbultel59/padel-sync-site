@@ -25,3 +25,8 @@ entrypoint = "./functions/push-reminders/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/dispatch-notifs/index.ts"
+
+[functions.record-match-result]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/record-match-result/index.ts"

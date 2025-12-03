@@ -131,3 +131,4 @@ Vérifiez que :
 - [Documentation ProGuard](https://www.guardsquare.com/manual/configuration/usage)
 - [Documentation EAS Build](https://docs.expo.dev/build/introduction/)
 
+

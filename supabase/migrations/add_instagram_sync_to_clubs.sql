@@ -31,3 +31,4 @@ COMMENT ON COLUMN club_posts.instagram_permalink IS 'Lien vers le post Instagram
 
 
 
+

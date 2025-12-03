@@ -100,3 +100,4 @@ CREATE POLICY "Club managers can delete their events"
 
 
 
+

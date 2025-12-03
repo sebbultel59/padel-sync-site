@@ -2,6 +2,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { usePlayerRating } from "../../hooks/usePlayerRating";
 import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
@@ -24,6 +25,7 @@ export default function ProfileScreen() {
   const { id, fromModal, returnTo, matchId } = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [p, setP] = useState(null);
+  const { level, xp, isLoading: ratingLoading } = usePlayerRating(id);
 
   useEffect(() => {
     let mounted = true;
@@ -99,6 +101,28 @@ export default function ProfileScreen() {
         <Text style={s.subtitle}>{p.email}</Text>
       </View>
 
+      {/* Niveau et XP */}
+      {!ratingLoading && level !== null && xp !== null && (
+        <View style={s.levelCard}>
+          <Text style={s.levelTitle}>Niveau {level}</Text>
+          <View style={s.xpBarContainer}>
+            <View style={s.xpBarBackground}>
+              <View style={[s.xpBarFill, { width: `${xp}%` }]} />
+            </View>
+          </View>
+          {level < 8 && (
+            <Text style={s.xpText}>{xp.toFixed(1)}% vers le niveau {level + 1}</Text>
+          )}
+          {level === 8 && (
+            <Text style={s.xpText}>Niveau maximum atteint ! 🏆</Text>
+          )}
+          {/* Zone pour les badges (à ajouter plus tard) */}
+          <View style={s.badgesContainer}>
+            {/* Les badges seront ajoutés ici */}
+          </View>
+        </View>
+      )}
+
       {/* Résumé visuel */}
       <View style={s.card}>
         <Text style={s.sectionTitle}>Résumé</Text>
@@ -173,6 +197,52 @@ const s = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "800", color: BRAND, textAlign: "center" },
   subtitle: { fontSize: 13, color: "#6b7280", textAlign: "center" },
 
+  levelCard: {
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    gap: 12,
+  },
+  levelTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: BRAND,
+    textAlign: "center",
+  },
+  xpBarContainer: {
+    width: "100%",
+    marginVertical: 8,
+  },
+  xpBarBackground: {
+    width: "100%",
+    height: 24,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  xpBarFill: {
+    height: "100%",
+    backgroundColor: BRAND,
+    borderRadius: 12,
+  },
+  xpText: {
+    fontSize: 13,
+    color: "#6b7280",
+    textAlign: "center",
+  },
+  badgesContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    // Structure prête pour les badges
+    // flexDirection: "row",
+    // flexWrap: "wrap",
+    // gap: 8,
+  },
   card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12, gap: 12 },
   sectionTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
 

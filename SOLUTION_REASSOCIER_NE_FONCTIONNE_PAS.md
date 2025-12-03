@@ -77,3 +77,4 @@ Si vous voulez un token qui dure 60 jours :
 **Note** : Pour la production, vous devrez créer une application Facebook correctement configurée, mais pour tester, "Graph API Explorer" est parfait.
 
 
+

@@ -3,15 +3,31 @@
 -- Améliore la structure de la table instagram_tokens avec des contraintes et index
 
 -- 1. Ajouter une contrainte unique sur club_id (un seul token par club)
-ALTER TABLE instagram_tokens
-  ADD CONSTRAINT instagram_tokens_club_id_unique UNIQUE (club_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'instagram_tokens_club_id_unique'
+  ) THEN
+    ALTER TABLE instagram_tokens
+      ADD CONSTRAINT instagram_tokens_club_id_unique UNIQUE (club_id);
+  END IF;
+END $$;
 
 -- 2. Ajouter une foreign key vers clubs.id
-ALTER TABLE instagram_tokens
-  ADD CONSTRAINT instagram_tokens_club_id_fkey 
-  FOREIGN KEY (club_id) 
-  REFERENCES clubs(id) 
-  ON DELETE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'instagram_tokens_club_id_fkey'
+  ) THEN
+    ALTER TABLE instagram_tokens
+      ADD CONSTRAINT instagram_tokens_club_id_fkey 
+      FOREIGN KEY (club_id) 
+      REFERENCES clubs(id) 
+      ON DELETE CASCADE;
+  END IF;
+END $$;
 
 -- 3. Créer un index sur club_id pour améliorer les performances
 CREATE INDEX IF NOT EXISTS idx_instagram_tokens_club_id ON instagram_tokens(club_id);
@@ -25,6 +41,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_instagram_tokens_updated_at ON instagram_tokens;
 CREATE TRIGGER trigger_update_instagram_tokens_updated_at
   BEFORE UPDATE ON instagram_tokens
   FOR EACH ROW

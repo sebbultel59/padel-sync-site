@@ -14,3 +14,4 @@ COMMENT ON COLUMN club_posts.image_url IS 'URL de l''image associée au post';
 
 
 
+

@@ -149,7 +149,12 @@ export default function ProfilScreen() {
   
   const pinchGesture = gesturesEnabled && Gesture.Pinch ? (() => {
     try {
-      return Gesture.Pinch()
+      const gesture = Gesture.Pinch();
+      if (!gesture || typeof gesture.onUpdate !== 'function' || typeof gesture.onEnd !== 'function') {
+        console.warn('[Profil] Gesture.Pinch() a retourné un objet invalide');
+        return null;
+      }
+      return gesture
         .onUpdate((event) => {
           scale.value = Math.max(1, Math.min(savedScale.value * event.scale, 4));
         })
@@ -172,7 +177,12 @@ export default function ProfilScreen() {
 
   const panGesture = gesturesEnabled && Gesture.Pan ? (() => {
     try {
-      return Gesture.Pan()
+      const gesture = Gesture.Pan();
+      if (!gesture || typeof gesture.onUpdate !== 'function' || typeof gesture.onEnd !== 'function') {
+        console.warn('[Profil] Gesture.Pan() a retourné un objet invalide');
+        return null;
+      }
+      return gesture
         .onUpdate((event) => {
           if (scale.value > 1) {
             translateX.value = savedTranslateX.value + event.translationX;

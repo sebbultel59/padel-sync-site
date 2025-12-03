@@ -4820,6 +4820,10 @@ const HourSlotRow = ({ item }) => {
     // État pour le club du match (pour le bouton d'appel)
     const [matchClub, setMatchClub] = React.useState(null);
     
+    // État pour vérifier si un résultat existe déjà et stocker les détails
+    const [matchResult, setMatchResult] = React.useState(null);
+    const [loadingResult, setLoadingResult] = React.useState(true);
+    
     // États pour le modal de remplacement
     const [replacementModalOpen, setReplacementModalOpen] = React.useState(false);
     const [replacementMembers, setReplacementMembers] = React.useState([]);
@@ -4889,6 +4893,45 @@ const HourSlotRow = ({ item }) => {
         }
       })();
     }, [m?.club_id, slot?.club_id]);
+    
+    // Vérifier si un résultat existe déjà pour ce match et récupérer les détails
+    React.useEffect(() => {
+      if (!m?.id) return;
+      
+      (async () => {
+        try {
+          setLoadingResult(true);
+          const { data: result, error } = await supabase
+            .from('match_results')
+            .select(`
+              id,
+              team1_score,
+              team2_score,
+              winner_team,
+              team1_player1_id,
+              team1_player2_id,
+              team2_player1_id,
+              team2_player2_id,
+              score_text,
+              recorded_at
+            `)
+            .eq('match_id', m.id)
+            .maybeSingle();
+          
+          if (error) {
+            console.warn('[MatchCardConfirmed] Error checking match result:', error);
+            setMatchResult(null);
+          } else {
+            setMatchResult(result);
+          }
+        } catch (e) {
+          console.error('[MatchCardConfirmed] Exception checking match result:', e);
+          setMatchResult(null);
+        } finally {
+          setLoadingResult(false);
+        }
+      })();
+    }, [m?.id]);
     
     const rsvps = rsvpsByMatch[m.id] || [];
     const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
@@ -5511,6 +5554,159 @@ const HourSlotRow = ({ item }) => {
               Me faire remplacer
             </Text>
           </Pressable>
+        )}
+
+        {/* Bouton "Enregistrer le résultat" - visible uniquement si l'utilisateur est dans les 4 confirmés et qu'aucun résultat n'existe */}
+        {!loadingResult && isUserInAccepted && acceptedCount === 4 && !matchResult && (
+          <Pressable
+            onPress={() => {
+              router.push({
+                pathname: '/matches/record-result',
+                params: { matchId: m.id },
+              });
+            }}
+            style={{
+              marginTop: 8,
+              backgroundColor: '#1a4b97',
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="trophy-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+            <Text
+              style={{
+                color: '#ffffff',
+                fontWeight: '800',
+                fontSize: 14,
+                textAlign: 'center',
+              }}
+            >
+              Enregistrer le résultat
+            </Text>
+          </Pressable>
+        )}
+        
+        {/* Afficher le score si le résultat est déjà enregistré */}
+        {!loadingResult && matchResult && (
+          <View
+            style={{
+              marginTop: 8,
+              backgroundColor: '#f3f4f6',
+              paddingVertical: 12,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#e5e7eb',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <Ionicons name="trophy" size={18} color="#10b981" style={{ marginRight: 6 }} />
+              <Text
+                style={{
+                  color: '#374151',
+                  fontWeight: '700',
+                  fontSize: 14,
+                }}
+              >
+                Résultat
+              </Text>
+            </View>
+            
+            {/* Affichage du score au format demandé */}
+            {(() => {
+              // Parser le score_text pour extraire les sets
+              const parseSets = (scoreText) => {
+                if (!scoreText) return [];
+                const sets = scoreText.split(',').map(s => s.trim());
+                return sets.map(set => {
+                  const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                  return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                });
+              };
+              
+              const sets = parseSets(matchResult.score_text);
+              // S'assurer qu'on a 3 sets (remplir avec 0-0 si nécessaire)
+              while (sets.length < 3) {
+                sets.push({ team1: 0, team2: 0 });
+              }
+              
+              const team1Player1 = profilesById?.[String(matchResult.team1_player1_id)]?.display_name || 'Joueur 1';
+              const team1Player2 = profilesById?.[String(matchResult.team1_player2_id)]?.display_name || 'Joueur 2';
+              const team2Player1 = profilesById?.[String(matchResult.team2_player1_id)]?.display_name || 'Joueur 1';
+              const team2Player2 = profilesById?.[String(matchResult.team2_player2_id)]?.display_name || 'Joueur 2';
+              
+              const team1Color = matchResult.winner_team === 'team1' ? '#10b981' : '#991b1b';
+              const team2Color = matchResult.winner_team === 'team2' ? '#10b981' : '#991b1b';
+              
+              return (
+                <View>
+                  {/* Ligne 1 : Équipe 1 - Joueurs + Scores */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                    <Text
+                      style={{
+                        color: team1Color,
+                        fontWeight: matchResult.winner_team === 'team1' ? '600' : '400',
+                        fontSize: 14,
+                        flex: 1,
+                      }}
+                    >
+                      {team1Player1} / {team1Player2}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                      {sets.map((set, index) => (
+                        <Text
+                          key={index}
+                          style={{
+                            color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#374151',
+                            fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600',
+                            fontSize: 16,
+                            minWidth: 20,
+                            textAlign: 'right',
+                          }}
+                        >
+                          {set.team1}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                  
+                  {/* Ligne 2 : Équipe 2 - Joueurs + Scores */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text
+                      style={{
+                        color: team2Color,
+                        fontWeight: matchResult.winner_team === 'team2' ? '600' : '400',
+                        fontSize: 14,
+                        flex: 1,
+                      }}
+                    >
+                      {team2Player1} / {team2Player2}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                      {sets.map((set, index) => (
+                        <Text
+                          key={index}
+                          style={{
+                            color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#374151',
+                            fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600',
+                            fontSize: 16,
+                            minWidth: 20,
+                            textAlign: 'right',
+                          }}
+                        >
+                          {set.team2}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              );
+            })()}
+          </View>
         )}
 
         {/* Bouton supprimer le match */}

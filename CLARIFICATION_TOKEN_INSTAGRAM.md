@@ -79,3 +79,4 @@ Voir le guide `OBTENIR_TOKEN_SANS_DASHBOARD.md` pour :
 - ✅ On peut obtenir le token via Graph API Explorer sans Dashboard
 
 
+
