@@ -30,3 +30,8 @@ entrypoint = "./functions/dispatch-notifs/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/record-match-result/index.ts"
+
+[functions.evaluate-badges]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/evaluate-badges/index.ts"

@@ -2,7 +2,9 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { usePlayerRating } from "../../hooks/usePlayerRating";
+import { usePlayerBadges } from "../../hooks/usePlayerBadges";
 import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
@@ -26,6 +28,8 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [p, setP] = useState(null);
   const { level, xp, isLoading: ratingLoading } = usePlayerRating(id);
+  const { featuredRare, featuredRecent, unlockedCount, totalAvailable, isLoading: badgesLoading, error: badgesError } = usePlayerBadges(id);
+
 
   useEffect(() => {
     let mounted = true;
@@ -116,12 +120,64 @@ export default function ProfileScreen() {
           {level === 8 && (
             <Text style={s.xpText}>Niveau maximum atteint ! 🏆</Text>
           )}
-          {/* Zone pour les badges (à ajouter plus tard) */}
-          <View style={s.badgesContainer}>
-            {/* Les badges seront ajoutés ici */}
-          </View>
         </View>
       )}
+
+      {/* Section Badges */}
+      <View style={s.badgesCard}>
+        {badgesLoading ? (
+          <Text style={s.badgesTitle}>Chargement des trophées...</Text>
+        ) : badgesError ? (
+          <>
+            <Text style={[s.badgesTitle, { color: '#ef4444', marginBottom: 8 }]}>Erreur : {badgesError}</Text>
+            <Text style={s.noBadgesText}>ID utilisateur: {id}</Text>
+          </>
+        ) : (
+          <>
+            <View style={s.badgesHeader}>
+              <Text style={s.badgesTitle}>Trophées : {unlockedCount}/{totalAvailable}</Text>
+              <Pressable
+                onPress={() => router.push(`/profiles/${id}/trophies`)}
+                style={s.viewAllButton}
+              >
+                <Text style={s.viewAllText}>Voir tous mes trophées</Text>
+                <Ionicons name="chevron-forward" size={16} color={BRAND} />
+              </Pressable>
+            </View>
+
+          {/* Badges rares */}
+          {featuredRare.length > 0 && (
+            <View style={s.badgesRow}>
+              <Text style={s.badgesRowLabel}>Rares</Text>
+              <View style={s.badgesList}>
+                {featuredRare.slice(0, 3).map((badge) => (
+                  <BadgeIcon key={badge.id} badge={badge} size={48} />
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Badges récents */}
+          {featuredRecent.length > 0 && (
+            <View style={s.badgesRow}>
+              <Text style={s.badgesRowLabel}>Récents</Text>
+              <View style={s.badgesList}>
+                {featuredRecent.slice(0, 3).map((badge) => (
+                  <BadgeIcon key={badge.id} badge={badge} size={48} />
+                ))}
+              </View>
+            </View>
+          )}
+
+            {unlockedCount === 0 && totalAvailable > 0 && (
+              <Text style={s.noBadgesText}>Aucun badge débloqué pour le moment</Text>
+            )}
+            {totalAvailable === 0 && (
+              <Text style={s.noBadgesText}>Aucun badge disponible</Text>
+            )}
+          </>
+        )}
+      </View>
 
       {/* Résumé visuel */}
       <View style={s.card}>
@@ -174,6 +230,45 @@ function Tile({ emoji, label, value, hint, onPress }) {
   }
 
   return <View style={s.tile}>{content}</View>;
+}
+
+function BadgeIcon({ badge, size = 40 }) {
+  const getBadgeIcon = (category) => {
+    switch (category) {
+      case 'volume': return 'trophy';
+      case 'performance': return 'flame';
+      case 'social': return 'people';
+      case 'club': return 'business';
+      case 'bar': return 'wine';
+      default: return 'star';
+    }
+  };
+
+  const getBadgeColor = (category) => {
+    switch (category) {
+      case 'volume': return '#fbbf24';
+      case 'performance': return '#ef4444';
+      case 'social': return '#3b82f6';
+      case 'club': return '#8b5cf6';
+      case 'bar': return '#ec4899';
+      default: return '#6b7280';
+    }
+  };
+
+  const iconName = getBadgeIcon(badge.category);
+  const iconColor = badge.unlocked ? getBadgeColor(badge.category) : '#d1d5db';
+  const opacity = badge.unlocked ? 1 : 0.4;
+
+  return (
+    <View style={[s.badgeIconContainer, { opacity }]}>
+      <Ionicons name={iconName} size={size} color={iconColor} />
+      {badge.unlocked && badge.rarityScore && badge.rarityScore > 50 && (
+        <View style={s.rareBadge}>
+          <Ionicons name="sparkles" size={12} color="#fbbf24" />
+        </View>
+      )}
+    </View>
+  );
 }
 
 const s = StyleSheet.create({
@@ -233,15 +328,77 @@ const s = StyleSheet.create({
     color: "#6b7280",
     textAlign: "center",
   },
-  badgesContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-    // Structure prête pour les badges
-    // flexDirection: "row",
-    // flexWrap: "wrap",
-    // gap: 8,
+  badgesCard: {
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    gap: 16,
+  },
+  badgesHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  badgesTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: BRAND,
+  },
+  viewAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: BRAND,
+  },
+  badgesRow: {
+    gap: 8,
+  },
+  badgesRowLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6b7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  badgesList: {
+    flexDirection: "row",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  badgeIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#e5e7eb",
+    position: "relative",
+  },
+  rareBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "white",
+    borderRadius: 10,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: "#fbbf24",
+  },
+  noBadgesText: {
+    fontSize: 13,
+    color: "#9ca3af",
+    textAlign: "center",
+    fontStyle: "italic",
+    paddingVertical: 8,
   },
   card: { backgroundColor: "white", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 12, gap: 12 },
   sectionTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },

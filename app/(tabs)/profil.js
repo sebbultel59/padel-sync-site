@@ -28,6 +28,8 @@ import { isProfileComplete } from "../../lib/profileCheck";
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
+import { usePlayerBadges, PlayerBadge } from "../../hooks/usePlayerBadges";
+import { usePlayerRating } from "../../hooks/usePlayerRating";
 
 // Détecter si on est en Expo Go (où Worklets peut avoir des problèmes de version)
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
@@ -941,6 +943,10 @@ export default function ProfilScreen() {
   const levelInfo = useMemo(() => levelMeta(Number(niveau) || 0), [niveau]);
   const initials = computeInitials(displayName || me?.email || "");
 
+  // Badges et rating
+  const { featuredRare, featuredRecent, unlockedCount, totalAvailable, isLoading: badgesLoading, error: badgesError } = usePlayerBadges(me?.id);
+  const { level, xp, isLoading: ratingLoading } = usePlayerRating(me?.id);
+
   if (loading) return <View style={s.center}><ActivityIndicator /></View>;
 
   return (
@@ -1263,6 +1269,72 @@ export default function ProfilScreen() {
               style={s.tileInput}
               maxLength={6}
             />
+          </View>
+
+          {/* Section Badges */}
+          <View style={[s.tile, s.tileFull]}>
+            <View style={s.tileHeader}>
+              <Text style={s.tileIcon}>🏅</Text>
+              <Text style={s.tileTitle}>
+                {badgesLoading ? 'Chargement...' : `Trophées : ${unlockedCount}/${totalAvailable}`}
+              </Text>
+              {!badgesLoading && me?.id && (
+                <Pressable
+                  onPress={() => router.push(`/profiles/${me.id}/trophies`)}
+                  style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                >
+                  <Text style={{ fontSize: 12, color: BRAND, fontWeight: '600' }}>Voir tous</Text>
+                  <Ionicons name="chevron-forward" size={14} color={BRAND} />
+                </Pressable>
+              )}
+            </View>
+            
+            {badgesLoading ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={BRAND} />
+              </View>
+            ) : badgesError ? (
+              <Text style={{ fontSize: 12, color: '#ef4444', textAlign: 'center', marginTop: 8 }}>
+                Erreur : {badgesError}
+              </Text>
+            ) : (
+              <>
+                {/* Badges rares */}
+                {featuredRare.length > 0 && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Rares</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      {featuredRare.slice(0, 3).map((badge) => (
+                        <BadgeIcon key={badge.id} badge={badge} size={40} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Badges récents */}
+                {featuredRecent.length > 0 && (
+                  <View style={{ marginTop: featuredRare.length > 0 ? 12 : 8 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Récents</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      {featuredRecent.slice(0, 3).map((badge) => (
+                        <BadgeIcon key={badge.id} badge={badge} size={40} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {unlockedCount === 0 && totalAvailable > 0 && (
+                  <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
+                    Aucun badge débloqué pour le moment
+                  </Text>
+                )}
+                {totalAvailable === 0 && (
+                  <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
+                    Aucun badge disponible
+                  </Text>
+                )}
+              </>
+            )}
           </View>
 
           {/* Ligne 4 : Main et Côté */}
@@ -1837,6 +1909,65 @@ function SegBtn({ label, active, onPress }) {
     >
       <Text style={[s.segmentTxt, active && { color: "#111827", fontWeight: "800" }]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function BadgeIcon({ badge, size = 40 }) {
+  const getBadgeIcon = (category) => {
+    switch (category) {
+      case 'volume': return 'trophy';
+      case 'performance': return 'flame';
+      case 'social': return 'people';
+      case 'club': return 'business';
+      case 'bar': return 'wine';
+      default: return 'star';
+    }
+  };
+
+  const getBadgeColor = (category) => {
+    switch (category) {
+      case 'volume': return '#fbbf24';
+      case 'performance': return '#ef4444';
+      case 'social': return '#3b82f6';
+      case 'club': return '#8b5cf6';
+      case 'bar': return '#ec4899';
+      default: return '#6b7280';
+    }
+  };
+
+  const iconName = getBadgeIcon(badge.category);
+  const iconColor = badge.unlocked ? getBadgeColor(badge.category) : '#d1d5db';
+  const opacity = badge.unlocked ? 1 : 0.4;
+
+  return (
+    <View style={{ 
+      width: size, 
+      height: size, 
+      borderRadius: size / 2, 
+      backgroundColor: '#f3f4f6', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: '#e5e7eb',
+      position: 'relative',
+      opacity
+    }}>
+      <Ionicons name={iconName} size={size * 0.6} color={iconColor} />
+      {badge.unlocked && badge.rarityScore && badge.rarityScore > 50 && (
+        <View style={{
+          position: 'absolute',
+          top: -4,
+          right: -4,
+          backgroundColor: '#fff',
+          borderRadius: 8,
+          padding: 2,
+          borderWidth: 1,
+          borderColor: '#fbbf24',
+        }}>
+          <Ionicons name="sparkles" size={10} color="#fbbf24" />
+        </View>
+      )}
+    </View>
   );
 }
 

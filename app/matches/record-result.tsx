@@ -239,6 +239,10 @@ export default function MatchResultFormScreen() {
 
         console.log('[MatchResultForm] Success! Data received:', data);
 
+        // Préparer les badges débloqués pour les passer en paramètres
+        const unlockedBadges = data?.unlocked_badges || [];
+        const badgesParam = JSON.stringify(unlockedBadges);
+
         // Naviguer vers l'écran de résumé avec les données
         router.push({
           pathname: '/matches/result-summary',
@@ -249,6 +253,7 @@ export default function MatchResultFormScreen() {
             level: data?.current_player?.level?.toString() || '',
             xp: data?.current_player?.xp?.toString() || '',
             won: isCurrentUserInWinningTeam ? 'true' : 'false',
+            unlocked_badges: badgesParam,
           },
         });
       } catch (invokeError: any) {

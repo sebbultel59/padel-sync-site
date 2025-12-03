@@ -588,9 +588,38 @@ serve(async (req) => {
       console.log('[record_match_result] Match status updated to completed');
     }
 
-    // 17. Récupérer l'utilisateur courant pour retourner ses infos
+    // 17. Récupérer l'utilisateur courant (une seule fois)
     const { data: { user } } = await supabase.auth.getUser();
     const currentUserId = user?.id;
+
+    // 18. Évaluer les badges pour tous les joueurs
+    // On attend le résultat pour l'inclure dans la réponse
+    let unlockedBadgesForCurrentUser: any[] = [];
+    try {
+      const { data: badgesData, error: badgesError } = await supabase.functions.invoke('evaluate-badges', {
+        body: { match_id: matchResult.id },
+      });
+
+      if (!badgesError && badgesData) {
+        const badgesResponse = badgesData as any;
+        const allUnlockedBadges = badgesResponse.badges_unlocked || [];
+        
+        if (currentUserId) {
+          // Filtrer les badges débloqués pour l'utilisateur courant
+          unlockedBadgesForCurrentUser = allUnlockedBadges.filter(
+            (badge: any) => badge.user_id === currentUserId
+          );
+          console.log(`[record_match_result] ${unlockedBadgesForCurrentUser.length} badge(s) débloqué(s) pour l'utilisateur courant`);
+        }
+      } else {
+        console.error('[record_match_result] Error evaluating badges:', badgesError);
+      }
+    } catch (badgesEvalError: any) {
+      // Logger l'erreur mais ne pas bloquer la réponse
+      console.error('[record_match_result] Exception evaluating badges (non-blocking):', badgesEvalError);
+    }
+
+    // 19. Préparer les infos du joueur courant
 
     let currentPlayerInfo = null;
     if (currentUserId) {
@@ -612,6 +641,7 @@ serve(async (req) => {
         success: true,
         match_result_id: matchResult.id,
         current_player: currentPlayerInfo,
+        unlocked_badges: unlockedBadgesForCurrentUser, // Badges débloqués pour l'utilisateur courant
       }),
       {
         status: 200,

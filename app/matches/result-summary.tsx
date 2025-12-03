@@ -1,12 +1,20 @@
 // app/matches/result-summary.tsx
 // Écran de résumé après l'enregistrement d'un résultat de match
 
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BRAND = '#1a4b97';
+
+interface UnlockedBadge {
+  user_id: string;
+  badge_code: string;
+  badge_id: string;
+  badge_label: string;
+}
 
 export default function MatchResultSummaryScreen() {
   const params = useLocalSearchParams();
@@ -18,6 +26,59 @@ export default function MatchResultSummaryScreen() {
   const level = parseInt(params.level as string, 10) || 1;
   const xp = parseFloat(params.xp as string) || 0;
   const won = params.won === 'true';
+  
+  // Parser les badges débloqués
+  const [unlockedBadges, setUnlockedBadges] = useState<UnlockedBadge[]>([]);
+  const [showBadgeNotification, setShowBadgeNotification] = useState(false);
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.8)).current;
+
+  useEffect(() => {
+    try {
+      const badgesParam = params.unlocked_badges as string;
+      if (badgesParam) {
+        const parsed = JSON.parse(badgesParam) as UnlockedBadge[];
+        setUnlockedBadges(parsed || []);
+        if (parsed && parsed.length > 0) {
+          // Afficher la notification avec animation
+          setShowBadgeNotification(true);
+          Animated.parallel([
+            Animated.timing(fadeAnim, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.spring(scaleAnim, {
+              toValue: 1,
+              tension: 50,
+              friction: 7,
+              useNativeDriver: true,
+            }),
+          ]).start();
+          
+          // Masquer la notification après 5 secondes
+          setTimeout(() => {
+            Animated.parallel([
+              Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 300,
+                useNativeDriver: true,
+              }),
+              Animated.timing(scaleAnim, {
+                toValue: 0.8,
+                duration: 300,
+                useNativeDriver: true,
+              }),
+            ]).start(() => {
+              setShowBadgeNotification(false);
+            });
+          }, 5000);
+        }
+      }
+    } catch (e) {
+      console.error('[MatchResultSummary] Error parsing badges:', e);
+    }
+  }, [params.unlocked_badges]);
 
   const handleContinue = () => {
     // Retourner à l'écran des matchs
@@ -78,14 +139,34 @@ export default function MatchResultSummaryScreen() {
           )}
         </View>
 
-        {/* Zone pour les badges (à ajouter plus tard) */}
+        {/* Section Badges - Toujours affichée */}
         <View style={styles.badgesContainer}>
-          <Text style={styles.badgesTitle}>Badges débloqués</Text>
-          <View style={styles.badgesPlaceholder}>
-            <Text style={styles.badgesPlaceholderText}>
-              Les badges seront affichés ici
-            </Text>
-          </View>
+          <Text style={styles.badgesTitle}>🏅 Badges</Text>
+          {unlockedBadges.length > 0 ? (
+            <>
+              <Text style={styles.badgesSubtitle}>Badges débloqués lors de ce match</Text>
+              <View style={styles.badgesList}>
+                {unlockedBadges.map((badge) => (
+                  <View key={badge.badge_id} style={styles.badgeItem}>
+                    <View style={styles.badgeIconContainer}>
+                      <Ionicons name="trophy" size={32} color="#fbbf24" />
+                    </View>
+                    <Text style={styles.badgeLabel}>{badge.badge_label}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : (
+            <View style={styles.noBadgesContainer}>
+              <Ionicons name="trophy-outline" size={48} color="#d1d5db" />
+              <Text style={styles.noBadgesText}>
+                Aucun badge débloqué lors de ce match
+              </Text>
+              <Text style={styles.noBadgesHint}>
+                Continuez à jouer pour débloquer des badges !
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -93,6 +174,56 @@ export default function MatchResultSummaryScreen() {
       <Pressable onPress={handleContinue} style={styles.continueButton}>
         <Text style={styles.continueButtonText}>Continuer</Text>
       </Pressable>
+
+      {/* Notification de badge débloqué */}
+      {showBadgeNotification && unlockedBadges.length > 0 && (
+        <Animated.View
+          style={[
+            styles.badgeNotification,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          <View style={styles.badgeNotificationContent}>
+            <View style={styles.badgeNotificationIcon}>
+              <Ionicons name="trophy" size={32} color="#fbbf24" />
+            </View>
+            <View style={styles.badgeNotificationText}>
+              <Text style={styles.badgeNotificationTitle}>
+                🎉 Badge débloqué !
+              </Text>
+              <Text style={styles.badgeNotificationSubtitle}>
+                {unlockedBadges.length === 1
+                  ? unlockedBadges[0].badge_label
+                  : `${unlockedBadges.length} badges débloqués`}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                Animated.parallel([
+                  Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 300,
+                    useNativeDriver: true,
+                  }),
+                  Animated.timing(scaleAnim, {
+                    toValue: 0.8,
+                    duration: 300,
+                    useNativeDriver: true,
+                  }),
+                ]).start(() => {
+                  setShowBadgeNotification(false);
+                });
+              }}
+              style={styles.badgeNotificationClose}
+            >
+              <Ionicons name="close" size={20} color="#6b7280" />
+            </Pressable>
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -185,23 +316,107 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: 'center',
   },
-  badgesPlaceholder: {
-    padding: 40,
+  badgesSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  noBadgesContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderStyle: 'dashed',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    gap: 12,
   },
-  badgesPlaceholderText: {
-    fontSize: 14,
+  noBadgesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  noBadgesHint: {
+    fontSize: 13,
     color: '#9ca3af',
     textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  badgesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  badgeItem: {
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 100,
+  },
+  badgeIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fbbf24',
+  },
+  badgeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+    maxWidth: 100,
+  },
+  badgeNotification: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    zIndex: 1000,
+  },
+  badgeNotificationContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: '#fbbf24',
+  },
+  badgeNotificationIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeNotificationText: {
+    flex: 1,
+    gap: 4,
+  },
+  badgeNotificationTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  badgeNotificationSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  badgeNotificationClose: {
+    padding: 4,
   },
   continueButton: {
     backgroundColor: BRAND,
