@@ -756,13 +756,6 @@ export default function TabsLayout() {
             tabBarAccessibilityLabel: 'Groupes',
           }} 
         />
-        <Tabs.Screen 
-          name="profil" 
-          options={{ 
-            tabBarLabel: 'Profil',
-            tabBarAccessibilityLabel: 'Profil',
-          }} 
-        />
       </Tabs>
       {/* Notifications Popup */}
      <Modal

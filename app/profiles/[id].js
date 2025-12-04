@@ -1,10 +1,15 @@
 // app/profiles/[id].js
+import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { usePlayerRating } from "../../hooks/usePlayerRating";
+import OnFireLabel from "../../components/OnFireLabel";
+import PlayerRankSummary from "../../components/PlayerRankSummary";
 import { usePlayerBadges } from "../../hooks/usePlayerBadges";
+import { usePlayerRating } from "../../hooks/usePlayerRating";
+import { usePlayerWinStreak } from "../../hooks/usePlayerWinStreak";
+import { useActiveGroup } from "../../lib/activeGroup";
+import { useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
@@ -29,6 +34,10 @@ export default function ProfileScreen() {
   const [p, setP] = useState(null);
   const { level, xp, isLoading: ratingLoading } = usePlayerRating(id);
   const { featuredRare, featuredRecent, unlockedCount, totalAvailable, isLoading: badgesLoading, error: badgesError } = usePlayerBadges(id);
+  const { winStreak } = usePlayerWinStreak(id);
+  const { clubId } = useUserRole();
+  const { activeGroup } = useActiveGroup();
+  const [city, setCity] = useState(null);
 
 
   useEffect(() => {
@@ -38,7 +47,7 @@ export default function ProfileScreen() {
         if (!id) throw new Error("Profil introuvable");
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, email, display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone")
+          .select("id, email, display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work")
           .eq("id", String(id))
           .maybeSingle();
         if (error) throw error;
@@ -101,7 +110,12 @@ export default function ProfileScreen() {
             <Text style={s.initial}>{initial}</Text>
           </View>
         )}
-        <Text style={s.title}>{title}</Text>
+        <View style={s.titleContainer}>
+          <Text style={s.title}>{title}</Text>
+          {winStreak >= 3 && (
+            <OnFireLabel winStreak={winStreak} size="small" />
+          )}
+        </View>
         <Text style={s.subtitle}>{p.email}</Text>
       </View>
 
@@ -196,6 +210,21 @@ export default function ProfileScreen() {
           />
         </View>
       </View>
+
+      {/* Mes classements */}
+      <View style={s.card}>
+        <Text style={s.sectionTitle}>Mes classements</Text>
+        <PlayerRankSummary
+          playerId={id}
+          clubId={clubId}
+          groupId={activeGroup?.id}
+          city={city}
+          showGlobal={true}
+          showClub={!!clubId}
+          showGroup={!!activeGroup?.id}
+        />
+      </View>
+
       <View style={{ height: 24 }} />
     </ScrollView>
   );
@@ -289,6 +318,13 @@ const s = StyleSheet.create({
   avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#f3f4f6" },
   avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: "#eaf2ff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: BRAND },
   initial: { fontSize: 48, fontWeight: "800", color: BRAND },
+  titleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 4,
+  },
   title: { fontSize: 22, fontWeight: "800", color: BRAND, textAlign: "center" },
   subtitle: { fontSize: 13, color: "#6b7280", textAlign: "center" },
 

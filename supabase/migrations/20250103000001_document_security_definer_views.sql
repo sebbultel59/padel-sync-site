@@ -94,3 +94,4 @@ COMMENT ON VIEW availability_effective IS
 -- de casser l'application. Une migration future devra être créée après vérification
 -- de leur utilisation dans le code client.
 
+

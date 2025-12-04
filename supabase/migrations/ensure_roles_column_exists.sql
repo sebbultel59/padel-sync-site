@@ -96,3 +96,4 @@ COMMENT ON COLUMN profiles.club_id IS 'ID du club géré par l''utilisateur (uni
 
 
 
+

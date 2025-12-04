@@ -35,3 +35,8 @@ entrypoint = "./functions/record-match-result/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/evaluate-badges/index.ts"
+
+[functions.update-match-ratings]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/update-match-ratings/index.ts"

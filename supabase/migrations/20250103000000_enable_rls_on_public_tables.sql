@@ -426,3 +426,4 @@ COMMENT ON POLICY "Super admins can view admins" ON admins IS 'Seuls les super_a
 COMMENT ON POLICY "Club managers and super admins can view instagram tokens" ON instagram_tokens IS 'Les club_managers peuvent voir le token de leur club, les super_admins peuvent tout voir';
 COMMENT ON POLICY "Users can view their own global availability" ON availability_global IS 'Les utilisateurs peuvent voir leurs propres disponibilités globales';
 
+

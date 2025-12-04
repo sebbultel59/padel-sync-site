@@ -494,6 +494,8 @@ serve(async (req) => {
         .from('player_ratings')
         .update({
           rating: update.new_rating,
+          level: level, // Mettre à jour le level
+          xp: xp, // Mettre à jour l'XP
           matches_played: newMatchesPlayed,
           wins: newWins,
           losses: newLosses,
@@ -574,19 +576,32 @@ serve(async (req) => {
       console.log('[record_match_result] Rating effects inserted successfully:', effectsToInsert.length);
     }
 
-    // 16. Mettre à jour le statut du match (utiliser 'completed' si disponible, sinon 'confirmed')
-    const { error: matchStatusError } = await supabase
-      .from('matches')
-      .update({ status: 'completed' })
-      .eq('id', match_id);
+    // 15b. Insérer dans rating_history pour chaque joueur
+    const historyEntries = ratingUpdates.map((update) => ({
+      user_id: update.player_id,
+      rating_before: update.old_rating,
+      rating_after: update.new_rating,
+      delta: update.delta,
+      match_id: match_id,
+    }));
 
-    if (matchStatusError) {
-      console.error('[record_match_result] Error updating match status:', matchStatusError);
+    const { error: historyInsertError } = await supabase
+      .from('rating_history')
+      .insert(historyEntries);
+
+    if (historyInsertError) {
+      console.error('[record_match_result] Error inserting rating_history:', historyInsertError);
       // Ne pas retourner d'erreur ici car le résultat est déjà enregistré
       // Mais logger l'erreur pour le débogage
     } else {
-      console.log('[record_match_result] Match status updated to completed');
+      console.log('[record_match_result] Rating history inserted successfully:', historyEntries.length);
     }
+
+    // 16. Ne pas mettre à jour le statut de matches
+    // Le statut 'completed' est pour match_results.status, pas pour matches.status
+    // La table matches garde son statut ('confirmed', 'pending', etc.)
+    // Le fait qu'un match_result existe avec status='completed' indique que le match est terminé
+    console.log('[record_match_result] Match result recorded, matches.status unchanged');
 
     // 17. Récupérer l'utilisateur courant (une seule fois)
     const { data: { user } } = await supabase.auth.getUser();
@@ -620,18 +635,57 @@ serve(async (req) => {
     }
 
     // 19. Préparer les infos du joueur courant
-
+    // Calculer old_level et win_streak pour le joueur courant
     let currentPlayerInfo = null;
+    
     if (currentUserId) {
       const currentUpdate = ratingUpdates.find(u => u.player_id === currentUserId);
       if (currentUpdate) {
+        // Calculer old_level et new_level
+        const { level: oldLevel } = ratingToLevelAndXp(currentUpdate.old_rating);
         const { level, xp } = ratingToLevelAndXp(currentUpdate.new_rating);
+        
+        // Calculer la série de victoires APRÈS l'enregistrement du match
+        // (le match vient d'être enregistré, donc on inclut ce match dans le calcul)
+        let winStreak = 0;
+        try {
+          // Récupérer les matchs récents (incluant celui qu'on vient d'enregistrer)
+          const { data: recentMatches } = await supabase
+            .from('match_results')
+            .select('winner_team, team1_player1_id, team1_player2_id, team2_player1_id, team2_player2_id, recorded_at')
+            .or(`team1_player1_id.eq.${currentUserId},team1_player2_id.eq.${currentUserId},team2_player1_id.eq.${currentUserId},team2_player2_id.eq.${currentUserId}`)
+            .eq('status', 'completed')
+            .not('winner_team', 'is', null)
+            .order('recorded_at', { ascending: false })
+            .limit(20);
+          
+          if (recentMatches) {
+            for (const match of recentMatches) {
+              const isWinner =
+                (match.winner_team === 'team1' &&
+                  (match.team1_player1_id === currentUserId || match.team1_player2_id === currentUserId)) ||
+                (match.winner_team === 'team2' &&
+                  (match.team2_player1_id === currentUserId || match.team2_player2_id === currentUserId));
+              
+              if (isWinner) {
+                winStreak++;
+              } else {
+                break;
+              }
+            }
+          }
+        } catch (streakError) {
+          console.error('[record_match_result] Error calculating win streak:', streakError);
+        }
+        
         currentPlayerInfo = {
           old_rating: currentUpdate.old_rating,
           new_rating: currentUpdate.new_rating,
           delta_rating: currentUpdate.delta,
+          old_level: oldLevel,
           level,
           xp,
+          win_streak: winStreak,
         };
       }
     }

@@ -6,6 +6,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import LevelUpModal from '../../components/LevelUpModal';
+import BadgeUnlockedToast from '../../components/BadgeUnlockedToast';
+import OnFireLabel from '../../components/OnFireLabel';
 
 const BRAND = '#1a4b97';
 
@@ -23,16 +26,33 @@ export default function MatchResultSummaryScreen() {
   const oldRating = parseFloat(params.old_rating as string) || 0;
   const newRating = parseFloat(params.new_rating as string) || 0;
   const deltaRating = parseFloat(params.delta_rating as string) || 0;
+  const oldLevel = parseInt(params.old_level as string, 10) || 1;
   const level = parseInt(params.level as string, 10) || 1;
   const xp = parseFloat(params.xp as string) || 0;
+  const winStreak = parseInt(params.win_streak as string, 10) || 0;
   const won = params.won === 'true';
   
-  // Parser les badges débloqués
+  // Level Up Modal
+  const [showLevelUpModal, setShowLevelUpModal] = useState(false);
+  
+  // Badges débloqués avec file d'attente
   const [unlockedBadges, setUnlockedBadges] = useState<UnlockedBadge[]>([]);
+  const [badgeQueue, setBadgeQueue] = useState<UnlockedBadge[]>([]);
+  const [currentBadgeToast, setCurrentBadgeToast] = useState<UnlockedBadge | null>(null);
+  
+  // Ancienne notification (à supprimer progressivement)
   const [showBadgeNotification, setShowBadgeNotification] = useState(false);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const scaleAnim = React.useRef(new Animated.Value(0.8)).current;
 
+  // Vérifier si level up
+  useEffect(() => {
+    if (oldLevel > 0 && level > oldLevel) {
+      setShowLevelUpModal(true);
+    }
+  }, [oldLevel, level]);
+
+  // Gérer les badges débloqués avec file d'attente
   useEffect(() => {
     try {
       const badgesParam = params.unlocked_badges as string;
@@ -40,45 +60,34 @@ export default function MatchResultSummaryScreen() {
         const parsed = JSON.parse(badgesParam) as UnlockedBadge[];
         setUnlockedBadges(parsed || []);
         if (parsed && parsed.length > 0) {
-          // Afficher la notification avec animation
-          setShowBadgeNotification(true);
-          Animated.parallel([
-            Animated.timing(fadeAnim, {
-              toValue: 1,
-              duration: 500,
-              useNativeDriver: true,
-            }),
-            Animated.spring(scaleAnim, {
-              toValue: 1,
-              tension: 50,
-              friction: 7,
-              useNativeDriver: true,
-            }),
-          ]).start();
-          
-          // Masquer la notification après 5 secondes
+          // Mettre les badges en file d'attente
+          setBadgeQueue(parsed);
+          // Afficher le premier badge après un court délai
           setTimeout(() => {
-            Animated.parallel([
-              Animated.timing(fadeAnim, {
-                toValue: 0,
-                duration: 300,
-                useNativeDriver: true,
-              }),
-              Animated.timing(scaleAnim, {
-                toValue: 0.8,
-                duration: 300,
-                useNativeDriver: true,
-              }),
-            ]).start(() => {
-              setShowBadgeNotification(false);
-            });
-          }, 5000);
+            if (parsed.length > 0) {
+              setCurrentBadgeToast(parsed[0]);
+            }
+          }, 1000); // Délai pour laisser le level up modal s'afficher d'abord
         }
       }
     } catch (e) {
       console.error('[MatchResultSummary] Error parsing badges:', e);
     }
   }, [params.unlocked_badges]);
+
+  // Gérer la file d'attente des badges
+  const handleBadgeDismiss = () => {
+    if (badgeQueue.length > 1) {
+      // Afficher le badge suivant
+      const nextBadges = badgeQueue.slice(1);
+      setBadgeQueue(nextBadges);
+      setCurrentBadgeToast(nextBadges[0]);
+    } else {
+      // Plus de badges
+      setCurrentBadgeToast(null);
+      setBadgeQueue([]);
+    }
+  };
 
   const handleContinue = () => {
     // Retourner à l'écran des matchs
@@ -124,7 +133,12 @@ export default function MatchResultSummaryScreen() {
 
         {/* Niveau et XP */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Niveau {level}</Text>
+          <View style={styles.levelHeader}>
+            <Text style={styles.cardTitle}>Niveau {level}</Text>
+            {winStreak >= 3 && (
+              <OnFireLabel winStreak={winStreak} size="small" />
+            )}
+          </View>
           <View style={styles.xpBarContainer}>
             <View style={styles.xpBarBackground}>
               <View style={[styles.xpBarFill, { width: `${xp}%` }]} />
@@ -175,54 +189,22 @@ export default function MatchResultSummaryScreen() {
         <Text style={styles.continueButtonText}>Continuer</Text>
       </Pressable>
 
-      {/* Notification de badge débloqué */}
-      {showBadgeNotification && unlockedBadges.length > 0 && (
-        <Animated.View
-          style={[
-            styles.badgeNotification,
-            {
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            },
-          ]}
-        >
-          <View style={styles.badgeNotificationContent}>
-            <View style={styles.badgeNotificationIcon}>
-              <Ionicons name="trophy" size={32} color="#fbbf24" />
-            </View>
-            <View style={styles.badgeNotificationText}>
-              <Text style={styles.badgeNotificationTitle}>
-                🎉 Badge débloqué !
-              </Text>
-              <Text style={styles.badgeNotificationSubtitle}>
-                {unlockedBadges.length === 1
-                  ? unlockedBadges[0].badge_label
-                  : `${unlockedBadges.length} badges débloqués`}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                Animated.parallel([
-                  Animated.timing(fadeAnim, {
-                    toValue: 0,
-                    duration: 300,
-                    useNativeDriver: true,
-                  }),
-                  Animated.timing(scaleAnim, {
-                    toValue: 0.8,
-                    duration: 300,
-                    useNativeDriver: true,
-                  }),
-                ]).start(() => {
-                  setShowBadgeNotification(false);
-                });
-              }}
-              style={styles.badgeNotificationClose}
-            >
-              <Ionicons name="close" size={20} color="#6b7280" />
-            </Pressable>
-          </View>
-        </Animated.View>
+      {/* Level Up Modal */}
+      <LevelUpModal
+        visible={showLevelUpModal}
+        oldLevel={oldLevel}
+        newLevel={level}
+        onClose={() => setShowLevelUpModal(false)}
+      />
+
+      {/* Badge Unlocked Toast (file d'attente) */}
+      {currentBadgeToast && (
+        <BadgeUnlockedToast
+          badgeLabel={currentBadgeToast.badge_label}
+          visible={true}
+          onDismiss={handleBadgeDismiss}
+          delay={0}
+        />
       )}
     </View>
   );
@@ -266,6 +248,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: BRAND,
     textAlign: 'center',
+  },
+  levelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   ratingChangeContainer: {
     alignItems: 'center',

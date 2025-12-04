@@ -22,42 +22,36 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingModal } from "../../components/OnboardingModal";
+import OnFireLabel from "../../components/OnFireLabel";
 import { useAuth } from "../../context/auth";
+import { usePlayerBadges } from "../../hooks/usePlayerBadges";
+import { usePlayerRating } from "../../hooks/usePlayerRating";
+import { usePlayerWinStreak } from "../../hooks/usePlayerWinStreak";
+import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { isProfileComplete } from "../../lib/profileCheck";
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
-import { usePlayerBadges, PlayerBadge } from "../../hooks/usePlayerBadges";
-import { usePlayerRating } from "../../hooks/usePlayerRating";
+// Imports directs de Reanimated (maintenant que worklets est à jour)
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // Détecter si on est en Expo Go (où Worklets peut avoir des problèmes de version)
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
-// Imports conditionnels pour éviter les erreurs Worklets en Expo Go
+// Imports conditionnels pour Gesture Handler (pour la compatibilité Expo Go)
 let Gesture, GestureDetector, GestureHandlerRootView;
-let Animated, useAnimatedStyle, useSharedValue, withTiming;
 
 try {
   const gestureHandler = require('react-native-gesture-handler');
   Gesture = gestureHandler.Gesture;
   GestureDetector = gestureHandler.GestureDetector;
   GestureHandlerRootView = gestureHandler.GestureHandlerRootView;
-  
-  const reanimated = require('react-native-reanimated');
-  Animated = reanimated.default;
-  useAnimatedStyle = reanimated.useAnimatedStyle;
-  useSharedValue = reanimated.useSharedValue;
-  withTiming = reanimated.withTiming;
 } catch (e) {
   console.warn('[Profil] Erreur lors du chargement des modules de gestes:', e);
   // Fallback: créer des composants vides
   GestureDetector = ({ children, gesture }) => children;
   GestureHandlerRootView = ({ children, style }) => <View style={style}>{children}</View>;
-  Animated = { View: View };
-  useAnimatedStyle = () => ({});
-  useSharedValue = (val) => ({ value: val });
-  withTiming = (val) => val;
   Gesture = { Pinch: () => ({ onUpdate: () => {}, onEnd: () => {} }), Pan: () => ({ onUpdate: () => {}, onEnd: () => {} }), Simultaneous: (...args) => null };
 }
 
@@ -116,6 +110,9 @@ export default function ProfilScreen() {
   const [geocodingHome, setGeocodingHome] = useState(false);
   const [geocodingWork, setGeocodingWork] = useState(false);
 
+  // Ville (pour les classements globaux / zone_leaderboard)
+  const [city, setCity] = useState(null);
+
   // classement (facultatif)
   const [classement, setClassement] = useState("");
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
@@ -139,6 +136,9 @@ export default function ProfilScreen() {
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   const CACHE_MAX_SIZE = 50;
   
+  // Groupe actif (pour les classements de groupe via PlayerRankSummary)
+  const { activeGroup } = useActiveGroup();
+
   // Zoom et pan pour l'image des niveaux (désactivé en Expo Go à cause des problèmes Worklets)
   const gesturesEnabled = !isExpoGo && Gesture && typeof Gesture.Pinch === 'function' && typeof Gesture.Pan === 'function' && Animated;
   
@@ -364,6 +364,378 @@ export default function ProfilScreen() {
     })();
     return () => { mounted = false; };
   }, []);
+
+  // Déduire la ville depuis address_home / address_work (pour le classement global)
+  useEffect(() => {
+    let userCity = addressHome?.city || addressWork?.city || null;
+
+    if (!userCity) {
+      const homeAddress = addressHome?.address;
+      const workAddress = addressWork?.address;
+      const addressToParse = homeAddress || workAddress;
+
+      if (addressToParse && typeof addressToParse === 'string') {
+        const parts = addressToParse.split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+          userCity = parts[1]; // Généralement "Code postal Ville" ou "Ville"
+        }
+      }
+    }
+
+    setCity(userCity || null);
+  }, [addressHome, addressWork]);
+
+  // Récupérer le club_id depuis le nom du club favori
+  useEffect(() => {
+    if (!club || !club.trim()) {
+      setFavoriteClubId(null);
+      return;
+    }
+
+    (async () => {
+      try {
+        const clubNameTrimmed = club.trim();
+        console.log('[Profil] Recherche du club favori:', clubNameTrimmed);
+        
+        // Normaliser le nom pour la recherche (enlever espaces multiples, caractères spéciaux comme &)
+        const normalizeName = (name) => {
+          return name
+            .toLowerCase()
+            .replace(/\s+/g, ' ') // Remplacer espaces multiples par un seul
+            .replace(/[&]/g, '') // Enlever & pour la comparaison
+            .replace(/\s+/g, ' ') // Re-normaliser les espaces après suppression
+            .trim();
+        };
+        
+        const normalizedSearch = normalizeName(clubNameTrimmed);
+        console.log('[Profil] Nom normalisé pour recherche:', normalizedSearch);
+        
+        // Essayer d'abord une correspondance exacte
+        let { data, error } = await supabase
+          .from('clubs')
+          .select('id, name')
+          .eq('name', clubNameTrimmed)
+          .maybeSingle();
+
+        // Si pas trouvé, essayer avec ILIKE (insensible à la casse)
+        if (!data && !error) {
+          const { data: dataIlike, error: errorIlike } = await supabase
+            .from('clubs')
+            .select('id, name')
+            .ilike('name', clubNameTrimmed)
+            .maybeSingle();
+          
+          if (!errorIlike && dataIlike) {
+            data = dataIlike;
+            error = null;
+          }
+        }
+
+        // Si toujours pas trouvé, essayer avec recherche partielle
+        if (!data && !error) {
+          const { data: dataPartial, error: errorPartial } = await supabase
+            .from('clubs')
+            .select('id, name')
+            .ilike('name', `%${clubNameTrimmed}%`)
+            .limit(10); // Prendre plusieurs résultats pour trouver le meilleur match
+          
+          if (!errorPartial && dataPartial && dataPartial.length > 0) {
+            console.log('[Profil] Clubs trouvés avec recherche partielle:', dataPartial.map(c => c.name));
+            // Trouver le meilleur match en comparant les noms normalisés
+            const bestMatch = dataPartial.find(c => {
+              const normalized = normalizeName(c.name);
+              return normalized === normalizedSearch;
+            }) || dataPartial.find(c => {
+              const normalized = normalizeName(c.name);
+              // Vérifier si les mots-clés principaux correspondent
+              const searchWords = normalizedSearch.split(' ').filter(w => w.length > 2);
+              const nameWords = normalized.split(' ').filter(w => w.length > 2);
+              return searchWords.every(word => nameWords.some(nw => nw.includes(word) || word.includes(nw)));
+            }) || dataPartial[0]; // Prendre le premier si aucun match parfait
+            
+            if (bestMatch) {
+              console.log('[Profil] Meilleur match trouvé:', bestMatch.name, '(normalisé:', normalizeName(bestMatch.name), ')');
+              data = bestMatch;
+              error = null;
+            }
+          }
+        }
+
+        if (error) {
+          console.error('[Profil] Error fetching club_id:', error);
+          setFavoriteClubId(null);
+          return;
+        }
+
+        if (data?.id) {
+          console.log('[Profil] ✅ Club favori trouvé:', clubNameTrimmed, '->', data.id, '(nom DB:', data.name, ')');
+          setFavoriteClubId(data.id);
+        } else {
+          console.warn('[Profil] ❌ Club favori non trouvé avec recherche standard:', clubNameTrimmed);
+          
+          // Recherche spécifique pour "Hercule" (cas spécial)
+          const searchTerms = clubNameTrimmed.toLowerCase().split(' ').filter(t => t.length > 2);
+          console.log('[Profil] Termes de recherche extraits:', searchTerms);
+          
+          if (searchTerms.length > 0) {
+            // Chercher avec le premier terme significatif (ex: "hercule")
+            const mainTerm = searchTerms[0];
+            const { data: searchResults, error: searchError } = await supabase
+              .from('clubs')
+              .select('id, name')
+              .ilike('name', `%${mainTerm}%`)
+              .limit(20);
+            
+            if (!searchError && searchResults && searchResults.length > 0) {
+              console.log('[Profil] Clubs trouvés avec terme principal:', searchResults.map(c => c.name));
+              
+              // Trouver le meilleur match en comparant tous les termes
+              const bestMatch = searchResults.find(c => {
+                const normalized = normalizeName(c.name);
+                const allTermsMatch = searchTerms.every(term => 
+                  normalized.includes(term) || normalized.split(' ').some(w => w.includes(term))
+                );
+                return allTermsMatch;
+              }) || searchResults.find(c => {
+                const normalized = normalizeName(c.name);
+                return normalized.includes(mainTerm);
+              });
+              
+              if (bestMatch) {
+                console.log('[Profil] ✅ Club favori trouvé avec recherche par terme:', clubNameTrimmed, '->', bestMatch.id, '(nom DB:', bestMatch.name, ')');
+                data = bestMatch;
+                error = null;
+                setFavoriteClubId(bestMatch.id);
+                return;
+              }
+            }
+          }
+          
+          // Dernière tentative : lister tous les clubs contenant "hercule" pour debug
+          const { data: herculeClubs } = await supabase
+            .from('clubs')
+            .select('id, name')
+            .ilike('name', '%hercule%')
+            .limit(10);
+          console.log('[Profil] Clubs contenant "hercule":', herculeClubs?.map(c => c.name));
+          
+          // Lister quelques clubs pour debug
+          const { data: allClubs } = await supabase
+            .from('clubs')
+            .select('id, name')
+            .limit(20);
+          console.log('[Profil] Premiers clubs disponibles:', allClubs?.map(c => c.name));
+          
+          setFavoriteClubId(null);
+        }
+      } catch (e) {
+        console.error('[Profil] Error fetching club_id:', e);
+        setFavoriteClubId(null);
+      }
+    })();
+  }, [club]);
+
+  // Charger les classements
+  useEffect(() => {
+    if (!me?.id) {
+      setLoadingRanks(false);
+      return;
+    }
+
+    const fetchRanks = async () => {
+      setLoadingRanks(true);
+      try {
+        const promises = [];
+
+        // Classement global (via leaderboard_view directement)
+        promises.push(
+          (async () => {
+            try {
+              // Essayer d'abord avec zone_leaderboard si on a une ville
+              if (city) {
+                const { data: zoneData, error: zoneError } = await supabase.rpc('zone_leaderboard', {
+                  p_city: city,
+                });
+                if (!zoneError && zoneData && zoneData.length > 0) {
+                  const playerEntry = zoneData.find((e) => e.user_id === me.id);
+                  if (playerEntry) {
+                    setGlobalRank({
+                      rank: Number(playerEntry.rank),
+                      total: zoneData.length,
+                    });
+                    return;
+                  }
+                }
+              }
+              
+              // Fallback : utiliser leaderboard_view directement (global)
+              const { data, error } = await supabase
+                .from('leaderboard_view')
+                .select('user_id, rank_global')
+                .order('rating', { ascending: false });
+              
+              if (!error && data) {
+                const playerEntry = data.find((e) => e.user_id === me.id);
+                if (playerEntry && playerEntry.rank_global) {
+                  setGlobalRank({
+                    rank: Number(playerEntry.rank_global),
+                    total: data.length,
+                  });
+                } else {
+                  setGlobalRank(null);
+                }
+              } else {
+                setGlobalRank(null);
+              }
+            } catch (err) {
+              console.error('[Profil] Error fetching global rank:', err);
+              setGlobalRank(null);
+            }
+          })()
+        );
+
+        // Classement club favori
+        if (favoriteClubId) {
+          promises.push(
+            (async () => {
+              try {
+                console.log('[Profil] 🔍 Fetching club leaderboard for club_id:', favoriteClubId, 'user_id:', me.id);
+                
+                // Vérifier d'abord si le joueur est membre d'un groupe du club
+                const { data: groupCheck, error: groupError } = await supabase
+                  .from('group_members')
+                  .select('group_id, groups!inner(club_id, name)')
+                  .eq('user_id', me.id)
+                  .eq('groups.club_id', favoriteClubId)
+                  .limit(5);
+                
+                if (groupError) {
+                  console.error('[Profil] ❌ Error checking group membership:', groupError);
+                  setClubRank(null);
+                  return;
+                }
+                
+                if (!groupCheck || groupCheck.length === 0) {
+                  console.warn('[Profil] ⚠️ User is not a member of any group in this club (club_id:', favoriteClubId, ')');
+                  // Ne pas afficher de classement si le joueur n'est pas membre d'un groupe du club
+                  setClubRank(null);
+                  return;
+                }
+                
+                console.log('[Profil] ✅ User is member of', groupCheck.length, 'group(s) in this club:', groupCheck.map(g => g.groups?.name || g.group_id));
+                
+                // Vérifier si le joueur a un rating
+                const { data: ratingData, error: ratingError } = await supabase
+                  .from('player_ratings')
+                  .select('rating, matches_played')
+                  .eq('player_id', me.id)
+                  .maybeSingle();
+                
+                if (ratingError) {
+                  console.error('[Profil] ❌ Error checking rating:', ratingError);
+                  setClubRank(null);
+                  return;
+                }
+                
+                if (!ratingData || ratingData.rating === null) {
+                  console.warn('[Profil] ⚠️ User has no rating yet (rating:', ratingData?.rating, ', matches:', ratingData?.matches_played, ')');
+                  setClubRank(null);
+                  return;
+                }
+                
+                console.log('[Profil] ✅ User has rating:', ratingData.rating, '(matches:', ratingData.matches_played, ')');
+                
+                // Maintenant récupérer le leaderboard
+                console.log('[Profil] 📊 Calling club_leaderboard RPC...');
+                const { data, error } = await supabase.rpc('club_leaderboard', {
+                  p_club_id: favoriteClubId,
+                });
+                if (error) {
+                  console.error('[Profil] ❌ Error calling club_leaderboard:', error);
+                  setClubRank(null);
+                  return;
+                }
+                if (data && data.length > 0) {
+                  console.log('[Profil] ✅ Club leaderboard data:', data.length, 'players');
+                  console.log('[Profil] First 3 players:', data.slice(0, 3).map(p => ({ user_id: p.user_id, pseudo: p.pseudo, rank: p.rank, rating: p.rating })));
+                  const playerEntry = data.find((e) => e.user_id === me.id);
+                  if (playerEntry) {
+                    console.log('[Profil] ✅ Player found in club leaderboard:', { rank: playerEntry.rank, rating: playerEntry.rating, pseudo: playerEntry.pseudo });
+                    // Récupérer le nom du club
+                    const { data: clubData } = await supabase
+                      .from('clubs')
+                      .select('name')
+                      .eq('id', favoriteClubId)
+                      .maybeSingle();
+
+                    setClubRank({
+                      rank: Number(playerEntry.rank),
+                      total: data.length,
+                      clubName: clubData?.name || club || 'Club',
+                    });
+                    console.log('[Profil] ✅ Club rank set:', { rank: playerEntry.rank, total: data.length });
+                  } else {
+                    console.warn('[Profil] ⚠️ Player not found in club leaderboard (user_id:', me.id, 'not in', data.length, 'players)');
+                    console.log('[Profil] User IDs in leaderboard:', data.slice(0, 5).map(p => p.user_id));
+                    setClubRank(null);
+                  }
+                } else {
+                  console.warn('[Profil] ⚠️ Club leaderboard empty (no data returned)');
+                  setClubRank(null);
+                }
+              } catch (err) {
+                console.error('[Profil] ❌ Error fetching club rank:', err);
+                setClubRank(null);
+              }
+            })()
+          );
+        } else {
+          console.log('[Profil] ⚠️ No favoriteClubId, skipping club rank');
+          setClubRank(null);
+        }
+
+        // Classement groupe actif
+        if (activeGroup?.id) {
+          promises.push(
+            (async () => {
+              try {
+                const { data, error } = await supabase.rpc('group_leaderboard', {
+                  p_group_id: activeGroup.id,
+                });
+                if (!error && data) {
+                  const playerEntry = data.find((e) => e.user_id === me.id);
+                  if (playerEntry) {
+                    setGroupRank({
+                      rank: Number(playerEntry.rank),
+                      total: data.length,
+                      groupName: activeGroup.name || 'Groupe',
+                    });
+                  } else {
+                    setGroupRank(null);
+                  }
+                } else {
+                  setGroupRank(null);
+                }
+              } catch (err) {
+                console.error('[Profil] Error fetching group rank:', err);
+                setGroupRank(null);
+              }
+            })()
+          );
+        } else {
+          setGroupRank(null);
+        }
+
+        await Promise.all(promises);
+      } catch (error) {
+        console.error('[Profil] Error fetching ranks:', error);
+      } finally {
+        setLoadingRanks(false);
+      }
+    };
+
+    fetchRanks();
+  }, [me?.id, city, favoriteClubId, activeGroup?.id, activeGroup?.name]);
 
   // Afficher la popup si le profil est incomplet (une seule fois par session)
   const [hasShownIncompleteModal, setHasShownIncompleteModal] = useState(false);
@@ -946,6 +1318,14 @@ export default function ProfilScreen() {
   // Badges et rating
   const { featuredRare, featuredRecent, unlockedCount, totalAvailable, isLoading: badgesLoading, error: badgesError } = usePlayerBadges(me?.id);
   const { level, xp, isLoading: ratingLoading } = usePlayerRating(me?.id);
+  const { winStreak } = usePlayerWinStreak(me?.id);
+
+  // États pour les classements
+  const [globalRank, setGlobalRank] = useState(null);
+  const [clubRank, setClubRank] = useState(null);
+  const [groupRank, setGroupRank] = useState(null);
+  const [loadingRanks, setLoadingRanks] = useState(true);
+  const [favoriteClubId, setFavoriteClubId] = useState(null);
 
   if (loading) return <View style={s.center}><ActivityIndicator /></View>;
 
@@ -991,6 +1371,11 @@ export default function ProfilScreen() {
                 </Text>
               </View>
             )}
+            {winStreak >= 3 && (
+              <View style={{ position: 'absolute', top: -4, left: -4 }}>
+                <OnFireLabel winStreak={winStreak} size="small" />
+              </View>
+            )}
           </View>
           <View style={s.avatarBtns}>
             <Pressable
@@ -1022,273 +1407,32 @@ export default function ProfilScreen() {
 
         {/* Tiles d'informations du profil */}
         <View style={{ marginTop: 8 }}>
-          {/* Ligne 1 : Pseudo à 100% */}
-          <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>👤</Text>
-              <Text style={s.tileTitle}>Pseudo <Text style={{ color: '#dc2626' }}>*</Text></Text>
-            </View>
-            <TextInput
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Ex. Seb Padel"
-              autoCapitalize="words"
-              style={s.tileInput}
-              maxLength={60}
-            />
-          </View>
-
-          {/* Ligne 2 : Adresses */}
-          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 8 }]}>
-            <Text style={[s.label, { color: '#001833' }]}>📍 Adresses</Text>
-            <Text style={{ fontSize: 14, fontWeight: '400', color: '#001833', marginTop: 2 }}>(pour trouver des matchs à proximité)</Text>
-            
-            {/* Domicile */}
-            <View style={{ marginTop: 8 }}>
-              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#001833' }]}>🏠 Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
-              <TextInput
-                value={addressHomeInput}
-                onChangeText={(text) => {
-                  setAddressHomeInput(text);
-                  
-                  // Annuler le timer précédent
-                  if (debounceTimerHome.current) {
-                    clearTimeout(debounceTimerHome.current);
-                  }
-                  
-                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
-                  if (text.trim().length < 3) {
-                    setAddressHomeSuggestions([]);
-                    return;
-                  }
-                  
-                  // Debouncing : attendre 400ms après la dernière frappe
-                  debounceTimerHome.current = setTimeout(() => {
-                    searchAddress(text, setAddressHomeSuggestions, true);
-                  }, 400);
-                }}
-                placeholder="Ex: 123 Rue de la Paix, 75001 Paris"
-                style={s.input}
-                autoCapitalize="words"
-              />
-              {addressHomeSuggestions.length > 0 && (
-                <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
-                  <ScrollView nestedScrollEnabled>
-                    {addressHomeSuggestions.map((sug, idx) => (
-                      <Pressable
-                        key={idx}
-                        onPress={async () => {
-                          setAddressHomeInput(sug.address);
-                          setAddressHomeSuggestions([]);
-                          setGeocodingHome(true);
-                          const geocoded = await geocodeAddress(sug.address);
-                          setGeocodingHome(false);
-                          if (geocoded) {
-                            setAddressHome(geocoded);
-                          } else {
-                            Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
-                          }
-                        }}
-                        style={{
-                          padding: 12,
-                          borderBottomWidth: idx < addressHomeSuggestions.length - 1 ? 1 : 0,
-                          borderBottomColor: '#e5e7eb',
-                        }}
-                      >
-                        <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{sug.name}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-              {geocodingHome && (
-                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <ActivityIndicator size="small" color={BRAND} />
-                  <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
-                </View>
-              )}
-              {addressHome && (
-                <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-                  <Pressable
-                    onPress={() => {
-                      setAddressHome(null);
-                      setAddressHomeInput("");
-                    }}
-                    style={{ padding: 4 }}
-                  >
-                    <Ionicons name="close-circle" size={18} color="#dc2626" />
-                  </Pressable>
-                </View>
-              )}
-            </View>
-
-            {/* Travail */}
-            <View style={{ marginTop: 12 }}>
-              <Text style={[s.label, { fontSize: 16, marginBottom: 6, color: '#001833' }]}>💼 Travail</Text>
-              <TextInput
-                value={addressWorkInput}
-                onChangeText={(text) => {
-                  setAddressWorkInput(text);
-                  
-                  // Annuler le timer précédent
-                  if (debounceTimerWork.current) {
-                    clearTimeout(debounceTimerWork.current);
-                  }
-                  
-                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
-                  if (text.trim().length < 3) {
-                    setAddressWorkSuggestions([]);
-                    return;
-                  }
-                  
-                  // Debouncing : attendre 400ms après la dernière frappe
-                  debounceTimerWork.current = setTimeout(() => {
-                    searchAddress(text, setAddressWorkSuggestions, false);
-                  }, 400);
-                }}
-                placeholder="Ex: 456 Avenue des Champs, 69001 Lyon"
-                style={s.input}
-                autoCapitalize="words"
-              />
-              {addressWorkSuggestions.length > 0 && (
-                <View style={{ marginTop: 4, backgroundColor: '#f9fafb', borderRadius: 8, maxHeight: 150 }}>
-                  <ScrollView nestedScrollEnabled>
-                    {addressWorkSuggestions.map((sug, idx) => (
-                      <Pressable
-                        key={idx}
-                        onPress={async () => {
-                          setAddressWorkInput(sug.address);
-                          setAddressWorkSuggestions([]);
-                          setGeocodingWork(true);
-                          const geocoded = await geocodeAddress(sug.address);
-                          setGeocodingWork(false);
-                          if (geocoded) {
-                            setAddressWork(geocoded);
-                          } else {
-                            Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
-                          }
-                        }}
-                        style={{
-                          padding: 12,
-                          borderBottomWidth: idx < addressWorkSuggestions.length - 1 ? 1 : 0,
-                          borderBottomColor: '#e5e7eb',
-                        }}
-                      >
-                        <Text style={{ fontSize: 14, color: '#111827', fontWeight: '500' }}>{sug.name}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-              {geocodingWork && (
-                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <ActivityIndicator size="small" color={BRAND} />
-                  <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
-                </View>
-              )}
-              {addressWork && (
-                <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-                  <Pressable
-                    onPress={() => {
-                      setAddressWork(null);
-                      setAddressWorkInput("");
-                    }}
-                    style={{ padding: 4 }}
-                  >
-                    <Ionicons name="close-circle" size={18} color="#dc2626" />
-                  </Pressable>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {/* Ligne 3 : Niveau à 100% */}
-          <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🔥</Text>
-              <Text style={s.tileTitle}>Niveau <Text style={{ color: '#dc2626' }}>*</Text></Text>
-              <Pressable
-                onPress={() => setNiveauInfoModalVisible(true)}
-                style={{ 
-                  marginLeft: 6, 
-                  padding: 4,
-                  backgroundColor: '#e0f2fe',
-                  borderRadius: 12,
-                  width: 24,
-                  height: 24,
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <Ionicons name="information-circle" size={16} color="#0284c7" />
-              </Pressable>
-            </View>
-            <View style={s.levelRow}>
-              {LEVELS.map((lv) => {
-                const active = niveau === lv.v;
-                return (
-                  <Pressable
-                    key={lv.v}
-                    onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
-                    style={[
-                      s.pill,
-                      {
-                        backgroundColor: lv.color,
-                        borderColor: active ? '#dcff13' : 'transparent',
-                        borderWidth: active ? 4 : 1,
-                        transform: active ? [{ scale: 1.06 }] : [],
-                      },
-                      Platform.OS === 'web' && { cursor: 'pointer' },
-                    ]}
-                  >
-                    <Text style={[s.pillTxt, { color: '#111827', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {niveau && levelInfo?.label && (
-              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                {levelInfo.label}
-              </Text>
-            )}
-          </View>
-
-          {/* Ligne 3 : Classement à 100% */}
-          <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🏆</Text>
-              <Text style={s.tileTitle}>Classement</Text>
-            </View>
-            <TextInput
-              value={classement}
-              onChangeText={setClassement}
-              placeholder="Ex. 500"
-              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-              style={s.tileInput}
-              maxLength={6}
-            />
+          {/* Titre principal MES STATS */}
+          <View style={{ alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 36, fontWeight: '900', color: '#E0FF00', textTransform: 'uppercase', fontFamily: 'Small Capture', textAlign: 'center' }}>
+              MES STATS
+            </Text>
           </View>
 
           {/* Section Badges */}
-          <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🏅</Text>
-              <Text style={s.tileTitle}>
-                {badgesLoading ? 'Chargement...' : `Trophées : ${unlockedCount}/${totalAvailable}`}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+              <Ionicons name="medal" size={22} color="#E0FF00" />
+              <Text style={[s.tileTitle, { flexShrink: 1 }]} numberOfLines={1}>
+                {badgesLoading ? 'Chargement...' : `MES TROPHEES : ${unlockedCount}/${totalAvailable}`}
               </Text>
-              {!badgesLoading && me?.id && (
-                <Pressable
-                  onPress={() => router.push(`/profiles/${me.id}/trophies`)}
-                  style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                >
-                  <Text style={{ fontSize: 12, color: BRAND, fontWeight: '600' }}>Voir tous</Text>
-                  <Ionicons name="chevron-forward" size={14} color={BRAND} />
-                </Pressable>
-              )}
             </View>
-            
+            {!badgesLoading && me?.id && (
+              <Pressable
+                onPress={() => router.push(`/profiles/${me.id}/trophies`)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}
+              >
+                <Text style={{ fontSize: 12, color: BRAND, fontWeight: '600' }}>Voir tous</Text>
+                <Ionicons name="chevron-forward" size={14} color={BRAND} />
+              </Pressable>
+            )}
+          </View>
+          <View style={[s.tile, s.tileFull]}>
             {badgesLoading ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <ActivityIndicator size="small" color={BRAND} />
@@ -1337,13 +1481,354 @@ export default function ProfilScreen() {
             )}
           </View>
 
+          {/* Section Mes classements */}
+          {me?.id && (
+            <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <Ionicons name="stats-chart" size={22} color="#E0FF00" />
+                <Text style={s.tileTitle}>MES CLASSEMENTS PADEL SYNC</Text>
+              </View>
+              <View style={[s.tile, s.tileFull]}>
+                {loadingRanks ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={BRAND} />
+                </View>
+              ) : (
+                <View style={{ gap: 12, marginTop: 8 }}>
+                  {/* Classement Global */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#032344', borderRadius: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="globe" size={20} color="#E0FF00" />
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Global</Text>
+                    </View>
+                    {globalRank ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#E0FF00' }}>{globalRank.rank}</Text>
+                        <Text style={{ fontSize: 12, color: '#e5e7eb' }}>sur {globalRank.total}</Text>
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Non disponible</Text>
+                    )}
+                  </View>
+
+                  {/* Classement Club favori */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#032344', borderRadius: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="business" size={20} color="#E0FF00" />
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Mon club favori</Text>
+                    </View>
+                    {!club || !club.trim() ? (
+                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Pas de club favori renseigné</Text>
+                    ) : clubRank ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#E0FF00' }}>{clubRank.rank}</Text>
+                        <Text style={{ fontSize: 12, color: '#e5e7eb' }}>sur {clubRank.total}</Text>
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Non classé</Text>
+                    )}
+                  </View>
+
+                  {/* Classement Groupe actuel */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#032344', borderRadius: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="people" size={20} color="#E0FF00" />
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Mon groupe actuel</Text>
+                    </View>
+                    {!activeGroup?.id ? (
+                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Aucun groupe actif</Text>
+                    ) : groupRank ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#E0FF00' }}>{groupRank.rank}</Text>
+                        <Text style={{ fontSize: 12, color: '#e5e7eb' }}>sur {groupRank.total}</Text>
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Non classé</Text>
+                    )}
+                  </View>
+                </View>
+              )}
+              </View>
+            </>
+          )}
+
+          {/* Titre secondaire MES INFOS */}
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 36, fontWeight: '900', color: '#E0FF00', textTransform: 'uppercase', fontFamily: 'Small Capture', textAlign: 'center' }}>
+              MES INFOS
+            </Text>
+          </View>
+
+          {/* Ligne 1 : Pseudo à 100% */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="person" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>Pseudo <Text style={{ color: '#dc2626' }}>*</Text></Text>
+          </View>
+          <View style={[s.tile, s.tileFull]}>
+            <TextInput
+              value={displayName}
+              onChangeText={setDisplayName}
+              placeholder="Ex. Seb Padel"
+              autoCapitalize="words"
+              style={s.tileInput}
+              maxLength={60}
+            />
+          </View>
+
+          {/* Ligne 2 : Adresses */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="location" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>Adresses</Text>
+          </View>
+          <Text style={{ fontSize: 14, fontWeight: '400', color: '#E0FF00', marginBottom: 8 }}>(pour trouver des matchs à proximité)</Text>
+          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: '#032344', borderWidth: 0, marginBottom: 8 }]}>
+            {/* Domicile */}
+            <View style={{ marginTop: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Ionicons name="home" size={18} color="#E0FF00" />
+                <Text style={[s.label, { fontSize: 16, color: '#E0FF00' }]}>Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
+              </View>
+              <TextInput
+                value={addressHomeInput}
+                onChangeText={(text) => {
+                  setAddressHomeInput(text);
+                  
+                  // Annuler le timer précédent
+                  if (debounceTimerHome.current) {
+                    clearTimeout(debounceTimerHome.current);
+                  }
+                  
+                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
+                  if (text.trim().length < 3) {
+                    setAddressHomeSuggestions([]);
+                    return;
+                  }
+                  
+                  // Debouncing : attendre 400ms après la dernière frappe
+                  debounceTimerHome.current = setTimeout(() => {
+                    searchAddress(text, setAddressHomeSuggestions, true);
+                  }, 400);
+                }}
+                placeholder="Ex: 123 Rue de la Paix, 75001 Paris"
+                style={s.input}
+                autoCapitalize="words"
+              />
+              {addressHomeSuggestions.length > 0 && (
+                <View style={{ marginTop: 4, backgroundColor: '#032344', borderRadius: 8, maxHeight: 150 }}>
+                  <ScrollView nestedScrollEnabled>
+                    {addressHomeSuggestions.map((sug, idx) => (
+                      <Pressable
+                        key={idx}
+                        onPress={async () => {
+                          setAddressHomeInput(sug.address);
+                          setAddressHomeSuggestions([]);
+                          setGeocodingHome(true);
+                          const geocoded = await geocodeAddress(sug.address);
+                          setGeocodingHome(false);
+                          if (geocoded) {
+                            setAddressHome(geocoded);
+                          } else {
+                            Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                          }
+                        }}
+                        style={{
+                          padding: 12,
+                          borderBottomWidth: idx < addressHomeSuggestions.length - 1 ? 1 : 0,
+                          borderBottomColor: '#e5e7eb',
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, color: '#E0FF00', fontWeight: '500' }}>{sug.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {geocodingHome && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color={BRAND} />
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
+                </View>
+              )}
+              {addressHome && (
+                <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                  <Pressable
+                    onPress={() => {
+                      setAddressHome(null);
+                      setAddressHomeInput("");
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#dc2626" />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            {/* Travail */}
+            <View style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Ionicons name="briefcase" size={18} color="#E0FF00" />
+                <Text style={[s.label, { fontSize: 16, color: '#E0FF00' }]}>Travail</Text>
+              </View>
+              <TextInput
+                value={addressWorkInput}
+                onChangeText={(text) => {
+                  setAddressWorkInput(text);
+                  
+                  // Annuler le timer précédent
+                  if (debounceTimerWork.current) {
+                    clearTimeout(debounceTimerWork.current);
+                  }
+                  
+                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
+                  if (text.trim().length < 3) {
+                    setAddressWorkSuggestions([]);
+                    return;
+                  }
+                  
+                  // Debouncing : attendre 400ms après la dernière frappe
+                  debounceTimerWork.current = setTimeout(() => {
+                    searchAddress(text, setAddressWorkSuggestions, false);
+                  }, 400);
+                }}
+                placeholder="Ex: 456 Avenue des Champs, 69001 Lyon"
+                style={s.input}
+                autoCapitalize="words"
+              />
+              {addressWorkSuggestions.length > 0 && (
+                <View style={{ marginTop: 4, backgroundColor: '#032344', borderRadius: 8, maxHeight: 150 }}>
+                  <ScrollView nestedScrollEnabled>
+                    {addressWorkSuggestions.map((sug, idx) => (
+                      <Pressable
+                        key={idx}
+                        onPress={async () => {
+                          setAddressWorkInput(sug.address);
+                          setAddressWorkSuggestions([]);
+                          setGeocodingWork(true);
+                          const geocoded = await geocodeAddress(sug.address);
+                          setGeocodingWork(false);
+                          if (geocoded) {
+                            setAddressWork(geocoded);
+                          } else {
+                            Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                          }
+                        }}
+                        style={{
+                          padding: 12,
+                          borderBottomWidth: idx < addressWorkSuggestions.length - 1 ? 1 : 0,
+                          borderBottomColor: '#e5e7eb',
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, color: '#E0FF00', fontWeight: '500' }}>{sug.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {geocodingWork && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color={BRAND} />
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>Géocodage en cours...</Text>
+                </View>
+              )}
+              {addressWork && (
+                <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                  <Pressable
+                    onPress={() => {
+                      setAddressWork(null);
+                      setAddressWorkInput("");
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#dc2626" />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Ligne 3 : Niveau à 100% */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="flame" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>Niveau <Text style={{ color: '#dc2626' }}>*</Text></Text>
+            <Pressable
+              onPress={() => setNiveauInfoModalVisible(true)}
+              style={{ 
+                marginLeft: 6, 
+                padding: 4,
+                backgroundColor: '#e0f2fe',
+                borderRadius: 12,
+                width: 24,
+                height: 24,
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <Ionicons name="information-circle" size={16} color="#0284c7" />
+            </Pressable>
+          </View>
+          <View style={[s.tile, s.tileFull]}>
+            <View style={s.levelRow}>
+              {LEVELS.map((lv) => {
+                const active = niveau === lv.v;
+                return (
+                  <Pressable
+                    key={lv.v}
+                    onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
+                    style={[
+                      s.pill,
+                      {
+                        backgroundColor: lv.color,
+                        borderColor: active ? '#dcff13' : 'transparent',
+                        borderWidth: active ? 4 : 1,
+                        transform: active ? [{ scale: 1.06 }] : [],
+                      },
+                      Platform.OS === 'web' && { cursor: 'pointer' },
+                    ]}
+                  >
+                    <Text style={[s.pillTxt, { color: '#06305D', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {niveau && levelInfo?.label && (
+              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
+                {levelInfo.label}
+              </Text>
+            )}
+          </View>
+
+          {/* Ligne 3 : Classement à 100% */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="trophy" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>CLASSEMENT FFT</Text>
+          </View>
+          <View style={[s.tile, s.tileFull]}>
+            <TextInput
+              value={classement}
+              onChangeText={setClassement}
+              placeholder="Ex. 500"
+              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+              style={s.tileInput}
+              maxLength={6}
+            />
+          </View>
+
           {/* Ligne 4 : Main et Côté */}
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="hand-left" size={22} color="#E0FF00" />
+              <Text style={s.tileTitle}>Main <Text style={{ color: '#dc2626' }}>*</Text></Text>
+            </View>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="target" size={22} color="#E0FF00" />
+              <Text style={s.tileTitle}>Côté <Text style={{ color: '#dc2626' }}>*</Text></Text>
+            </View>
+          </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <View style={[s.tile, s.tileHalf]}>
-              <View style={s.tileHeader}>
-                <Text style={s.tileIcon}>🖐️</Text>
-                <Text style={s.tileTitle}>Main <Text style={{ color: '#dc2626' }}>*</Text></Text>
-              </View>
               <Pressable
                 onPress={() => setMainPickerVisible(true)}
                 style={[
@@ -1365,10 +1850,6 @@ export default function ProfilScreen() {
             </View>
 
             <View style={[s.tile, s.tileHalf]}>
-              <View style={s.tileHeader}>
-                <Text style={s.tileIcon}>🎯</Text>
-                <Text style={s.tileTitle}>Côté <Text style={{ color: '#dc2626' }}>*</Text></Text>
-              </View>
               <Pressable
                 onPress={() => setCotePickerVisible(true)}
                 style={[
@@ -1391,11 +1872,11 @@ export default function ProfilScreen() {
           </View>
 
           {/* Ligne 4 : Club favori à 100% */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="business" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>Club favori</Text>
+          </View>
           <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>🏟️</Text>
-              <Text style={s.tileTitle}>Club favori</Text>
-            </View>
             <Pressable
               onPress={() => setClubPickerVisible(true)}
               style={[
@@ -1417,20 +1898,20 @@ export default function ProfilScreen() {
           </View>
 
           {/* Ligne 5 : Email à 100% */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="mail" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>Email</Text>
+          </View>
           <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>✉️</Text>
-              <Text style={s.tileTitle}>Email</Text>
-            </View>
             <Text style={[s.tileValue, { color: '#9ca3af' }]}>{me?.email ?? '—'}</Text>
           </View>
 
           {/* Ligne 6 : Téléphone à 100% */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="call" size={22} color="#E0FF00" />
+            <Text style={s.tileTitle}>Téléphone</Text>
+          </View>
           <View style={[s.tile, s.tileFull]}>
-            <View style={s.tileHeader}>
-              <Text style={s.tileIcon}>📞</Text>
-              <Text style={s.tileTitle}>Téléphone</Text>
-            </View>
             <TextInput
               value={phone}
               onChangeText={setPhone}
@@ -1443,11 +1924,11 @@ export default function ProfilScreen() {
         </View>
 
         {/* Ligne 8 : Rayon à 100% */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <Ionicons name="car" size={22} color="#E0FF00" />
+          <Text style={s.tileTitle}>Rayon de jeu possible <Text style={{ color: '#dc2626' }}>*</Text></Text>
+        </View>
         <View style={[s.tile, s.tileFull]}>
-          <View style={s.tileHeader}>
-            <Text style={s.tileIcon}>🚗</Text>
-            <Text style={s.tileTitle}>Rayon de jeu possible <Text style={{ color: '#dc2626' }}>*</Text></Text>
-          </View>
           <View style={s.rayonRow}>
             {RAYONS.map((r) => {
               const active = rayonKm === r.v;
@@ -1461,7 +1942,7 @@ export default function ProfilScreen() {
                     Platform.OS === "web" && { cursor: "pointer" }
                   ]}
                 >
-                  <Text style={[s.pillTxt, { color: active ? '#111827' : '#9ca3af', fontWeight: active ? "800" : "600" }]}>{r.label}</Text>
+                  <Text style={[s.pillTxt, { color: active ? '#E0FF00' : '#9ca3af', fontWeight: active ? "800" : "600" }]}>{r.label}</Text>
                 </Pressable>
               );
             })}
@@ -1491,9 +1972,12 @@ export default function ProfilScreen() {
 
         {/* Affichage du rôle actuel */}
         {(isSuperAdmin || role) && (
-          <View style={[s.card, { marginBottom: 12 }]}>
-            <Text style={[s.sectionTitle, { marginBottom: 8 }]}>Rôle actuel</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Text style={s.tileTitle}>Rôle actuel</Text>
+            </View>
+            <View style={[s.card, { marginBottom: 12, backgroundColor: '#032344' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <View style={{
                 paddingHorizontal: 12,
                 paddingVertical: 6,
@@ -1518,8 +2002,9 @@ export default function ProfilScreen() {
                   Club ID: {clubId.substring(0, 8)}...
                 </Text>
               )}
+              </View>
             </View>
-          </View>
+          </>
         )}
 
         {/* Bouton gestion de club (club_manager uniquement) */}
@@ -1538,8 +2023,8 @@ export default function ProfilScreen() {
               Platform.OS === "web" && { cursor: "pointer" }
             ]}
           >
-            <Ionicons name="business-outline" size={24} color="#001831" style={{ marginRight: 8 }} />
-            <Text style={[s.btnTxt, { color: '#001831' }]}>Gérer mon club</Text>
+            <Ionicons name="business-outline" size={24} color="#E0FF00" style={{ marginRight: 8 }} />
+            <Text style={[s.btnTxt, { color: '#E0FF00' }]}>Gérer mon club</Text>
           </Pressable>
         )}
 
@@ -1907,7 +2392,7 @@ function SegBtn({ label, active, onPress }) {
         Platform.OS === "web" && { cursor: "pointer" }
       ]}
     >
-      <Text style={[s.segmentTxt, active && { color: "#111827", fontWeight: "800" }]}>{label}</Text>
+      <Text style={[s.segmentTxt, active && { color: "#E0FF00", fontWeight: "800" }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1991,18 +2476,17 @@ const s = StyleSheet.create({
 
   avatarBtns: { marginTop: 10, flexDirection: "row", gap: 10 },
 
-  card: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "gold", borderRadius: 12, padding: 12 },
+  card: { backgroundColor: "#032344", borderWidth: 0, borderRadius: 12, padding: 12 },
 
-  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#001833" },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#E0FF00" },
 
-  label: { fontSize: 18, color: "#001833", fontWeight: "800" },
-  value: { fontSize: 16, color: "#001831", marginTop: 4 },
+  label: { fontSize: 18, color: "#E0FF00", fontWeight: "800" },
+  value: { fontSize: 16, color: "#E0FF00", marginTop: 4 },
 
   // Tiles
   tile: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    backgroundColor: "#032344",
+    borderWidth: 0,
     borderRadius: 12,
     padding: 12,
     minWidth: 0,
@@ -2034,7 +2518,7 @@ const s = StyleSheet.create({
   },
   tileTitle: {
     fontSize: 16,
-    color: "#001833",
+    color: "#E0FF00",
     fontWeight: "700",
     textTransform: 'uppercase',
     flexShrink: 1,
@@ -2055,7 +2539,7 @@ const s = StyleSheet.create({
   },
   tileValue: {
     fontSize: 14,
-    color: "#001831",
+    color: "#E0FF00",
     marginTop: 2,
   },
 

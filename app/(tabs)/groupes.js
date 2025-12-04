@@ -29,6 +29,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Leaderboard from "../../components/Leaderboard";
 import { OnboardingModal } from "../../components/OnboardingModal";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
@@ -2658,6 +2659,23 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={s.btnTxt}>QR</Text>
               </Pressable>
             </View>
+
+            {/* Classement du groupe */}
+            {activeGroup?.id && meId && (
+              <View style={{ marginTop: 16, backgroundColor: "#fff", borderRadius: 12, padding: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <Ionicons name="trophy" size={20} color="#ff8c00" />
+                  <Text style={{ color: "#ff8c00", fontWeight: "800", fontSize: 20 }}>Classement du groupe</Text>
+                </View>
+                <Leaderboard
+                  scope="group"
+                  groupId={activeGroup.id}
+                  currentUserId={meId}
+                  variant="compact"
+                  highlightCurrentUser={true}
+                />
+              </View>
+            )}
 
             <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
               <Pressable

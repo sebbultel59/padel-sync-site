@@ -257,71 +257,71 @@ export default function AgendaClub({
           </TouchableOpacity>
         )}
       </View>
-      <View style={styles.container}>
-        {/* Calendrier condensé */}
-        {showCalendar && (
+      {/* Calendrier condensé - affiché uniquement si showCalendar est true */}
+      {showCalendar && (
+        <View style={styles.container}>
           <View style={styles.calendarContainer}>
-          <View style={styles.calendarHeader}>
-            <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNav}>
-              <Ionicons name="chevron-back" size={20} color={BRAND} />
-            </TouchableOpacity>
-            <Text style={styles.monthTitle}>
-              {monthNames[currentMonth]} {currentYear}
-            </Text>
-            <TouchableOpacity onPress={goToNextMonth} style={styles.monthNav}>
-              <Ionicons name="chevron-forward" size={20} color={BRAND} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Jours de la semaine */}
-          <View style={styles.weekDays}>
-            {["L", "M", "M", "J", "V", "S", "D"].map((day, idx) => (
-              <Text key={idx} style={styles.weekDay}>
-                {day}
+            <View style={styles.calendarHeader}>
+              <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNav}>
+                <Ionicons name="chevron-back" size={20} color={BRAND} />
+              </TouchableOpacity>
+              <Text style={styles.monthTitle}>
+                {monthNames[currentMonth]} {currentYear}
               </Text>
-            ))}
-          </View>
+              <TouchableOpacity onPress={goToNextMonth} style={styles.monthNav}>
+                <Ionicons name="chevron-forward" size={20} color={BRAND} />
+              </TouchableOpacity>
+            </View>
 
-          {/* Grille du calendrier */}
-          <View style={styles.calendarGrid}>
-            {days.map((day, idx) => {
-              const hasEvents = hasEventsOnDay(day);
-              const isToday =
-                day === new Date().getDate() &&
-                currentMonth === new Date().getMonth() &&
-                currentYear === new Date().getFullYear();
+            {/* Jours de la semaine */}
+            <View style={styles.weekDays}>
+              {["L", "M", "M", "J", "V", "S", "D"].map((day, idx) => (
+                <Text key={idx} style={styles.weekDay}>
+                  {day}
+                </Text>
+              ))}
+            </View>
 
-              if (!day) {
-                return <View key={`empty-${idx}`} style={styles.dayCell} />;
-              }
+            {/* Grille du calendrier */}
+            <View style={styles.calendarGrid}>
+              {days.map((day, idx) => {
+                const hasEvents = hasEventsOnDay(day);
+                const isToday =
+                  day === new Date().getDate() &&
+                  currentMonth === new Date().getMonth() &&
+                  currentYear === new Date().getFullYear();
 
-              return (
-                <Pressable
-                  key={day}
-                  style={[
-                    styles.dayCell,
-                    isToday && styles.dayCellToday,
-                    hasEvents && styles.dayCellWithEvents,
-                  ]}
-                  onPress={() => setSelectedDate(day)}
-                >
-                  <Text
+                if (!day) {
+                  return <View key={`empty-${idx}`} style={styles.dayCell} />;
+                }
+
+                return (
+                  <Pressable
+                    key={day}
                     style={[
-                      styles.dayText,
-                      isToday && styles.dayTextToday,
-                      hasEvents && styles.dayTextWithEvents,
+                      styles.dayCell,
+                      isToday && styles.dayCellToday,
+                      hasEvents && styles.dayCellWithEvents,
                     ]}
+                    onPress={() => setSelectedDate(day)}
                   >
-                    {day}
-                  </Text>
-                  {hasEvents && <View style={styles.eventDot} />}
-                </Pressable>
-              );
-            })}
+                    <Text
+                      style={[
+                        styles.dayText,
+                        isToday && styles.dayTextToday,
+                        hasEvents && styles.dayTextWithEvents,
+                      ]}
+                    >
+                      {day}
+                    </Text>
+                    {hasEvents && <View style={styles.eventDot} />}
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </View>
-        )}
-      </View>
+      )}
 
       {/* Liste des événements à venir */}
       <View style={styles.eventsListTitleRow}>

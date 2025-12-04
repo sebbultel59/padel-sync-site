@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AgendaClub from "../../../components/AgendaClub";
+import Leaderboard from "../../../components/Leaderboard";
 import { useUserRole } from "../../../lib/roles";
 import { supabase } from "../../../lib/supabase";
 
@@ -44,6 +45,17 @@ export default function ClubPublicScreen() {
   const [club, setClub] = useState(null);
   const [groups, setGroups] = useState([]);
   const [posts, setPosts] = useState([]);
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  // Récupérer l'ID utilisateur
+  useEffect(() => {
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData?.user?.id) {
+        setCurrentUserId(userData.user.id);
+      }
+    })();
+  }, []);
 
   const loadClub = useCallback(async () => {
     if (!clubId) {
@@ -435,36 +447,57 @@ export default function ClubPublicScreen() {
             </View>
             <View style={[styles.card, { paddingVertical: 12 }]}>
               <View style={styles.socialRow}>
-              {socialLinks.facebook ? (
-                <Pressable
-                  style={[styles.socialButton, { backgroundColor: "rgba(24,119,242,0.12)" }]}
-                  onPress={() => handleOpenLink(socialLinks.facebook)}
-                >
-                  <Ionicons name="logo-facebook" size={18} color="#1877f2" />
-                  <Text style={styles.socialText}>Facebook</Text>
-                </Pressable>
-              ) : null}
-              {socialLinks.instagram ? (
-                <Pressable
-                  style={[styles.socialButton, { backgroundColor: "rgba(225,48,108,0.12)" }]}
-                  onPress={() => handleOpenLink(socialLinks.instagram)}
-                >
-                  <Ionicons name="logo-instagram" size={18} color="#e1306c" />
-                  <Text style={styles.socialText}>Instagram</Text>
-                </Pressable>
-              ) : null}
-              {socialLinks.website ? (
-                <Pressable
-                  style={[styles.socialButton, { backgroundColor: "rgba(17,138,178,0.12)" }]}
-                  onPress={() => handleOpenLink(socialLinks.website)}
-                >
-                  <Ionicons name="globe-outline" size={18} color="#118ab2" />
-                  <Text style={styles.socialText}>Site web</Text>
-                </Pressable>
-              ) : null}
+                {socialLinks.facebook ? (
+                  <Pressable
+                    style={[styles.socialButton, { backgroundColor: "rgba(24,119,242,0.12)" }]}
+                    onPress={() => handleOpenLink(socialLinks.facebook)}
+                  >
+                    <Ionicons name="logo-facebook" size={18} color="#1877f2" />
+                    <Text style={styles.socialText}>Facebook</Text>
+                  </Pressable>
+                ) : null}
+                {socialLinks.instagram ? (
+                  <Pressable
+                    style={[styles.socialButton, { backgroundColor: "rgba(225,48,108,0.12)" }]}
+                    onPress={() => handleOpenLink(socialLinks.instagram)}
+                  >
+                    <Ionicons name="logo-instagram" size={18} color="#e1306c" />
+                    <Text style={styles.socialText}>Instagram</Text>
+                  </Pressable>
+                ) : null}
+                {socialLinks.website ? (
+                  <Pressable
+                    style={[styles.socialButton, { backgroundColor: "rgba(17,138,178,0.12)" }]}
+                    onPress={() => handleOpenLink(socialLinks.website)}
+                  >
+                    <Ionicons name="globe-outline" size={18} color="#118ab2" />
+                    <Text style={styles.socialText}>Site web</Text>
+                  </Pressable>
+                ) : null}
               </View>
             </View>
           </>
+        )}
+
+        {/* Actualités du club (après les liens sociaux) */}
+        {!!posts.length && (
+          <View style={styles.section}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="newspaper-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Actualités</Text>
+            </View>
+            {posts.map((post) => (
+              <View key={post.id} style={styles.postCard}>
+                <Text style={{ fontWeight: "700", fontSize: 16 }}>{post.title}</Text>
+                {post.image_url && (
+                  <Image source={{ uri: post.image_url }} style={styles.postImage} />
+                )}
+                {post.content ? (
+                  <Text style={{ color: "#4b5563", marginTop: 6 }}>{post.content}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
         )}
 
         {/* Événements à venir - mode sans calendrier */}
@@ -474,6 +507,28 @@ export default function ClubPublicScreen() {
             isManager={false}
             showCalendar={false}
           />
+        )}
+
+        {club.photos && Array.isArray(club.photos) && club.photos.length > 0 && (
+          <View style={styles.section}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="images-outline" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Photos du club</Text>
+            </View>
+            <View style={styles.photosGrid}>
+              {club.photos.map((photoUrl, index) => (
+                <Pressable
+                  key={index}
+                  style={styles.photoItem}
+                  onPress={() => {
+                    // Optionnel: ouvrir en plein écran
+                  }}
+                >
+                  <Image source={{ uri: photoUrl }} style={styles.photoImage} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
         )}
 
         {!!groups.length && (
@@ -502,45 +557,48 @@ export default function ClubPublicScreen() {
           </View>
         )}
 
-        {club.photos && Array.isArray(club.photos) && club.photos.length > 0 && (
+        {/* Top 5 du club */}
+        {clubId && currentUserId && (
           <View style={styles.section}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <Ionicons name="images-outline" size={20} color="#e0ff00" />
-              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Photos du club</Text>
+              <Ionicons name="trophy" size={20} color="#e0ff00" />
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>
+                Top 5 du club
+              </Text>
             </View>
-            <View style={styles.photosGrid}>
-              {club.photos.map((photoUrl, index) => (
-                <Pressable
-                  key={index}
-                  style={styles.photoItem}
-                  onPress={() => {
-                    // Optionnel: ouvrir en plein écran
-                  }}
-                >
-                  <Image source={{ uri: photoUrl }} style={styles.photoImage} />
-                </Pressable>
-              ))}
+            <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 12 }}>
+              <Leaderboard
+                scope="club"
+                clubId={clubId}
+                currentUserId={currentUserId}
+                variant="compact"
+                limit={5}
+                highlightCurrentUser={true}
+              />
             </View>
           </View>
         )}
 
-        {!!posts.length && (
+        {/* Bouton "Voir le classement du club" */}
+        {clubId && (
           <View style={styles.section}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <Ionicons name="newspaper-outline" size={20} color="#e0ff00" />
-              <Text style={{ fontSize: 18, fontWeight: "700", color: "#e0ff00" }}>Actualités</Text>
-            </View>
-            {posts.map((post) => (
-              <View key={post.id} style={styles.postCard}>
-                <Text style={{ fontWeight: "700", fontSize: 16 }}>{post.title}</Text>
-                {post.image_url && (
-                  <Image source={{ uri: post.image_url }} style={styles.postImage} />
-                )}
-                {post.content ? (
-                  <Text style={{ color: "#4b5563", marginTop: 6 }}>{post.content}</Text>
-                ) : null}
-              </View>
-            ))}
+            <Pressable
+              style={styles.leaderboardButton}
+              onPress={() => {
+                router.push({
+                  pathname: "/leaderboard",
+                  params: {
+                    initialScope: "club",
+                    clubId: clubId,
+                    returnTo: "club",
+                  },
+                });
+              }}
+            >
+              <Ionicons name="trophy" size={20} color="#fff" />
+              <Text style={styles.leaderboardButtonText}>Voir le classement du club</Text>
+              <Ionicons name="chevron-forward" size={20} color="#fff" />
+            </Pressable>
           </View>
         )}
       </ScrollView>
@@ -670,6 +728,23 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: BRAND,
+  },
+  leaderboardButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: "#fbbf24",
+    marginBottom: 16,
+  },
+  leaderboardButtonText: {
+    flex: 1,
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
   },
   postCard: {
     backgroundColor: "#fff",
