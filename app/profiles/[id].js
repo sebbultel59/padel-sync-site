@@ -11,6 +11,7 @@ import { usePlayerWinStreak } from "../../hooks/usePlayerWinStreak";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
+import { getBadgeImage } from "../../lib/badgeImages";
 
 const BRAND = "#1a4b97";
 const AVATAR = 120;
@@ -165,7 +166,7 @@ export default function ProfileScreen() {
               <Text style={s.badgesRowLabel}>Rares</Text>
               <View style={s.badgesList}>
                 {featuredRare.slice(0, 3).map((badge) => (
-                  <BadgeIcon key={badge.id} badge={badge} size={48} />
+                  <BadgeIcon key={badge.id} badge={badge} size={144} />
                 ))}
               </View>
             </View>
@@ -177,7 +178,7 @@ export default function ProfileScreen() {
               <Text style={s.badgesRowLabel}>Récents</Text>
               <View style={s.badgesList}>
                 {featuredRecent.slice(0, 3).map((badge) => (
-                  <BadgeIcon key={badge.id} badge={badge} size={48} />
+                  <BadgeIcon key={badge.id} badge={badge} size={144} />
                 ))}
               </View>
             </View>
@@ -261,7 +262,11 @@ function Tile({ emoji, label, value, hint, onPress }) {
   return <View style={s.tile}>{content}</View>;
 }
 
-function BadgeIcon({ badge, size = 40 }) {
+function BadgeIcon({ badge, size = 120 }) {
+  const badgeImage = getBadgeImage(badge.code, badge.unlocked);
+  const opacity = badge.unlocked ? 1 : 0.4;
+
+  // Fallback vers icône si pas d'image
   const getBadgeIcon = (category) => {
     switch (category) {
       case 'volume': return 'trophy';
@@ -286,15 +291,20 @@ function BadgeIcon({ badge, size = 40 }) {
 
   const iconName = getBadgeIcon(badge.category);
   const iconColor = badge.unlocked ? getBadgeColor(badge.category) : '#d1d5db';
-  const opacity = badge.unlocked ? 1 : 0.4;
 
   return (
-    <View style={[s.badgeIconContainer, { opacity }]}>
-      <Ionicons name={iconName} size={size} color={iconColor} />
-      {badge.unlocked && badge.rarityScore && badge.rarityScore > 50 && (
-        <View style={s.rareBadge}>
-          <Ionicons name="sparkles" size={12} color="#fbbf24" />
-        </View>
+    <View style={[s.badgeIconContainer, { opacity, overflow: 'hidden' }]}>
+      {badgeImage ? (
+        <Image 
+          source={badgeImage}
+          style={{ 
+            width: size * 0.9, 
+            height: size * 0.9,
+            resizeMode: 'contain'
+          }}
+        />
+      ) : (
+        <Ionicons name={iconName} size={size} color={iconColor} />
       )}
     </View>
   );
@@ -409,14 +419,13 @@ const s = StyleSheet.create({
     flexWrap: "wrap",
   },
   badgeIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#f3f4f6",
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: 'transparent',
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#e5e7eb",
+    borderWidth: 0,
     position: "relative",
   },
   rareBadge: {

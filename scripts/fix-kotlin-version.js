@@ -1,63 +1,26 @@
 #!/usr/bin/env node
 /**
- * Script pour forcer la version Kotlin 2.1.20 dans le plugin expo-dev-launcher
+ * Script pour forcer la version Kotlin 2.1.20 dans les plugins Expo
  * Ce script doit être exécuté avant le build Android en production
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Chercher le plugin dans plusieurs emplacements possibles
-const possiblePaths = [
-  path.join(__dirname, '..', 'node_modules', 'expo-dev-launcher', 'expo-dev-launcher-gradle-plugin', 'build.gradle.kts'),
-  path.join(__dirname, '..', 'node_modules', 'expo-dev-client', 'node_modules', 'expo-dev-launcher', 'expo-dev-launcher-gradle-plugin', 'build.gradle.kts'),
+// Liste des plugins à corriger
+const pluginsToFix = [
+  'expo-dev-launcher-gradle-plugin',
+  'expo-updates-gradle-plugin',
+  'expo-dev-menu'
 ];
 
-// Chercher récursivement dans node_modules
-const findPluginRecursively = (dir) => {
-  try {
-    const files = fs.readdirSync(dir);
-    for (const file of files) {
-      const fullPath = path.join(dir, file);
-      const stat = fs.statSync(fullPath);
-      if (stat.isDirectory() && file === 'expo-dev-launcher-gradle-plugin') {
-        const buildGradle = path.join(fullPath, 'build.gradle.kts');
-        if (fs.existsSync(buildGradle)) {
-          return buildGradle;
-        }
-      } else if (stat.isDirectory() && !file.startsWith('.') && file !== 'node_modules') {
-        const found = findPluginRecursively(fullPath);
-        if (found) return found;
-      }
-    }
-  } catch (e) {
-    // Ignore errors
+// Fonction pour corriger un fichier build.gradle.kts
+function fixKotlinVersion(pluginPath) {
+  if (!fs.existsSync(pluginPath)) {
+    return false;
   }
-  return null;
-};
-
-let pluginPath = null;
-for (const possiblePath of possiblePaths) {
-  if (fs.existsSync(possiblePath)) {
-    pluginPath = possiblePath;
-    console.log(`✅ Found plugin at: ${pluginPath}`);
-    break;
-  }
-}
-
-// Si pas trouvé, chercher récursivement
-if (!pluginPath) {
-  const nodeModulesPath = path.join(__dirname, '..', 'node_modules');
-  if (fs.existsSync(nodeModulesPath)) {
-    pluginPath = findPluginRecursively(nodeModulesPath);
-    if (pluginPath) {
-      console.log(`✅ Found plugin recursively at: ${pluginPath}`);
-    }
-  }
-}
-
-if (pluginPath) {
-  console.log('🔧 Fixing Kotlin version in expo-dev-launcher-gradle-plugin...');
+  
+  console.log(`🔧 Fixing Kotlin version in ${path.basename(path.dirname(pluginPath))}...`);
   
   let content = fs.readFileSync(pluginPath, 'utf8');
   
@@ -77,7 +40,6 @@ if (pluginPath) {
   );
   
   // Corriger les options Kotlin pour utiliser JVM 17 et ignorer les vérifications de métadonnées
-  // Remplacer tout le bloc tasks.withType<KotlinCompile>
   const kotlinOptionsPattern = /tasks\.withType<KotlinCompile>\s*\{[\s\S]*?kotlinOptions\s*\{[\s\S]*?\}[\s\S]*?\}/;
   if (kotlinOptionsPattern.test(content)) {
     content = content.replace(
@@ -92,7 +54,7 @@ if (pluginPath) {
   }
   
   fs.writeFileSync(pluginPath, content);
-  console.log('✅ Kotlin version fixed in expo-dev-launcher-gradle-plugin');
+  console.log(`✅ Kotlin version fixed in ${path.basename(path.dirname(pluginPath))}`);
   
   // Forcer la recompilation en supprimant le cache de build du plugin
   const pluginDir = path.dirname(pluginPath);
@@ -100,12 +62,87 @@ if (pluginPath) {
   if (fs.existsSync(buildDir)) {
     try {
       fs.rmSync(buildDir, { recursive: true, force: true });
-      console.log('✅ Cleared build cache for expo-dev-launcher-gradle-plugin');
+      console.log(`✅ Cleared build cache for ${path.basename(pluginDir)}`);
     } catch (e) {
-      console.log('⚠️  Could not clear build cache (this is OK)');
+      console.log(`⚠️  Could not clear build cache (this is OK)`);
     }
   }
+  
+  return true;
+}
+
+// Chercher récursivement les plugins dans node_modules
+function findPluginBuildFiles(nodeModulesPath, pluginName) {
+  const results = [];
+  
+  function searchDir(dir, depth = 0) {
+    if (depth > 10) return; // Limiter la profondeur
+    
+    try {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+        
+        if (stat.isDirectory()) {
+          if (file === pluginName || file.includes(pluginName)) {
+            const buildGradle = path.join(fullPath, 'build.gradle.kts');
+            if (fs.existsSync(buildGradle)) {
+              results.push(buildGradle);
+            }
+          } else if (!file.startsWith('.') && file !== 'node_modules' && depth < 5) {
+            searchDir(fullPath, depth + 1);
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+  
+  searchDir(nodeModulesPath);
+  return results;
+}
+
+// Chercher et corriger tous les plugins
+const nodeModulesPath = path.join(__dirname, '..', 'node_modules');
+let fixedCount = 0;
+
+for (const pluginName of pluginsToFix) {
+  // Chercher dans les emplacements standards
+  const standardPaths = [
+    path.join(nodeModulesPath, 'expo-dev-launcher', 'expo-dev-launcher-gradle-plugin', 'build.gradle.kts'),
+    path.join(nodeModulesPath, 'expo-updates', 'expo-updates-gradle-plugin', 'build.gradle.kts'),
+    path.join(nodeModulesPath, 'expo-dev-menu', 'build.gradle.kts'),
+    path.join(nodeModulesPath, 'expo-dev-menu', 'android', 'build.gradle.kts'),
+  ];
+  
+  let found = false;
+  for (const pluginPath of standardPaths) {
+    if (fs.existsSync(pluginPath) && pluginPath.includes(pluginName)) {
+      if (fixKotlinVersion(pluginPath)) {
+        fixedCount++;
+        found = true;
+        break;
+      }
+    }
+  }
+  
+  // Si pas trouvé, chercher récursivement
+  if (!found) {
+    const foundPaths = findPluginBuildFiles(nodeModulesPath, pluginName);
+    for (const pluginPath of foundPaths) {
+      if (fixKotlinVersion(pluginPath)) {
+        fixedCount++;
+        break;
+      }
+    }
+  }
+}
+
+if (fixedCount === 0) {
+  console.log('ℹ️  No plugins found to fix, skipping...');
 } else {
-  console.log('ℹ️  expo-dev-launcher-gradle-plugin not found, skipping...');
+  console.log(`\n✅ Fixed Kotlin version in ${fixedCount} plugin(s)`);
 }
 

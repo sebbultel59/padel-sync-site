@@ -290,9 +290,9 @@ export default function MatchesScreen() {
     []
   );
 
-  const buttonBarBottom = Math.max((tabBarHeight || 0) + BUTTON_BAR_GAP, safeBottomInset);
-  const weekNavigatorBottom = buttonBarBottom + buttonBarMeasuredHeight + STACK_SPACING;
-  const filterButtonsBottom = weekNavigatorBottom + weekBarMeasuredHeight + STACK_SPACING;
+  const buttonBarBottom = Math.max((tabBarHeight || 0) + BUTTON_BAR_GAP, safeBottomInset) - 5;
+  const weekNavigatorBottom = buttonBarBottom + buttonBarMeasuredHeight + STACK_SPACING - 16;
+  const filterButtonsBottom = weekNavigatorBottom + weekBarMeasuredHeight + STACK_SPACING - 8;
   const filterConfigBottom = filterButtonsBottom + filterBarMeasuredHeight + STACK_SPACING;
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
@@ -5556,8 +5556,8 @@ const HourSlotRow = ({ item }) => {
           </Pressable>
         )}
 
-        {/* Bouton "Enregistrer le résultat" - visible uniquement si l'utilisateur est dans les 4 confirmés et qu'aucun résultat n'existe */}
-        {!loadingResult && isUserInAccepted && acceptedCount === 4 && !matchResult && (
+        {/* Bouton "Enregistrer le résultat" - visible uniquement si l'utilisateur est dans les 4 confirmés, qu'aucun résultat n'existe et que l'horaire du match a commencé */}
+        {!loadingResult && isUserInAccepted && acceptedCount === 4 && !matchResult && slot?.starts_at && new Date(slot.starts_at) <= new Date() && (
           <Pressable
             onPress={() => {
               router.push({
@@ -11705,10 +11705,10 @@ const HourSlotRow = ({ item }) => {
         onLayout={updateMeasuredHeight(setButtonBarMeasuredHeight, BUTTON_BAR_HEIGHT)}
         style={{
           position: 'absolute',
-          bottom: buttonBarBottom,
+          bottom: buttonBarBottom - 8,
           left: 0,
           right: 0,
-          paddingTop: 0,
+          paddingTop: 10,
           paddingBottom: safeBottomInset > 0 ? safeBottomInset : 0,
           paddingHorizontal: 6,
           backgroundColor: '#001831',
@@ -11743,7 +11743,7 @@ const HourSlotRow = ({ item }) => {
             }}
           >
             <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
-            <Text style={{ fontWeight: '700', color: '#e0ff00', fontSize: 16, textAlign: 'center' }}>
+            <Text style={{ fontWeight: '700', color: '#e0ff00', fontSize: 16, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false }}>
               {activeGroup?.name || 'Sélectionner un groupe'}
             </Text>
             <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />

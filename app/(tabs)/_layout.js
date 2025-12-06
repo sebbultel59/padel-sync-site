@@ -2,14 +2,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { Tabs } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, DeviceEventEmitter, FlatList, Linking, Modal, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, FlatList, Linking, Modal, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { supabase } from '../../lib/supabase';
 import { HelpModal } from '../../components/HelpModal';
-import { isNotificationsSupported, withNotifications } from '../../lib/notifications-wrapper';
 import { useActiveGroup } from '../../lib/activeGroup';
+import { isNotificationsSupported, withNotifications } from '../../lib/notifications-wrapper';
+import { supabase } from '../../lib/supabase';
 
 
 export default function TabsLayout() {
@@ -619,6 +619,8 @@ export default function TabsLayout() {
             flexGrow: 1,
             maxWidth: '66%',
             paddingVertical: isLandscape ? 1 : 2,
+            justifyContent: 'center',
+            alignItems: 'center',
           },
           headerLeft: () => (
             <Pressable
@@ -662,7 +664,7 @@ export default function TabsLayout() {
                       paddingHorizontal: 3,
                     }}
                   >
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false }}>
                       {unreadCount > 99 ? '99+' : String(unreadCount)}
                     </Text>
                   </View>
@@ -700,6 +702,7 @@ export default function TabsLayout() {
             : route.name === 'matches' ? 'Matches'
             : route.name === 'groupes' ? 'Groupes'
             : route.name === 'profil' ? 'Profil'
+            : route.name === 'stats' ? 'Stats'
             : undefined,
           tabBarIcon: ({ focused, color, size }) => {
             let name = 'ellipse';
@@ -712,6 +715,8 @@ export default function TabsLayout() {
               name = focused ? 'people' : 'people-outline';
             } else if (route.name === 'profil') {
               name = focused ? 'person' : 'person-outline';
+            } else if (route.name === 'stats') {
+              name = focused ? 'stats-chart' : 'stats-chart-outline';
             }
 
             return (
@@ -737,24 +742,38 @@ export default function TabsLayout() {
       >
         <Tabs.Screen 
           name="matches" 
-          options={{ 
+          options={{
             tabBarLabel: 'Matches',
             tabBarAccessibilityLabel: 'Matches',
-          }} 
+          }}
         />
         <Tabs.Screen 
           name="semaine" 
-          options={{ 
+          options={{
             tabBarLabel: 'Dispos',
             tabBarAccessibilityLabel: 'Disponibilités',
-          }} 
+          }}
         />
         <Tabs.Screen 
           name="groupes" 
-          options={{ 
+          options={{
             tabBarLabel: 'Groupes',
             tabBarAccessibilityLabel: 'Groupes',
-          }} 
+          }}
+        />
+        <Tabs.Screen 
+          name="stats" 
+          options={{
+            tabBarLabel: 'Stats',
+            tabBarAccessibilityLabel: 'Statistiques',
+          }}
+        />
+        <Tabs.Screen 
+          name="profil" 
+          options={{
+            tabBarLabel: 'Profil',
+            tabBarAccessibilityLabel: 'Profil',
+          }}
         />
       </Tabs>
       {/* Notifications Popup */}

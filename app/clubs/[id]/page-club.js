@@ -848,7 +848,7 @@ export default function ClubPageScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Adresse du club</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, Platform.OS === 'android' && { textAlign: 'left' }]}
               value={addressInput}
               onChangeText={(text) => {
                 setAddressInput(text);

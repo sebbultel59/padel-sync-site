@@ -2013,7 +2013,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
       <View
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 28,
+          bottom: (tabBarHeight || 0) + 36,
           left: 0,
           right: 0,
           flexDirection: 'row',

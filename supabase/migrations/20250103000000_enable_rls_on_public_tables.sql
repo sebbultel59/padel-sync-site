@@ -427,3 +427,6 @@ COMMENT ON POLICY "Club managers and super admins can view instagram tokens" ON 
 COMMENT ON POLICY "Users can view their own global availability" ON availability_global IS 'Les utilisateurs peuvent voir leurs propres disponibilités globales';
 
 
+
+
+

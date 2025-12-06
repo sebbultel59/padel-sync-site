@@ -95,3 +95,6 @@ COMMENT ON VIEW availability_effective IS
 -- de leur utilisation dans le code client.
 
 
+
+
+

@@ -1,11 +1,12 @@
 // app/profiles/[id]/trophies.tsx
 // Écran affichant tous les trophées/badges d'un joueur
 
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, Stack } from "expo-router";
 import React from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePlayerBadges, type PlayerBadge, type BadgeCategory } from "../../../hooks/usePlayerBadges";
+import { getBadgeImage } from "../../../lib/badgeImages";
 
 const BRAND = "#1a4b97";
 
@@ -44,14 +45,18 @@ export default function PlayerTrophiesScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={BRAND} />
+          <Pressable onPress={() => router.push('/(tabs)/stats')} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#e0ff00" />
           </Pressable>
-          <Text style={styles.headerTitle}>Mes Trophées</Text>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+              MES TROPHEES
+            </Text>
+          </View>
           <View style={styles.backButton} />
         </View>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={BRAND} />
+          <ActivityIndicator size="large" color="#e0ff00" />
         </View>
       </View>
     );
@@ -61,10 +66,14 @@ export default function PlayerTrophiesScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={BRAND} />
+          <Pressable onPress={() => router.push('/(tabs)/stats')} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#e0ff00" />
           </Pressable>
-          <Text style={styles.headerTitle}>Mes Trophées</Text>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+              MES TROPHEES
+            </Text>
+          </View>
           <View style={styles.backButton} />
         </View>
         <View style={styles.center}>
@@ -88,6 +97,47 @@ export default function PlayerTrophiesScreen() {
   Object.keys(badgesByCategory).forEach((category) => {
     const badges = badgesByCategory[category as BadgeCategory];
     badges.sort((a, b) => {
+      // Ordre spécifique pour la catégorie Performance
+      if (category === 'performance') {
+        const performanceOrder: Record<string, number> = {
+          'STREAK_3_WINS': 1,
+          'STREAK_5_WINS': 2,
+          'STREAK_10_WINS': 3,
+          'UPSET_15_RATING': 4,
+        };
+        const orderA = performanceOrder[a.code] || 999;
+        const orderB = performanceOrder[b.code] || 999;
+        if (orderA !== orderB) return orderA - orderB;
+      }
+      
+      // Ordre spécifique pour la catégorie Volume
+      if (category === 'volume') {
+        const volumeOrder: Record<string, number> = {
+          'VOLUME_5_MATCHES': 1,
+          'VOLUME_20_MATCHES': 2,
+          'VOLUME_50_MATCHES': 3,
+          'VOLUME_100_MATCHES': 4,
+          'TOURNAMENT_5_MATCHES': 5,
+          'RANKED_10_MATCHES': 6,
+        };
+        const orderA = volumeOrder[a.code] || 999;
+        const orderB = volumeOrder[b.code] || 999;
+        if (orderA !== orderB) return orderA - orderB;
+      }
+      
+      // Ordre spécifique pour la catégorie Social
+      if (category === 'social') {
+        const socialOrder: Record<string, number> = {
+          'SOCIAL_5_PARTNERS': 1,
+          'SOCIAL_10_PARTNERS': 2,
+          'SOCIAL_20_PARTNERS': 3,
+          'CAMELEON': 4,
+        };
+        const orderA = socialOrder[a.code] || 999;
+        const orderB = socialOrder[b.code] || 999;
+        if (orderA !== orderB) return orderA - orderB;
+      }
+      
       // D'abord les débloqués
       if (a.unlocked && !b.unlocked) return -1;
       if (!a.unlocked && b.unlocked) return 1;
@@ -109,13 +159,22 @@ export default function PlayerTrophiesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={BRAND} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Mes Trophées</Text>
-        <View style={styles.backButton} />
-      </View>
+      <Stack.Screen
+        options={{
+          headerShown: false,
+        }}
+      />
+        <View style={styles.header}>
+          <Pressable onPress={() => router.push('/(tabs)/stats')} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#e0ff00" />
+          </Pressable>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>
+              MES TROPHEES
+            </Text>
+          </View>
+          <View style={styles.backButton} />
+        </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Statistiques */}
@@ -176,6 +235,7 @@ function BadgeCard({ badge }: { badge: PlayerBadge }) {
   const categoryColor = CATEGORY_COLORS[badge.category];
   const iconName = CATEGORY_ICONS[badge.category];
   const opacity = badge.unlocked ? 1 : 0.4;
+  const badgeImage = getBadgeImage(badge.code, badge.unlocked);
 
   return (
     <View style={[styles.badgeCard, { opacity }]}>
@@ -183,28 +243,28 @@ function BadgeCard({ badge }: { badge: PlayerBadge }) {
         style={[
           styles.badgeIconContainer,
           {
-            backgroundColor: badge.unlocked
-              ? `${categoryColor}20`
-              : "#f3f4f6",
-            borderColor: badge.unlocked ? categoryColor : "#d1d5db",
+            backgroundColor: 'transparent',
+            borderColor: 'transparent',
           },
         ]}
       >
-        <Ionicons
-          name={iconName}
-          size={32}
-          color={badge.unlocked ? categoryColor : "#9ca3af"}
-        />
-        {badge.unlocked && badge.rarityScore && badge.rarityScore > 50 && (
-          <View style={styles.rareIndicator}>
-            <Ionicons name="sparkles" size={10} color="#fbbf24" />
-          </View>
+        {badgeImage ? (
+          <Image
+            source={badgeImage}
+            style={{ width: 192, height: 192, resizeMode: 'contain' }}
+          />
+        ) : (
+          <Ionicons
+            name={iconName}
+            size={192}
+            color={badge.unlocked ? categoryColor : "#9ca3af"}
+          />
         )}
       </View>
       <Text
         style={[
           styles.badgeLabel,
-          { color: badge.unlocked ? "#111827" : "#9ca3af" },
+          { color: badge.unlocked ? "#e0ff00" : "#6b7280" },
         ]}
         numberOfLines={2}
       >
@@ -231,17 +291,19 @@ function BadgeCard({ badge }: { badge: PlayerBadge }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "#001831",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 48,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-    backgroundColor: "white",
+    borderBottomColor: "#1f2937",
+    backgroundColor: "#001831",
+    minHeight: 60,
   },
   backButton: {
     width: 40,
@@ -249,10 +311,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    minWidth: 0,
+  },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: BRAND,
+    fontSize: 32,
+    fontWeight: "900",
+    color: "#e0ff00",
+    textTransform: "uppercase",
+    textAlign: "center",
   },
   center: {
     flex: 1,
@@ -261,38 +332,38 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 14,
-    color: "#ef4444",
+    color: "#e0ff00",
     textAlign: "center",
   },
   scrollContent: {
     padding: 16,
     gap: 16,
-    paddingBottom: 32,
+    paddingBottom: 16,
   },
   statsCard: {
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#032344",
     borderRadius: 12,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderWidth: 0.5,
+    borderColor: "#e0ff00",
   },
   statsTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: BRAND,
+    color: "#e0ff00",
     marginBottom: 12,
     textAlign: "center",
   },
   progressBar: {
     width: "100%",
     height: 12,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: "#1f2937",
     borderRadius: 6,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    backgroundColor: BRAND,
+    backgroundColor: "#e0ff00",
     borderRadius: 6,
   },
   categorySection: {
@@ -306,12 +377,12 @@ const styles = StyleSheet.create({
   categoryTitle: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#111827",
+    color: "#e0ff00",
     flex: 1,
   },
   categoryCount: {
     fontSize: 13,
-    color: "#6b7280",
+    color: "#e0ff00",
     fontWeight: "600",
   },
   badgesGrid: {
@@ -321,21 +392,24 @@ const styles = StyleSheet.create({
   },
   badgeCard: {
     width: "47%",
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    backgroundColor: "#032344",
+    borderWidth: 0.5,
+    borderColor: "#e0ff00",
     borderRadius: 12,
-    padding: 12,
+    padding: 6,
+    paddingTop: 6,
+    paddingBottom: 6,
     alignItems: "center",
-    gap: 8,
+    gap: 2,
   },
   badgeIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 384,
+    height: 200,
+    borderRadius: 192,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
     position: "relative",
   },
   rareIndicator: {
@@ -352,20 +426,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     textAlign: "center",
+    color: "#e0ff00",
   },
   badgeDescription: {
     fontSize: 11,
-    color: "#6b7280",
+    color: "#9ca3af",
     textAlign: "center",
   },
   badgeDate: {
     fontSize: 10,
-    color: "#9ca3af",
+    color: "#6b7280",
     fontStyle: "italic",
   },
   emptyText: {
     fontSize: 14,
-    color: "#9ca3af",
+    color: "#e0ff00",
     textAlign: "center",
     fontStyle: "italic",
   },

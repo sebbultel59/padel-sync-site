@@ -218,6 +218,67 @@ const HELP_SECTIONS = {
         ]
       }
     ]
+  },
+  badges: {
+    title: 'Badges',
+    icon: 'medal',
+    content: [
+      {
+        title: 'Page Mes Trophées',
+        description: 'La page "Mes Trophées" affiche tous tes badges et récompenses obtenus dans l\'application. Les badges sont des accomplissements que tu débloques automatiquement en jouant et en progressant.\n\nTu peux accéder à cette page depuis l\'onglet Stats en cliquant sur "Voir tous" dans la section des trophées, ou depuis ton profil.',
+        tips: [
+          'Les badges débloqués sont affichés en couleur',
+          'Les badges non débloqués sont grisés',
+          'La barre de progression en haut indique combien de badges tu as débloqués',
+          'Les badges sont organisés par catégories pour faciliter la navigation'
+        ]
+      },
+      {
+        title: 'Section Volume',
+        description: 'Les badges Volume récompensent le nombre de matchs que tu as joués. Plus tu joues, plus tu débloques de badges.\n\nLes badges de cette section sont :\n• 5 Matchs : A joué 5 matchs (tous types confondus)\n• 20 Matchs : A joué 20 matchs (tous types confondus)\n• 50 Matchs : A joué 50 matchs (tous types confondus)\n• 100 Matchs : A joué 100 matchs (tous types confondus)\n• 5 Matchs Tournoi : A joué 5 matchs en tournoi\n• 10 Matchs Classés : A joué 10 matchs classés',
+        tips: [
+          'Ces badges se débloquent automatiquement après chaque match',
+          'Tous les types de matchs comptent (classés, tournois, amicaux)',
+          'Continue à jouer pour débloquer les badges suivants'
+        ]
+      },
+      {
+        title: 'Section Performance',
+        description: 'Les badges Performance récompensent tes performances et tes séries de victoires.\n\nLes badges de cette section sont :\n• Série de 3 Victoires : 3 victoires consécutives\n• Série de 5 Victoires : 5 victoires consécutives\n• Série de 10 Victoires : 10 victoires consécutives\n• Upset +15 : Victoire contre une équipe avec un rating moyen supérieur d\'au moins 15 points',
+        tips: [
+          'Les séries de victoires doivent être consécutives',
+          'Un "upset" est une victoire contre une équipe plus forte',
+          'Ces badges montrent ta progression et tes performances'
+        ]
+      },
+      {
+        title: 'Section Social',
+        description: 'Les badges Social récompensent ta diversité de partenaires et ta sociabilité dans l\'application.\n\nLes badges de cette section sont :\n• 5 Partenaires : A joué avec 5 partenaires différents\n• 10 Partenaires : A joué avec 10 partenaires différents\n• 20 Partenaires : A joué avec 20 partenaires différents\n• Caméléon : Aucun partenaire n\'a représenté plus de 20% des matchs sur les 30 derniers jours',
+        tips: [
+          'Joue avec différents partenaires pour débloquer ces badges',
+          'Le badge "Caméléon" récompense la diversité de tes partenaires',
+          'Ces badges encouragent à varier tes partenaires de jeu'
+        ]
+      },
+      {
+        title: 'Section Club',
+        description: 'Les badges Club sont des récompenses spéciales liées à ton club ou à des événements organisés.\n\nLes badges de cette section sont :\n• Après-Match au Club : Badge débloqué manuellement par un admin club',
+        tips: [
+          'Ce badge est attribué par un administrateur de club',
+          'Il peut être donné pour des événements spéciaux ou des participations',
+          'Contacte ton admin de club pour plus d\'informations'
+        ]
+      },
+      {
+        title: 'Déblocage automatique',
+        description: 'La plupart des badges se débloquent automatiquement après chaque match. Le système vérifie tes statistiques et débloque les badges lorsque tu remplis les conditions.',
+        tips: [
+          'Les badges sont évalués après chaque match',
+          'Tu reçois une notification quand tu débloques un nouveau badge',
+          'Consulte régulièrement ta page trophées pour voir ta progression'
+        ]
+      }
+    ]
   }
 };
 

@@ -64,52 +64,31 @@ export default function OnFireLabel({
 
   const currentSize = sizeStyles[size];
 
+  const circleSize = currentSize.iconSize * 3.5;
+
   return (
     <Animated.View style={[styles.container, animatedStyle]}>
-      {/* Glow effect */}
+      {/* Cercle rouge clignotant */}
       <Animated.View
         style={[
-          styles.glow,
+          styles.circle,
           {
-            width: currentSize.iconSize * 3,
-            height: currentSize.iconSize * 3,
-            borderRadius: (currentSize.iconSize * 3) / 2,
+            width: circleSize,
+            height: circleSize,
+            borderRadius: circleSize / 2,
           },
           glowStyle,
         ]}
       />
 
-      {/* Contenu */}
-      <View
-        style={[
-          styles.content,
-          {
-            paddingHorizontal: currentSize.padding,
-            paddingVertical: currentSize.padding / 2,
-          },
-        ]}
-      >
-        <Ionicons
-          name="flame"
-          size={currentSize.iconSize}
-          color="#ef4444"
-          style={styles.icon}
-        />
-        <Text
-          style={[
-            styles.text,
-            {
-              fontSize: currentSize.fontSize,
-            },
-          ]}
-        >
-          On Fire
+      {/* Flamme emoji et chiffre superposés */}
+      <View style={[styles.overlay, { width: circleSize, height: circleSize }]}>
+        <Text style={[styles.emoji, { fontSize: currentSize.iconSize * 1.5 }]}>
+          🔥
         </Text>
-        {winStreak >= 5 && (
-          <Text style={[styles.streak, { fontSize: currentSize.fontSize - 2 }]}>
-            {winStreak}
-          </Text>
-        )}
+        <Text style={[styles.streakNumber, { fontSize: currentSize.fontSize }]}>
+          {winStreak}
+        </Text>
       </View>
     </Animated.View>
   );
@@ -121,32 +100,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glow: {
+  circle: {
     position: 'absolute',
     backgroundColor: '#ef4444',
-    opacity: 0.5,
+    opacity: 0.8,
   },
-  content: {
-    flexDirection: 'row',
+  overlay: {
+    position: 'absolute',
     alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    gap: 4,
+    justifyContent: 'center',
     zIndex: 1,
   },
-  icon: {
-    marginRight: 2,
+  emoji: {
+    marginTop: -8,
+    textAlign: 'center',
   },
-  text: {
-    fontWeight: '800',
-    color: '#ef4444',
-  },
-  streak: {
-    fontWeight: '700',
-    color: '#dc2626',
-    marginLeft: 2,
+  streakNumber: {
+    marginTop: 2,
+    fontWeight: '900',
+    color: '#ffffff',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    textAlign: 'center',
   },
 });
 

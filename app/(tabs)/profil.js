@@ -34,6 +34,7 @@ import { isProfileComplete } from "../../lib/profileCheck";
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
+import { getBadgeImage } from "../../lib/badgeImages";
 // Imports directs de Reanimated (maintenant que worklets est à jour)
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -130,8 +131,6 @@ export default function ProfilScreen() {
   const debounceTimerHome = useRef(null);
   const debounceTimerWork = useRef(null);
   const scrollViewRef = useRef(null);
-  const mesInfosRef = useRef(null);
-  const [mesInfosY, setMesInfosY] = useState(0);
   const abortControllerHome = useRef(null);
   const abortControllerWork = useRef(null);
   
@@ -142,7 +141,7 @@ export default function ProfilScreen() {
   
   // Groupe actif (pour les classements de groupe via PlayerRankSummary)
   const { activeGroup } = useActiveGroup();
-
+  
   // Zoom et pan pour l'image des niveaux (désactivé en Expo Go à cause des problèmes Worklets)
   const gesturesEnabled = !isExpoGo && Gesture && typeof Gesture.Pinch === 'function' && typeof Gesture.Pan === 'function' && Animated;
   
@@ -1396,7 +1395,7 @@ export default function ProfilScreen() {
       >
 
         {/* Avatar */}
-        <View style={s.avatarCard}>
+        <Pressable onPress={() => router.push('/stats')} style={s.avatarCard}>
           <View style={[s.avatarWrap, { position: 'relative', width: AVATAR, height: AVATAR }]}>
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={[s.avatar, { borderColor: colorForLevel(niveau) }]} />
@@ -1430,7 +1429,7 @@ export default function ProfilScreen() {
               </View>
             )}
             {winStreak >= 3 && (
-              <View style={{ position: 'absolute', bottom: 8, left: -8, zIndex: 10 }}>
+              <View style={{ position: 'absolute', top: 20, left: -4, zIndex: 10 }}>
                 <OnFireLabel winStreak={winStreak} size="small" />
               </View>
             )}
@@ -1461,395 +1460,10 @@ export default function ProfilScreen() {
               </Pressable>
             ) : null}
           </View>
-        </View>
+        </Pressable>
 
         {/* Tiles d'informations du profil */}
         <View style={{ marginTop: 8 }}>
-          {/* Titre principal MES STATS */}
-          <View style={{ alignItems: 'center', marginBottom: 20 }}>
-            <Text style={{ fontSize: 36, fontWeight: '900', color: '#E0FF00', textTransform: 'uppercase', fontFamily: 'Small Capture', textAlign: 'center' }}>
-              MES STATS
-            </Text>
-          </View>
-
-          {/* Bloc D - Style de jeu */}
-          {statsLoading ? null : (statsError || !stats ? null : (
-            <>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-                <Ionicons name="tennisball" size={22} color="#E0FF00" />
-                <Text style={s.tileTitle}>STYLE DE JEU</Text>
-              </View>
-              <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-                {(main || stats?.sidePreferred || (stats?.topPartners && stats.topPartners.length > 0)) ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', gap: 8 }}>
-                    {/* Main préférée */}
-                    {main && (
-                      <>
-                        <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                          <View style={{ 
-                            width: 60, 
-                            height: 60, 
-                            borderRadius: 30, 
-                            borderWidth: 2, 
-                            borderColor: '#374151', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            marginBottom: 4,
-                            backgroundColor: '#1f2937'
-                          }}>
-                            <Ionicons 
-                              name={main === 'droite' ? 'hand-right' : 'hand-left'} 
-                              size={24} 
-                              color="#E0FF00" 
-                            />
-                          </View>
-                          <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                            {main === 'droite' ? 'Droite' : main === 'gauche' ? 'Gauche' : main}
-                          </Text>
-                        </View>
-                        
-                        {/* Séparateur vertical */}
-                        {(stats?.sidePreferred || (stats?.topPartners && stats.topPartners.length > 0)) && (
-                          <View style={{ width: 1, backgroundColor: '#1f2937', alignSelf: 'stretch', marginVertical: 8 }} />
-                        )}
-                      </>
-                    )}
-                    
-                    {/* Côté préféré */}
-                    {stats?.sidePreferred && (
-                      <>
-                        <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                          <View style={{ 
-                            width: 60, 
-                            height: 60, 
-                            borderRadius: 30, 
-                            borderWidth: 2, 
-                            borderColor: '#374151', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            marginBottom: 4,
-                            backgroundColor: '#1f2937'
-                          }}>
-                            <Ionicons 
-                              name={stats.sidePreferred === 'left' ? 'arrow-back' : 'arrow-forward'} 
-                              size={24} 
-                              color="#E0FF00" 
-                            />
-                          </View>
-                          <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                            {stats.sidePreferred === 'left' ? 'Gauche' : stats.sidePreferred === 'right' ? 'Droite' : stats.sidePreferred}
-                          </Text>
-                        </View>
-                        
-                        {/* Séparateur vertical */}
-                        {stats.topPartners && stats.topPartners.length > 0 && (
-                          <View style={{ width: 1, backgroundColor: '#1f2937', alignSelf: 'stretch', marginVertical: 8 }} />
-                        )}
-                      </>
-                    )}
-                    
-                    {/* Partenaire principal */}
-                    {stats?.topPartners && stats.topPartners.length > 0 && (
-                      <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                        <View style={{ position: 'relative', width: 60, height: 60 }}>
-                          {partnerAvatar ? (
-                            <Image 
-                              source={{ uri: partnerAvatar }} 
-                              style={{ 
-                                width: 60, 
-                                height: 60, 
-                                borderRadius: 30, 
-                                borderWidth: 2, 
-                                borderColor: '#374151',
-                              }} 
-                            />
-                          ) : (
-                            <View style={{ 
-                              width: 60, 
-                              height: 60, 
-                              borderRadius: 30, 
-                              borderWidth: 2, 
-                              borderColor: '#374151', 
-                              alignItems: 'center', 
-                              justifyContent: 'center',
-                              backgroundColor: '#1f2937'
-                            }}>
-                              <Text style={{ fontSize: 20, fontWeight: '800', color: '#e0ff00' }}>
-                                {stats.topPartners[0].partnerName?.charAt(0)?.toUpperCase() || '?'}
-                              </Text>
-                            </View>
-                          )}
-                          {/* Badge niveau */}
-                          {partnerLevel && (
-                            <View
-                              style={{
-                                position: 'absolute',
-                                right: -4,
-                                bottom: -4,
-                                backgroundColor: colorForLevel(partnerLevel),
-                                borderColor: colorForLevel(partnerLevel),
-                                borderWidth: 1,
-                                borderRadius: 99,
-                                minWidth: 24,
-                                height: 24,
-                                paddingHorizontal: 4,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <Text style={{ color: '#000000', fontWeight: '900', fontSize: 12, lineHeight: 14 }}>
-                                {String(partnerLevel)}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 4, marginBottom: 2 }}>
-                          Partenaire
-                        </Text>
-                        {partnerRank && (
-                          <Text style={{ fontSize: 11, color: '#E0FF00', textAlign: 'center', fontWeight: '700', marginBottom: 2 }}>
-                            #{partnerRank} global
-                          </Text>
-                        )}
-                        <Text style={{ fontSize: 10, color: '#6b7280', textAlign: 'center' }}>
-                          {stats.topPartners[0].matchesWith} matchs • {stats.topPartners[0].winRateWith.toFixed(0)}%
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                ) : (
-                  <Text style={{ fontSize: 14, color: '#9ca3af', fontStyle: 'italic', textAlign: 'center', paddingVertical: 8 }}>
-                    Aucune information disponible
-                  </Text>
-                )}
-              </View>
-            </>
-          ))}
-
-          {/* Bloc A - Bilan général */}
-          {statsLoading ? null : (statsError || !stats ? null : (
-            <>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-                <Ionicons name="stats-chart" size={22} color="#E0FF00" />
-                <Text style={s.tileTitle}>BILAN GÉNÉRAL</Text>
-              </View>
-              <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', gap: 8 }}>
-                  {/* Matchs joués */}
-                  <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#ffffff', marginBottom: 4 }}>
-                      {stats.matchesPlayed}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#9ca3af', textTransform: 'lowercase' }}>
-                      {stats.matchesPlayed <= 1 ? 'match' : 'matchs'}
-                    </Text>
-                  </View>
-                  
-                  {/* Séparateur vertical */}
-                  <View style={{ width: 1, backgroundColor: '#1f2937', alignSelf: 'stretch', marginVertical: 8 }} />
-                  
-                  {/* Victoires */}
-                  <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#10b981', marginBottom: 4 }}>
-                      {stats.wins}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#9ca3af', textTransform: 'lowercase' }}>
-                      {stats.wins <= 1 ? 'victoire' : 'victoires'}
-                    </Text>
-                  </View>
-                  
-                  {/* Séparateur vertical */}
-                  <View style={{ width: 1, backgroundColor: '#1f2937', alignSelf: 'stretch', marginVertical: 8 }} />
-                  
-                  {/* Efficacité */}
-                  <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                    <View style={{ 
-                      width: 60, 
-                      height: 60, 
-                      borderRadius: 30, 
-                      borderWidth: 2, 
-                      borderColor: '#374151', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
-                      marginBottom: 4
-                    }}>
-                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>
-                        {stats.winRate.toFixed(0)}%
-                      </Text>
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                      Efficacité
-                    </Text>
-                  </View>
-                </View>
-                
-                {/* Sets (si disponibles) - affiché en dessous */}
-                {(stats.setsWon !== null || stats.setsLost !== null) && (
-                  <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 14, color: '#9ca3af', marginBottom: 4 }}>Sets</Text>
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#E0FF00' }}>
-                      {stats.setsWon ?? 0} / {stats.setsLost ?? 0}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </>
-          ))}
-
-          {/* Bloc B - Forme du moment */}
-          {statsLoading ? null : (statsError || !stats ? null : (
-            <>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-                <Ionicons name="flame" size={22} color="#E0FF00" />
-                <Text style={s.tileTitle}>FORME DU MOMENT</Text>
-              </View>
-              <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-                <Text style={{ fontSize: 14, color: '#9ca3af', fontStyle: 'italic', textAlign: 'center' }}>
-                  À venir : historique des 5 derniers matchs et série.
-                </Text>
-              </View>
-            </>
-          ))}
-
-          {/* Section Badges */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8, marginTop: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Ionicons name="medal" size={22} color="#E0FF00" />
-              <Text style={s.tileTitle} numberOfLines={1}>
-                {badgesLoading ? 'Chargement...' : `MES TROPHEES : ${unlockedCount}/${totalAvailable}`}
-              </Text>
-            </View>
-            {!badgesLoading && me?.id && (
-              <Pressable
-                onPress={() => router.push(`/profiles/${me.id}/trophies`)}
-                style={{ position: 'absolute', right: 0, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-              >
-                <Text style={{ fontSize: 12, color: BRAND, fontWeight: '600' }}>Voir tous</Text>
-                <Ionicons name="chevron-forward" size={14} color={BRAND} />
-              </Pressable>
-            )}
-          </View>
-          <View style={[s.tile, s.tileFull]}>
-            {badgesLoading ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <ActivityIndicator size="small" color={BRAND} />
-              </View>
-            ) : badgesError ? (
-              <Text style={{ fontSize: 12, color: '#ef4444', textAlign: 'center', marginTop: 8 }}>
-                Erreur : {badgesError}
-              </Text>
-            ) : (
-              <>
-                {/* Badges rares */}
-                {featuredRare.length > 0 && (
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Rares</Text>
-                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                      {featuredRare.slice(0, 3).map((badge) => (
-                        <BadgeIcon key={badge.id} badge={badge} size={40} />
-                      ))}
-                    </View>
-                  </View>
-                )}
-
-                {/* Badges récents */}
-                {featuredRecent.length > 0 && (
-                  <View style={{ marginTop: featuredRare.length > 0 ? 12 : 8 }}>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Récents</Text>
-                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                      {featuredRecent.slice(0, 3).map((badge) => (
-                        <BadgeIcon key={badge.id} badge={badge} size={40} />
-                      ))}
-                    </View>
-                  </View>
-                )}
-
-                {unlockedCount === 0 && totalAvailable > 0 && (
-                  <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
-                    Aucun badge débloqué pour le moment
-                  </Text>
-                )}
-                {totalAvailable === 0 && (
-                  <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
-                    Aucun badge disponible
-                  </Text>
-                )}
-              </>
-            )}
-          </View>
-
-          {/* Section Mes classements */}
-          {me?.id && (
-            <>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-                <Ionicons name="stats-chart" size={22} color="#E0FF00" />
-                <Text style={s.tileTitle}>MES CLASSEMENTS PADEL SYNC</Text>
-              </View>
-              <View style={[s.tile, s.tileFull]}>
-                {loadingRanks ? (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color={BRAND} />
-                </View>
-              ) : (
-                <View style={{ gap: 12, marginTop: 8 }}>
-                  {/* Classement Global */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#032344', borderRadius: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Ionicons name="globe" size={20} color="#E0FF00" />
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Global</Text>
-                    </View>
-                    {globalRank ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#E0FF00' }}>{globalRank.rank}</Text>
-                        <Text style={{ fontSize: 12, color: '#e5e7eb' }}>sur {globalRank.total}</Text>
-                      </View>
-                    ) : (
-                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Non disponible</Text>
-                    )}
-                  </View>
-
-                  {/* Classement Club favori */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#032344', borderRadius: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Ionicons name="business" size={20} color="#E0FF00" />
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Mon club favori</Text>
-                    </View>
-                    {!club || !club.trim() ? (
-                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Pas de club favori renseigné</Text>
-                    ) : clubRank ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#E0FF00' }}>{clubRank.rank}</Text>
-                        <Text style={{ fontSize: 12, color: '#e5e7eb' }}>sur {clubRank.total}</Text>
-                      </View>
-                    ) : (
-                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Non classé</Text>
-                    )}
-                  </View>
-
-                  {/* Classement Groupe actuel */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#032344', borderRadius: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Ionicons name="people" size={20} color="#E0FF00" />
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Mon groupe actuel</Text>
-                    </View>
-                    {!activeGroup?.id ? (
-                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Aucun groupe actif</Text>
-                    ) : groupRank ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#E0FF00' }}>{groupRank.rank}</Text>
-                        <Text style={{ fontSize: 12, color: '#e5e7eb' }}>sur {groupRank.total}</Text>
-                      </View>
-                    ) : (
-                      <Text style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Non classé</Text>
-                    )}
-                  </View>
-                </View>
-              )}
-              </View>
-            </>
-          )}
-
-          {/* Blocs de stats */}
           {statsLoading ? (
             <View style={[s.tile, s.tileFull, { padding: 20, alignItems: 'center', marginTop: 16 }]}>
               <ActivityIndicator size="small" color={BRAND} />
@@ -1861,125 +1475,7 @@ export default function ProfilScreen() {
                 Statistiques indisponibles pour le moment.
               </Text>
             </View>
-          ) : (
-            <>
-              {/* Bloc C - Niveau / XP / Classement */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-                <Ionicons name="trophy" size={22} color="#E0FF00" />
-                <Text style={s.tileTitle}>NIVEAU / XP / CLASSEMENT</Text>
-              </View>
-              <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', gap: 8 }}>
-                  {/* Niveau */}
-                  <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                    <Text style={{ fontSize: 32, fontWeight: '900', color: colorForLevel(stats.level), marginBottom: 4 }}>
-                      {stats.level}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                      Niveau
-                    </Text>
-                  </View>
-                  
-                  {/* Séparateur vertical */}
-                  <View style={{ width: 1, backgroundColor: '#1f2937', alignSelf: 'stretch', marginVertical: 8 }} />
-                  
-                  {/* Rating */}
-                  <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
-                      {stats.rating.toFixed(0)}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                      Rating
-                    </Text>
-                  </View>
-                  
-                  {/* Séparateur vertical */}
-                  <View style={{ width: 1, backgroundColor: '#1f2937', alignSelf: 'stretch', marginVertical: 8 }} />
-                  
-                  {/* Rang Global */}
-                  <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                    {stats.rankGlobal ? (
-                      <>
-                        <Text style={{ fontSize: 32, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
-                          #{stats.rankGlobal}
-                        </Text>
-                        <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                          Rang global
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={{ fontSize: 18, fontWeight: '700', color: '#6b7280', marginBottom: 4 }}>
-                          -
-                        </Text>
-                        <Text style={{ fontSize: 12, color: '#6b7280' }}>
-                          Non classé
-                        </Text>
-                      </>
-                    )}
-                  </View>
-                </View>
-                
-                {/* Rang club (si disponible) - affiché en dessous */}
-                {stats.rankClub && (
-                  <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 14, color: '#9ca3af', marginBottom: 4 }}>Rang club</Text>
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#E0FF00' }}>
-                      #{stats.rankClub} au club
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Barre de progression XP */}
-                {stats.level < 8 && (
-                  <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937' }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <Text style={{ fontSize: 14, color: '#9ca3af' }}>XP vers niveau suivant</Text>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#E0FF00' }}>
-                        {stats.xp} / 100
-                      </Text>
-                    </View>
-                    <View style={{ height: 8, backgroundColor: '#1f2937', borderRadius: 4, overflow: 'hidden' }}>
-                      <View
-                        style={{
-                          height: '100%',
-                          width: `${Math.min(100, stats.xp)}%`,
-                          backgroundColor: colorForLevel(stats.level),
-                          borderRadius: 4,
-                        }}
-                      />
-                    </View>
-                  </View>
-                )}
-              </View>
-            </>
-          )}
-
-          {/* Titre secondaire MES INFOS */}
-          <View 
-            ref={mesInfosRef}
-            onLayout={(event) => {
-              const { y } = event.nativeEvent.layout;
-              setMesInfosY(y);
-            }}
-            style={{ alignItems: 'center', marginBottom: 16, marginTop: 16 }}
-          >
-            <Pressable
-              onPress={() => {
-                if (scrollViewRef.current && mesInfosY > 0) {
-                  scrollViewRef.current.scrollTo({ y: mesInfosY - 20, animated: true });
-                }
-              }}
-              style={({ pressed }) => [
-                { opacity: pressed ? 0.7 : 1 },
-                Platform.OS === "web" && { cursor: "pointer" }
-              ]}
-            >
-              <Text style={{ fontSize: 36, fontWeight: '900', color: '#E0FF00', textTransform: 'uppercase', fontFamily: 'Small Capture', textAlign: 'center' }}>
-                MES INFOS
-              </Text>
-            </Pressable>
-          </View>
+          ) : null}
 
           {/* Ligne 1 : Pseudo à 100% */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8 }}>
@@ -1987,14 +1483,18 @@ export default function ProfilScreen() {
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Pseudo <Text style={{ color: '#dc2626' }}>*</Text></Text>
           </View>
           <View style={[s.tile, s.tileFull]}>
-            <TextInput
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Ex. Seb Padel"
-              autoCapitalize="words"
-              style={s.tileInput}
-              maxLength={60}
-            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+              <TextInput
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Ex. Seb Padel"
+                placeholderTextColor="#9ca3af"
+                autoCapitalize="words"
+                style={{ flex: 1, fontSize: 14, color: '#ffffff' }}
+                maxLength={60}
+              />
+            </View>
           </View>
 
           {/* Ligne 2 : Adresses */}
@@ -2003,38 +1503,42 @@ export default function ProfilScreen() {
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Adresses</Text>
           </View>
           <Text style={{ fontSize: 14, fontWeight: '400', color: '#E0FF00', marginBottom: 8 }}>(pour trouver des matchs à proximité)</Text>
-          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: '#032344', borderWidth: 0, marginBottom: 8 }]}>
+          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: '#032344', marginBottom: 8 }]}>
             {/* Domicile */}
             <View style={{ marginTop: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <Ionicons name="home" size={18} color="#E0FF00" />
                 <Text style={[s.label, { fontSize: 16, color: '#E0FF00' }]}>Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
               </View>
-              <TextInput
-                value={addressHomeInput}
-                onChangeText={(text) => {
-                  setAddressHomeInput(text);
-                  
-                  // Annuler le timer précédent
-                  if (debounceTimerHome.current) {
-                    clearTimeout(debounceTimerHome.current);
-                  }
-                  
-                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
-                  if (text.trim().length < 3) {
-                    setAddressHomeSuggestions([]);
-                    return;
-                  }
-                  
-                  // Debouncing : attendre 400ms après la dernière frappe
-                  debounceTimerHome.current = setTimeout(() => {
-                    searchAddress(text, setAddressHomeSuggestions, true);
-                  }, 400);
-                }}
-                placeholder="Ex: 123 Rue de la Paix, 75001 Paris"
-                style={s.input}
-                autoCapitalize="words"
-              />
+              <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
+                <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                <TextInput
+                  value={addressHomeInput}
+                  onChangeText={(text) => {
+                    setAddressHomeInput(text);
+                    
+                    // Annuler le timer précédent
+                    if (debounceTimerHome.current) {
+                      clearTimeout(debounceTimerHome.current);
+                    }
+                    
+                    // Réinitialiser les suggestions immédiatement si la requête est trop courte
+                    if (text.trim().length < 3) {
+                      setAddressHomeSuggestions([]);
+                      return;
+                    }
+                    
+                    // Debouncing : attendre 400ms après la dernière frappe
+                    debounceTimerHome.current = setTimeout(() => {
+                      searchAddress(text, setAddressHomeSuggestions, true);
+                    }, 400);
+                  }}
+                  placeholder="Ex: 123 Rue de la Paix, 75001 Paris"
+                  placeholderTextColor="#9ca3af"
+                  style={[{ flex: 1, fontSize: 16, color: '#ffffff' }, Platform.OS === 'android' && { textAlign: 'left' }]}
+                  autoCapitalize="words"
+                />
+              </View>
               {addressHomeSuggestions.length > 0 && (
                 <View style={{ marginTop: 4, backgroundColor: '#032344', borderRadius: 8, maxHeight: 150 }}>
                   <ScrollView nestedScrollEnabled>
@@ -2093,31 +1597,35 @@ export default function ProfilScreen() {
                 <Ionicons name="briefcase" size={18} color="#E0FF00" />
                 <Text style={[s.label, { fontSize: 16, color: '#E0FF00' }]}>Travail</Text>
               </View>
-              <TextInput
-                value={addressWorkInput}
-                onChangeText={(text) => {
-                  setAddressWorkInput(text);
-                  
-                  // Annuler le timer précédent
-                  if (debounceTimerWork.current) {
-                    clearTimeout(debounceTimerWork.current);
-                  }
-                  
-                  // Réinitialiser les suggestions immédiatement si la requête est trop courte
-                  if (text.trim().length < 3) {
-                    setAddressWorkSuggestions([]);
-                    return;
-                  }
-                  
-                  // Debouncing : attendre 400ms après la dernière frappe
-                  debounceTimerWork.current = setTimeout(() => {
-                    searchAddress(text, setAddressWorkSuggestions, false);
-                  }, 400);
-                }}
-                placeholder="Ex: 456 Avenue des Champs, 69001 Lyon"
-                style={s.input}
-                autoCapitalize="words"
-              />
+              <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
+                <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                <TextInput
+                  value={addressWorkInput}
+                  onChangeText={(text) => {
+                    setAddressWorkInput(text);
+                    
+                    // Annuler le timer précédent
+                    if (debounceTimerWork.current) {
+                      clearTimeout(debounceTimerWork.current);
+                    }
+                    
+                    // Réinitialiser les suggestions immédiatement si la requête est trop courte
+                    if (text.trim().length < 3) {
+                      setAddressWorkSuggestions([]);
+                      return;
+                    }
+                    
+                    // Debouncing : attendre 400ms après la dernière frappe
+                    debounceTimerWork.current = setTimeout(() => {
+                      searchAddress(text, setAddressWorkSuggestions, false);
+                    }, 400);
+                  }}
+                  placeholder="Ex: 456 Avenue des Champs, 69001 Lyon"
+                  placeholderTextColor="#9ca3af"
+                  style={[{ flex: 1, fontSize: 16, color: '#ffffff' }, Platform.OS === 'android' && { textAlign: 'left' }]}
+                  autoCapitalize="words"
+                />
+              </View>
               {addressWorkSuggestions.length > 0 && (
                 <View style={{ marginTop: 4, backgroundColor: '#032344', borderRadius: 8, maxHeight: 150 }}>
                   <ScrollView nestedScrollEnabled>
@@ -2175,22 +1683,22 @@ export default function ProfilScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="flame" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Niveau <Text style={{ color: '#dc2626' }}>*</Text></Text>
-            <Pressable
-              onPress={() => setNiveauInfoModalVisible(true)}
-              style={{ 
-                marginLeft: 6, 
-                padding: 4,
-                backgroundColor: '#e0f2fe',
-                borderRadius: 12,
-                width: 24,
-                height: 24,
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <Ionicons name="information-circle" size={16} color="#0284c7" />
-            </Pressable>
-          </View>
+              <Pressable
+                onPress={() => setNiveauInfoModalVisible(true)}
+                style={{ 
+                  marginLeft: 6, 
+                  padding: 4,
+                  backgroundColor: '#e0f2fe',
+                  borderRadius: 12,
+                  width: 24,
+                  height: 24,
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <Ionicons name="information-circle" size={16} color="#0284c7" />
+              </Pressable>
+            </View>
           <View style={[s.tile, s.tileFull]}>
             <View style={s.levelRow}>
               {LEVELS.map((lv) => {
@@ -2226,16 +1734,48 @@ export default function ProfilScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="trophy" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>CLASSEMENT FFT</Text>
-          </View>
-          <View style={[s.tile, s.tileFull]}>
-            <TextInput
-              value={classement}
-              onChangeText={setClassement}
-              placeholder="Ex. 500"
-              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-              style={s.tileInput}
-              maxLength={6}
-            />
+            </View>
+          <View style={[s.tile, s.tileFull, { padding: 16 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', gap: 8 }}>
+              {/* Classement FFT */}
+              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
+                {classement && classement.trim() ? (
+                  <>
+                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
+                      {classement}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#9ca3af', textTransform: 'lowercase' }}>
+                      Classement FFT
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#6b7280', marginBottom: 4 }}>
+                      -
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                      Non renseigné
+                    </Text>
+                  </>
+                )}
+              </View>
+            </View>
+            
+            {/* Champ de saisie pour modifier */}
+            <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
+                <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                <TextInput
+                  value={classement}
+                  onChangeText={setClassement}
+                  placeholder="Ex. 500"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                  style={{ flex: 1, fontSize: 14, color: '#ffffff', textAlign: 'center' }}
+                  maxLength={6}
+                />
+              </View>
+            </View>
           </View>
 
           {/* Ligne 4 : Main et Côté */}
@@ -2260,14 +1800,16 @@ export default function ProfilScreen() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     marginTop: 4,
+                    backgroundColor: '#032344',
+                    borderColor: '#032344',
                   },
                   Platform.OS === 'web' && { cursor: 'pointer' }
                 ]}
               >
-                <Text style={{ fontSize: 14, color: main ? '#111827' : '#9ca3af' }}>
+                <Text style={{ fontSize: 14, color: '#ffffff' }}>
                   {main === "droite" ? "Droite" : main === "gauche" ? "Gauche" : "Sélectionner"}
                 </Text>
-                <Ionicons name="chevron-down" size={18} color="#6b7280" />
+                <Ionicons name="chevron-down" size={18} color="#ffffff" />
               </Pressable>
             </View>
 
@@ -2281,14 +1823,16 @@ export default function ProfilScreen() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     marginTop: 4,
+                    backgroundColor: '#032344',
+                    borderColor: '#032344',
                   },
                   Platform.OS === 'web' && { cursor: 'pointer' }
                 ]}
               >
-                <Text style={{ fontSize: 14, color: cote ? '#111827' : '#9ca3af' }}>
+                <Text style={{ fontSize: 14, color: '#ffffff' }}>
                   {cote === "droite" ? "Droite" : cote === "gauche" ? "Gauche" : cote === "les_deux" ? "Les 2" : "Sélectionner"}
                 </Text>
-                <Ionicons name="chevron-down" size={18} color="#6b7280" />
+                <Ionicons name="chevron-down" size={18} color="#ffffff" />
               </Pressable>
             </View>
           </View>
@@ -2297,7 +1841,7 @@ export default function ProfilScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="business" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Club favori</Text>
-          </View>
+            </View>
           <View style={[s.tile, s.tileFull]}>
             <Pressable
               onPress={() => setClubPickerVisible(true)}
@@ -2308,14 +1852,16 @@ export default function ProfilScreen() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   marginTop: 4,
+                  backgroundColor: '#032344',
+                  borderColor: '#032344',
                 },
                 Platform.OS === 'web' && { cursor: 'pointer' }
               ]}
             >
-              <Text style={{ fontSize: 14, color: club ? '#111827' : '#9ca3af', flex: 1 }}>
+              <Text style={{ fontSize: 14, color: '#ffffff', flex: 1 }}>
                 {club || "Sélectionner un club favori"}
               </Text>
-              <Ionicons name="chevron-down" size={18} color="#6b7280" />
+              <Ionicons name="chevron-down" size={18} color="#ffffff" />
             </Pressable>
           </View>
 
@@ -2323,7 +1869,7 @@ export default function ProfilScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="mail" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Email</Text>
-          </View>
+            </View>
           <View style={[s.tile, s.tileFull]}>
             <Text style={[s.tileValue, { color: '#9ca3af' }]}>{me?.email ?? '—'}</Text>
           </View>
@@ -2332,16 +1878,20 @@ export default function ProfilScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="call" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Téléphone</Text>
-          </View>
+            </View>
           <View style={[s.tile, s.tileFull]}>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="06 12 34 56 78"
-              keyboardType="phone-pad"
-              style={s.tileInput}
-              maxLength={20}
-            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+              <TextInput
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="06 12 34 56 78"
+                placeholderTextColor="#9ca3af"
+                keyboardType="phone-pad"
+                style={{ flex: 1, fontSize: 14, color: '#ffffff' }}
+                maxLength={20}
+              />
+            </View>
           </View>
         </View>
 
@@ -2349,7 +1899,7 @@ export default function ProfilScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
           <Ionicons name="car" size={22} color="#e0ff00" />
           <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Rayon de jeu possible <Text style={{ color: '#dc2626' }}>*</Text></Text>
-        </View>
+          </View>
         <View style={[s.tile, s.tileFull]}>
           <View style={s.rayonRow}>
             {RAYONS.map((r) => {
@@ -2378,7 +1928,7 @@ export default function ProfilScreen() {
               <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Rôle actuel</Text>
             </View>
             <View style={[s.card, { marginBottom: 12, backgroundColor: '#032344' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <View style={{
                 paddingHorizontal: 12,
                 paddingVertical: 6,
@@ -2403,8 +1953,8 @@ export default function ProfilScreen() {
                   Club ID: {clubId.substring(0, 8)}...
                 </Text>
               )}
-              </View>
             </View>
+          </View>
           </>
         )}
 
@@ -2594,9 +2144,9 @@ export default function ProfilScreen() {
             style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
             onPress={() => setMainPickerVisible(false)}
           >
-            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20 }}>
+            <View style={{ backgroundColor: '#06305d', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20 }}>
               <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
-                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Sélectionner la main</Text>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>Sélectionner la main</Text>
               </View>
               <Pressable
                 onPress={() => {
@@ -2606,16 +2156,16 @@ export default function ProfilScreen() {
                 style={({ pressed }) => ({
                   paddingVertical: 16,
                   paddingHorizontal: 20,
-                  backgroundColor: pressed ? '#f3f4f6' : main === "droite" ? '#e0f2fe' : '#ffffff',
+                  backgroundColor: pressed ? '#041f3a' : main === "droite" ? '#041f3a' : '#06305d',
                   borderBottomWidth: 1,
                   borderBottomColor: '#e5e7eb',
                 })}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: main === "droite" ? '700' : '400' }}>
+                  <Text style={{ fontSize: 16, color: '#ffffff', fontWeight: main === "droite" ? '700' : '400' }}>
                     Droite
                   </Text>
-                  {main === "droite" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                  {main === "droite" && <Ionicons name="checkmark" size={20} color="#ffffff" />}
                 </View>
               </Pressable>
               <Pressable
@@ -2626,14 +2176,14 @@ export default function ProfilScreen() {
                 style={({ pressed }) => ({
                   paddingVertical: 16,
                   paddingHorizontal: 20,
-                  backgroundColor: pressed ? '#f3f4f6' : main === "gauche" ? '#e0f2fe' : '#ffffff',
+                  backgroundColor: pressed ? '#041f3a' : main === "gauche" ? '#041f3a' : '#06305d',
                 })}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: main === "gauche" ? '700' : '400' }}>
+                  <Text style={{ fontSize: 16, color: '#ffffff', fontWeight: main === "gauche" ? '700' : '400' }}>
                     Gauche
                   </Text>
-                  {main === "gauche" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                  {main === "gauche" && <Ionicons name="checkmark" size={20} color="#ffffff" />}
                 </View>
               </Pressable>
             </View>
@@ -2651,9 +2201,9 @@ export default function ProfilScreen() {
             style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
             onPress={() => setCotePickerVisible(false)}
           >
-            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20 }}>
+            <View style={{ backgroundColor: '#06305d', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20 }}>
               <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
-                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>Sélectionner le côté</Text>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>Sélectionner le côté</Text>
               </View>
               <Pressable
                 onPress={() => {
@@ -2663,16 +2213,16 @@ export default function ProfilScreen() {
                 style={({ pressed }) => ({
                   paddingVertical: 16,
                   paddingHorizontal: 20,
-                  backgroundColor: pressed ? '#f3f4f6' : cote === "droite" ? '#e0f2fe' : '#ffffff',
+                  backgroundColor: pressed ? '#041f3a' : cote === "droite" ? '#041f3a' : '#06305d',
                   borderBottomWidth: 1,
                   borderBottomColor: '#e5e7eb',
                 })}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: cote === "droite" ? '700' : '400' }}>
+                  <Text style={{ fontSize: 16, color: '#ffffff', fontWeight: cote === "droite" ? '700' : '400' }}>
                     Droite
                   </Text>
-                  {cote === "droite" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                  {cote === "droite" && <Ionicons name="checkmark" size={20} color="#ffffff" />}
                 </View>
               </Pressable>
               <Pressable
@@ -2683,16 +2233,16 @@ export default function ProfilScreen() {
                 style={({ pressed }) => ({
                   paddingVertical: 16,
                   paddingHorizontal: 20,
-                  backgroundColor: pressed ? '#f3f4f6' : cote === "gauche" ? '#e0f2fe' : '#ffffff',
+                  backgroundColor: pressed ? '#041f3a' : cote === "gauche" ? '#041f3a' : '#06305d',
                   borderBottomWidth: 1,
                   borderBottomColor: '#e5e7eb',
                 })}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: cote === "gauche" ? '700' : '400' }}>
+                  <Text style={{ fontSize: 16, color: '#ffffff', fontWeight: cote === "gauche" ? '700' : '400' }}>
                     Gauche
                   </Text>
-                  {cote === "gauche" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                  {cote === "gauche" && <Ionicons name="checkmark" size={20} color="#ffffff" />}
                 </View>
               </Pressable>
               <Pressable
@@ -2703,14 +2253,14 @@ export default function ProfilScreen() {
                 style={({ pressed }) => ({
                   paddingVertical: 16,
                   paddingHorizontal: 20,
-                  backgroundColor: pressed ? '#f3f4f6' : cote === "les_deux" ? '#e0f2fe' : '#ffffff',
+                  backgroundColor: pressed ? '#041f3a' : cote === "les_deux" ? '#041f3a' : '#06305d',
                 })}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 16, color: '#111827', fontWeight: cote === "les_deux" ? '700' : '400' }}>
+                  <Text style={{ fontSize: 16, color: '#ffffff', fontWeight: cote === "les_deux" ? '700' : '400' }}>
                     Les 2
                   </Text>
-                  {cote === "les_deux" && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                  {cote === "les_deux" && <Ionicons name="checkmark" size={20} color="#ffffff" />}
                 </View>
               </Pressable>
             </View>
@@ -2728,21 +2278,21 @@ export default function ProfilScreen() {
             style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
             onPress={() => setClubPickerVisible(false)}
           >
-            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20, maxHeight: '80%' }}>
+            <View style={{ backgroundColor: '#06305d', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 20, maxHeight: '80%' }}>
               <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
-                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#ffffff' }}>
                   Sélectionner un club favori
                 </Text>
                 {addressHome?.lat && addressHome?.lng && (
-                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                  <Text style={{ fontSize: 12, color: '#ffffff', marginTop: 4, opacity: 0.9 }}>
                     Triés par distance du domicile
                   </Text>
                 )}
               </View>
               {loadingClubs ? (
                 <View style={{ padding: 40, alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color="#0284c7" />
-                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+                  <ActivityIndicator size="large" color="#ffffff" />
+                  <Text style={{ marginTop: 12, color: '#ffffff' }}>Chargement des clubs...</Text>
                 </View>
               ) : (
                 <ScrollView style={{ maxHeight: 500 }}>
@@ -2756,34 +2306,34 @@ export default function ProfilScreen() {
                       style={({ pressed }) => ({
                         paddingVertical: 16,
                         paddingHorizontal: 20,
-                        backgroundColor: pressed ? '#f3f4f6' : club === c.name ? '#e0f2fe' : '#ffffff',
+                        backgroundColor: pressed ? '#041f3a' : club === c.name ? '#041f3a' : '#06305d',
                         borderBottomWidth: idx < clubsList.length - 1 ? 1 : 0,
                         borderBottomColor: '#e5e7eb',
                       })}
                     >
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 16, color: '#111827', fontWeight: club === c.name ? '700' : '400' }}>
+                          <Text style={{ fontSize: 16, color: '#ffffff', fontWeight: club === c.name ? '700' : '400' }}>
                             {c.name}
                           </Text>
                           {c.address && (
-                            <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                            <Text style={{ fontSize: 12, color: '#ffffff', marginTop: 2, opacity: 0.9 }}>
                               {c.address}
                             </Text>
                           )}
                           {c.distance !== undefined && c.distance !== Infinity && (
-                            <Text style={{ fontSize: 12, color: '#0284c7', marginTop: 2 }}>
+                            <Text style={{ fontSize: 12, color: '#ffffff', marginTop: 2, opacity: 0.9 }}>
                               {c.distance} km
                             </Text>
                           )}
                         </View>
-                        {club === c.name && <Ionicons name="checkmark" size={20} color="#0284c7" />}
+                        {club === c.name && <Ionicons name="checkmark" size={20} color="#ffffff" />}
                       </View>
                     </Pressable>
                   ))}
                   {clubsList.length === 0 && !loadingClubs && (
                     <View style={{ padding: 40, alignItems: 'center' }}>
-                      <Text style={{ color: '#6b7280' }}>Aucun club disponible</Text>
+                      <Text style={{ color: '#ffffff' }}>Aucun club disponible</Text>
                     </View>
                   )}
                 </ScrollView>
@@ -2819,7 +2369,11 @@ function SegBtn({ label, active, onPress }) {
   );
 }
 
-function BadgeIcon({ badge, size = 40 }) {
+function BadgeIcon({ badge, size = 120 }) {
+  const badgeImage = getBadgeImage(badge.code, badge.unlocked);
+  const opacity = badge.unlocked ? 1 : 0.4;
+
+  // Fallback vers icône si pas d'image
   const getBadgeIcon = (category) => {
     switch (category) {
       case 'volume': return 'trophy';
@@ -2844,35 +2398,31 @@ function BadgeIcon({ badge, size = 40 }) {
 
   const iconName = getBadgeIcon(badge.category);
   const iconColor = badge.unlocked ? getBadgeColor(badge.category) : '#d1d5db';
-  const opacity = badge.unlocked ? 1 : 0.4;
 
   return (
     <View style={{ 
       width: size, 
       height: size, 
       borderRadius: size / 2, 
-      backgroundColor: '#f3f4f6', 
+      backgroundColor: 'transparent', 
       alignItems: 'center', 
       justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: '#e5e7eb',
+      borderWidth: 0,
       position: 'relative',
-      opacity
+      opacity,
+      overflow: 'hidden'
     }}>
-      <Ionicons name={iconName} size={size * 0.6} color={iconColor} />
-      {badge.unlocked && badge.rarityScore && badge.rarityScore > 50 && (
-        <View style={{
-          position: 'absolute',
-          top: -4,
-          right: -4,
-          backgroundColor: '#fff',
-          borderRadius: 8,
-          padding: 2,
-          borderWidth: 1,
-          borderColor: '#fbbf24',
-        }}>
-          <Ionicons name="sparkles" size={10} color="#fbbf24" />
-        </View>
+      {badgeImage ? (
+        <Image 
+          source={badgeImage}
+          style={{ 
+            width: size * 0.9, 
+            height: size * 0.9,
+            resizeMode: 'contain'
+          }}
+        />
+      ) : (
+        <Ionicons name={iconName} size={size * 0.6} color={iconColor} />
       )}
     </View>
   );
@@ -2898,7 +2448,7 @@ const s = StyleSheet.create({
 
   avatarBtns: { marginTop: 10, flexDirection: "row", gap: 10 },
 
-  card: { backgroundColor: "#032344", borderWidth: 0, borderRadius: 12, padding: 12 },
+  card: { backgroundColor: "#032344", borderWidth: 2, borderColor: "#e0ff00", borderRadius: 12, padding: 12 },
 
   sectionTitle: { fontSize: 16, fontWeight: "800", color: "#E0FF00" },
 
@@ -2908,7 +2458,8 @@ const s = StyleSheet.create({
   // Tiles
   tile: {
     backgroundColor: "#032344",
-    borderWidth: 0,
+    borderWidth: 2,
+    borderColor: "#e0ff00",
     borderRadius: 12,
     padding: 12,
     minWidth: 0,
