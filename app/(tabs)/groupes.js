@@ -1017,11 +1017,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
       }
       
-      // Utiliser directement le code dans le QR code (sans URL web)
-      // L'utilisateur devra saisir le code manuellement dans l'app
-      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(inviteCode)}`;
-      setQrUrl(qr);
-      setQrCode(inviteCode); // Afficher le code sous le QR code pour saisie manuelle
+      // Afficher le code d'invitation (sans QR code)
+      setQrCode(inviteCode);
       setQrVisible(true);
     } catch (e) {
       console.error('[QR] Erreur:', e);
@@ -3872,23 +3869,24 @@ Padel Sync — Ton match en 3 clics 🎾`;
       <Modal visible={qrVisible} transparent animationType="fade" onRequestClose={() => setQrVisible(false)}>
         <View style={s.qrWrap}>
           <View style={s.qrCard}>
-            <Text style={{ fontWeight: "800", marginBottom: 12 }}>Scanner pour rejoindre</Text>
-            {qrUrl ? <Image source={{ uri: qrUrl }} style={{ width: 240, height: 240, borderRadius: 12 }} /> : <ActivityIndicator />}
+            <Text style={{ fontWeight: "800", marginBottom: 12 }}>Code d'invitation</Text>
             {qrCode ? (
               <>
                 <Text style={{ marginTop: 16, fontSize: 14, color: "#666", textAlign: "center" }}>
-                  Scanne le QR code ci-dessus pour voir le code, puis :
+                  Pour rejoindre ce groupe, utilisez le code suivant :
                 </Text>
-                <Text style={{ marginTop: 8, fontSize: 24, fontWeight: "700", letterSpacing: 4, textAlign: "center", color: BRAND }}>
+                <Text style={{ marginTop: 16, fontSize: 32, fontWeight: "700", letterSpacing: 4, textAlign: "center", color: BRAND }}>
                   {qrCode}
                 </Text>
-                <Text style={{ marginTop: 8, fontSize: 12, color: "#999", textAlign: "center", paddingHorizontal: 20 }}>
+                <Text style={{ marginTop: 16, fontSize: 12, color: "#999", textAlign: "center", paddingHorizontal: 20 }}>
                   1. Ouvre l'app Padel Sync{'\n'}
                   2. Va dans "Groupes" → "Rejoindre un groupe"{'\n'}
                   3. Entre le code ci-dessus
                 </Text>
               </>
-            ) : null}
+            ) : (
+              <ActivityIndicator style={{ marginTop: 20 }} />
+            )}
             <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
