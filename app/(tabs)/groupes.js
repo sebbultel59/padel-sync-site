@@ -867,37 +867,58 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
     return `padelsync://join?group_id=${groupId}`;
   }, []);
 
+  const buildInviteWebLink = useCallback((groupId) => {
+    // Utiliser une URL web universelle pour les QR codes (reconnue par tous les scanners)
+    // La page web redirigera automatiquement vers l'app si elle est installée
+    return `https://syncpadel.app/join?group_id=${groupId}`;
+  }, []);
+
   const onInviteLink = useCallback(async () => {
     if (!activeGroup?.id) return;
     try {
-      // Créer ou récupérer un code d'invitation pour le groupe
       let inviteCode;
-      const { data: existingInvite, error: fetchError } = await supabase
-        .from('invitations')
-        .select('code')
-        .eq('group_id', activeGroup.id)
-        .eq('used', false)
-        .limit(1)
-        .maybeSingle();
       
-      if (existingInvite?.code) {
-        inviteCode = existingInvite.code;
-      } else {
-        // Créer un nouveau code d'invitation
-        const { data: newInvite, error: createError } = await supabase
-          .from('invitations')
-          .insert({
-            group_id: activeGroup.id,
-            code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-            created_by: meId
-          })
-          .select('code')
-          .single();
+      // Pour les groupes privés : utiliser le code unique réutilisable
+      if (activeGroup.visibility === 'private') {
+        const { data: code, error: rpcError } = await supabase.rpc('get_or_create_group_invite_code', {
+          p_group_id: activeGroup.id
+        });
         
-        if (createError) {
-          throw createError;
+        if (rpcError) {
+          throw rpcError;
         }
-        inviteCode = newInvite.code;
+        inviteCode = code;
+      } else {
+        // Pour les groupes publics : créer ou récupérer un code d'invitation à usage unique
+        const { data: existingInvite, error: fetchError } = await supabase
+          .from('invitations')
+          .select('code')
+          .eq('group_id', activeGroup.id)
+          .eq('used', false)
+          .eq('reusable', false)  // S'assurer qu'on ne récupère pas un code réutilisable
+          .limit(1)
+          .maybeSingle();
+        
+        if (existingInvite?.code) {
+          inviteCode = existingInvite.code;
+        } else {
+          // Créer un nouveau code d'invitation à usage unique
+          const { data: newInvite, error: createError } = await supabase
+            .from('invitations')
+            .insert({
+              group_id: activeGroup.id,
+              code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+              created_by: meId,
+              reusable: false  // Code à usage unique pour les groupes publics
+            })
+            .select('code')
+            .single();
+          
+          if (createError) {
+            throw createError;
+          }
+          inviteCode = newInvite.code;
+        }
       }
       
       // Liens de téléchargement de l'app
@@ -949,11 +970,13 @@ Padel Sync — Ton match en 3 clics 🎾`;
 
   const onInviteQR = useCallback(() => {
     if (!activeGroup?.id) return;
-    const deepLink = buildInviteDeepLink(activeGroup.id);
-    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(deepLink)}`;
+    // Utiliser une URL web universelle pour le QR code
+    // La page web redirigera automatiquement vers l'app si installée, sinon vers les stores
+    const webLink = buildInviteWebLink(activeGroup.id);
+    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(webLink)}`;
     setQrUrl(qr);
     setQrVisible(true);
-  }, [activeGroup?.id, buildInviteDeepLink]);
+  }, [activeGroup?.id, buildInviteWebLink]);
 
   const onChangeGroupAvatar = useCallback(async () => {
     if (!activeGroup?.id) return;

@@ -26,6 +26,18 @@
     {
       "source": "/reset-password",
       "destination": "/reset-password.html"
+    },
+    {
+      "source": "/join",
+      "destination": "/join.html"
+    },
+    {
+      "source": "/join(.*)",
+      "destination": "/join.html"
+    },
+    {
+      "source": "/download",
+      "destination": "/download.html"
     }
   ],
   "headers": [

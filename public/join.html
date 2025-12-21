@@ -4,6 +4,36 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Padel Sync – Invitation</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        text-align: center;
+        padding: 20px;
+      }
+      .container {
+        max-width: 400px;
+      }
+      .spinner {
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top: 3px solid white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
     <script>
       // Récupère le group_id dans l'URL: /join?group_id=ABC123
       const params = new URLSearchParams(window.location.search);
@@ -11,24 +41,74 @@
       
       if (!groupId) {
         // Pas de group_id, redirige vers la page de téléchargement
-        window.location.href = '/download';
-        document.body.innerHTML = '<p style="padding: 20px; text-align: center;">Lien d\'invitation invalide</p>';
+        document.body.innerHTML = '<div class="container"><h1>Lien invalide</h1><p>Le lien d\'invitation est invalide.</p></div>';
+        setTimeout(() => {
+          window.location.href = '/download';
+        }, 2000);
       } else {
+        // URLs des stores
+        const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
+        const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
+        
         // Essaie d'ouvrir l'app via le schéma custom
         const scheme = `padelsync://join?group_id=${groupId}`;
-        const fallback = '/download'; // page de secours
         
-        // Lance l'ouverture de l'app
-        window.location.href = scheme;
+        // Détection améliorée pour mobile
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const isAndroid = /Android/i.test(navigator.userAgent);
         
-        // Si l'app n'est pas installée, redirige après ~1.2s
-        setTimeout(() => {
-          window.location.href = fallback;
-        }, 1200);
+        if (isMobile) {
+          // Sur mobile, essayer d'ouvrir l'app immédiatement
+          window.location.href = scheme;
+          
+          // Si l'app n'est pas installée, redirige vers le store approprié
+          let hasRedirected = false;
+          const redirectTimeout = setTimeout(() => {
+            if (!hasRedirected) {
+              hasRedirected = true;
+              // Rediriger vers le store approprié
+              if (isIOS) {
+                window.location.href = iosAppLink;
+              } else if (isAndroid) {
+                window.location.href = androidAppLink;
+              } else {
+                window.location.href = '/download';
+              }
+            }
+          }, 1500);
+          
+          // Détecter si l'app s'est ouverte (page devient invisible)
+          let hidden = false;
+          const visibilityChange = () => {
+            if (document.hidden || document.webkitHidden) {
+              hidden = true;
+              clearTimeout(redirectTimeout);
+            }
+          };
+          document.addEventListener('visibilitychange', visibilityChange);
+          document.addEventListener('webkitvisibilitychange', visibilityChange);
+        } else {
+          // Sur desktop, afficher un message avec des liens vers les stores
+          document.body.innerHTML = `
+            <div class="container">
+              <h1>🎾 Padel Sync</h1>
+              <p>Pour rejoindre ce groupe, téléchargez l'application Padel Sync :</p>
+              <div style="margin-top: 30px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                <a href="${iosAppLink}" style="display: inline-block; padding: 12px 24px; background: white; color: #667eea; text-decoration: none; border-radius: 8px; font-weight: 600;">📱 App Store</a>
+                <a href="${androidAppLink}" style="display: inline-block; padding: 12px 24px; background: white; color: #667eea; text-decoration: none; border-radius: 8px; font-weight: 600;">🤖 Play Store</a>
+              </div>
+              <p style="font-size: 0.9em; opacity: 0.9; margin-top: 20px;">Ou <a href="${scheme}" style="color: white; text-decoration: underline;">cliquez ici</a> si l'app est installée.</p>
+            </div>
+          `;
+        }
       }
     </script>
   </head>
   <body>
-    <p style="padding: 20px; text-align: center;">Ouverture de l'invitation…</p>
+    <div class="container">
+      <div class="spinner"></div>
+      <p>Ouverture de l'invitation…</p>
+    </div>
   </body>
 </html>

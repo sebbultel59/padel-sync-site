@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Padel Sync – Télécharger l'app</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        text-align: center;
+        padding: 20px;
+      }
+      .container {
+        max-width: 500px;
+      }
+      h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+      }
+      .subtitle {
+        font-size: 1.2em;
+        opacity: 0.9;
+        margin-bottom: 40px;
+      }
+      .store-buttons {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin: 30px 0;
+      }
+      .store-button {
+        display: inline-block;
+        padding: 15px 30px;
+        background: white;
+        color: #667eea;
+        text-decoration: none;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 1.1em;
+        transition: transform 0.2s, box-shadow 0.2s;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      .store-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+      }
+      .features {
+        margin-top: 40px;
+        text-align: left;
+        background: rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        border-radius: 12px;
+      }
+      .features h2 {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .features ul {
+        list-style: none;
+        padding: 0;
+      }
+      .features li {
+        padding: 10px 0;
+        padding-left: 30px;
+        position: relative;
+      }
+      .features li:before {
+        content: "✓";
+        position: absolute;
+        left: 0;
+        color: #4ade80;
+        font-weight: bold;
+        font-size: 1.2em;
+      }
+    </style>
+    <script>
+      // Détection automatique de la plateforme et redirection
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      
+      const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
+      const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
+      
+      // Redirection automatique après 2 secondes si on est sur mobile
+      if (isIOS || isAndroid) {
+        setTimeout(() => {
+          if (isIOS) {
+            window.location.href = iosAppLink;
+          } else if (isAndroid) {
+            window.location.href = androidAppLink;
+          }
+        }, 2000);
+      }
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎾 Padel Sync</h1>
+      <p class="subtitle">Organise tes matchs en 3 clics</p>
+      
+      <div class="store-buttons">
+        <a href="https://apps.apple.com/app/padel-sync/id6754223924" class="store-button">
+          📱 App Store
+        </a>
+        <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" class="store-button">
+          🤖 Play Store
+        </a>
+      </div>
+      
+      <div class="features">
+        <h2>Fonctionnalités</h2>
+        <ul>
+          <li>Organise tes matchs facilement</li>
+          <li>Rejoins des groupes de joueurs</li>
+          <li>Gère tes disponibilités</li>
+          <li>Suis tes statistiques</li>
+          <li>Partage avec tes amis</li>
+        </ul>
+      </div>
+      
+      <p style="margin-top: 30px; font-size: 0.9em; opacity: 0.8;">
+        Redirection automatique vers le store dans quelques secondes...
+      </p>
+    </div>
+  </body>
+</html>
+
