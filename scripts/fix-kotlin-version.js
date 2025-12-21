@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Script pour forcer la version Kotlin 2.1.0 dans les plugins Expo
+ * Script pour forcer la version Kotlin 2.1.20 dans les plugins Expo
  * Ce script doit être exécuté avant le build Android en production
- * Compatible avec KSP 2.1.0-1.0.29
+ * Compatible avec KSP 2.1.20-1.0.31
  */
 
 const fs = require('fs');
@@ -28,35 +28,35 @@ function fixKotlinVersion(pluginPath) {
   
   const originalContent = content;
   
-  // Forcer la version Kotlin à 2.1.0 (compatible avec KSP 2.1.0-1.0.29)
+  // Forcer la version Kotlin à 2.1.20 (compatible avec KSP 2.1.20-1.0.31)
   // Remplacer toutes les occurrences de kotlin version, y compris dans les plugins
   content = content.replace(
     /kotlin\s*\(\s*["']jvm["']\s*\)\s*version\s*["'][^"']+["']/g,
-    'kotlin("jvm") version "2.1.0"'
+    'kotlin("jvm") version "2.1.20"'
   );
   
   // Remplacer aussi les références à kotlinVersion dans les variables
   content = content.replace(
     /kotlinVersion\s*=\s*["'][^"']+["']/g,
-    'kotlinVersion = "2.1.0"'
+    'kotlinVersion = "2.1.20"'
   );
   
   // Remplacer les références à kotlinVersion via rootProject
   content = content.replace(
     /rootProject\.ext\.kotlinVersion/g,
-    '"2.1.0"'
+    '"2.1.20"'
   );
   
   // Remplacer les références à kotlinVersion dans ext
   content = content.replace(
     /ext\.kotlinVersion\s*=\s*["'][^"']+["']/g,
-    'ext.kotlinVersion = "2.1.0"'
+    'ext.kotlinVersion = "2.1.20"'
   );
   
   // Remplacer dans les plugins Kotlin Android
   content = content.replace(
     /id\s*\(\s*["']org\.jetbrains\.kotlin\.android["']\s*\)\s*version\s*["'][^"']+["']/g,
-    'id("org.jetbrains.kotlin.android") version "2.1.0"'
+    'id("org.jetbrains.kotlin.android") version "2.1.20"'
   );
   
   // Remplacer les références à kotlin-gradle-plugin dans dependencies
@@ -80,7 +80,7 @@ function fixKotlinVersion(pluginPath) {
   // Remplacer les références à KSP plugin
   content = content.replace(
     /id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)\s*version\s*["'][^"']+["']/g,
-    'id("com.google.devtools.ksp") version "2.1.0-1.0.29"'
+    'id("com.google.devtools.ksp") version "2.1.20-1.0.31"'
   );
   
   // Remplacer les références à KSP dans dependencies
@@ -95,19 +95,19 @@ function fixKotlinVersion(pluginPath) {
   // Forcer la version KSP dans les variables
   content = content.replace(
     /kspVersion\s*=\s*["'][^"']+["']/g,
-    'kspVersion = "2.1.0-1.0.29"'
+    'kspVersion = "2.1.20-1.0.31"'
   );
   
   // Remplacer les références à kspVersion via rootProject
   content = content.replace(
     /rootProject\.ext\.kspVersion/g,
-    '"2.1.0-1.0.29"'
+    '"2.1.20-1.0.31"'
   );
   
   // Remplacer les références à kspVersion dans ext
   content = content.replace(
     /ext\.kspVersion\s*=\s*["'][^"']+["']/g,
-    'ext.kspVersion = "2.1.0-1.0.29"'
+    'ext.kspVersion = "2.1.20-1.0.31"'
   );
   
   // Remplacer les références à KSP dans les plugins block sans version explicite
@@ -115,7 +115,7 @@ function fixKotlinVersion(pluginPath) {
   if (content.includes('id("com.google.devtools.ksp")') && !content.includes('id("com.google.devtools.ksp") version')) {
     content = content.replace(
       /id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)/g,
-      'id("com.google.devtools.ksp") version "2.1.0-1.0.29"'
+      'id("com.google.devtools.ksp") version "2.1.20-1.0.31"'
     );
   }
   

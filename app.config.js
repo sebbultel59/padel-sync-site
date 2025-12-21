@@ -43,11 +43,11 @@ export default {
         {
           ios: { deploymentTarget: "15.1" },
           android: {
-            kotlinVersion: "2.1.0",
+            kotlinVersion: "2.1.20",
             gradleProperties: {
               "org.gradle.jvmargs":
                 "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError",
-              "ksp.version": "2.1.0-1.0.29"
+              "ksp.version": "2.1.20-1.0.31"
             }
           }
         }
