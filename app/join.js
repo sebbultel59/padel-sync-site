@@ -42,30 +42,21 @@ export default function Join() {
     }
   }, [router]);
 
-  useEffect(() => {
-    if (code) {
-      setInviteCode(code);
-    } else if (group_id) {
-      // Si on a un group_id, on essaie de rejoindre directement le groupe
-      console.log('[Join] Group ID reçu:', group_id);
-      handleJoinByGroupId(group_id);
-    }
-  }, [code, group_id, handleJoinByGroupId]);
-
-  async function acceptInvite() {
-    if (!inviteCode) return Alert.alert("Code requis", "Entre un code d'invitation.");
+  const acceptInvite = useCallback(async (codeToUse?: string) => {
+    const codeToProcess = codeToUse || inviteCode;
+    if (!codeToProcess) return Alert.alert("Code requis", "Entre un code d'invitation.");
     
     // Vérifier si c'est un deep link ou une URL
-    if (inviteCode.includes('syncpadel://join?group_id=') || inviteCode.includes('group_id=')) {
+    if (codeToProcess.includes('syncpadel://join?group_id=') || codeToProcess.includes('group_id=')) {
       try {
         let groupId;
-        if (inviteCode.startsWith('syncpadel://join?group_id=')) {
-          const match = inviteCode.match(/group_id=([^&]+)/);
+        if (codeToProcess.startsWith('syncpadel://join?group_id=')) {
+          const match = codeToProcess.match(/group_id=([^&]+)/);
           if (match && match[1]) {
             groupId = match[1];
           }
-        } else if (inviteCode.includes('group_id=')) {
-          const url = new URL(inviteCode);
+        } else if (codeToProcess.includes('group_id=')) {
+          const url = new URL(codeToProcess);
           groupId = url.searchParams.get('group_id');
         }
         if (groupId) {
@@ -78,11 +69,25 @@ export default function Join() {
     }
     
     // Sinon, traiter comme un code d'invitation
-    const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode.trim() });
+    const { data, error } = await supabase.rpc("accept_invite", { p_code: codeToProcess.trim() });
     if (error) return Alert.alert("Erreur", error.message);
     Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
     router.replace("/(tabs)/matches");
-  }
+  }, [inviteCode, handleJoinByGroupId, router]);
+
+  useEffect(() => {
+    if (code) {
+      setInviteCode(code);
+      // Si on a un code via deep link, rejoindre automatiquement le groupe
+      console.log('[Join] Code reçu via deep link:', code);
+      // Appeler acceptInvite avec le code directement
+      acceptInvite(code);
+    } else if (group_id) {
+      // Si on a un group_id, on essaie de rejoindre directement le groupe
+      console.log('[Join] Group ID reçu:', group_id);
+      handleJoinByGroupId(group_id);
+    }
+  }, [code, group_id, handleJoinByGroupId, acceptInvite]);
 
   const handlePasteDeepLink = useCallback(async () => {
     try {

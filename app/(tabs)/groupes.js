@@ -1023,11 +1023,14 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
       }
       
-      // Utiliser directement le code d'invitation dans le QR code
-      // L'utilisateur scanne le QR code, voit le code, et l'entre dans l'app
-      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(inviteCode)}`;
+      // Utiliser un deep link dans le QR code pour ouvrir directement l'app avec le code
+      // Format: syncpadel://join?code=ABC123
+      // Si l'app est installée, elle s'ouvre automatiquement et traite le code
+      // Si l'app n'est pas installée, le scanner affichera le deep link (moins utile mais mieux que rien)
+      const deepLink = `syncpadel://join?code=${inviteCode}`;
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(deepLink)}`;
       setQrUrl(qr);
-      setQrCode(inviteCode); // Afficher le code sous le QR code
+      setQrCode(inviteCode); // Afficher le code sous le QR code pour saisie manuelle
       setQrVisible(true);
     } catch (e) {
       console.error('[QR] Erreur:', e);
