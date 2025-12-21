@@ -3933,12 +3933,12 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     Alert.alert("Partage impossible", e?.message ?? String(e));
                   }
                 })} 
-                style={[s.btn, { backgroundColor: "#ff8c00", marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} 
+                style={[s.btn, { backgroundColor: "#ff8c00", marginTop: 14, paddingVertical: 16, paddingHorizontal: 20 }, Platform.OS === "web" && { cursor: "pointer" }]} 
               >
                 <Text style={s.btnTxt}>Envoyer l'invitation</Text>
               </Pressable>
             ) : null}
-            <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
+            <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14, paddingVertical: 16, paddingHorizontal: 20 }, Platform.OS === "web" && { cursor: "pointer" }]} >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
           </View>
