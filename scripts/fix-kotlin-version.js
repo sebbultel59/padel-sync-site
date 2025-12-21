@@ -41,6 +41,18 @@ function fixKotlinVersion(pluginPath) {
     'kotlinVersion = "2.1.0"'
   );
   
+  // Remplacer les références à kotlinVersion via rootProject
+  content = content.replace(
+    /rootProject\.ext\.kotlinVersion/g,
+    '"2.1.0"'
+  );
+  
+  // Remplacer les références à kotlinVersion dans ext
+  content = content.replace(
+    /ext\.kotlinVersion\s*=\s*["'][^"']+["']/g,
+    'ext.kotlinVersion = "2.1.0"'
+  );
+  
   // Remplacer dans les plugins Kotlin Android
   content = content.replace(
     /id\s*\(\s*["']org\.jetbrains\.kotlin\.android["']\s*\)\s*version\s*["'][^"']+["']/g,
@@ -85,6 +97,27 @@ function fixKotlinVersion(pluginPath) {
     /kspVersion\s*=\s*["'][^"']+["']/g,
     'kspVersion = "2.1.0-1.0.29"'
   );
+  
+  // Remplacer les références à kspVersion via rootProject
+  content = content.replace(
+    /rootProject\.ext\.kspVersion/g,
+    '"2.1.0-1.0.29"'
+  );
+  
+  // Remplacer les références à kspVersion dans ext
+  content = content.replace(
+    /ext\.kspVersion\s*=\s*["'][^"']+["']/g,
+    'ext.kspVersion = "2.1.0-1.0.29"'
+  );
+  
+  // Remplacer les références à KSP dans les plugins block sans version explicite
+  // Si KSP est utilisé sans version, on peut essayer de l'ajouter
+  if (content.includes('id("com.google.devtools.ksp")') && !content.includes('id("com.google.devtools.ksp") version')) {
+    content = content.replace(
+      /id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)/g,
+      'id("com.google.devtools.ksp") version "2.1.0-1.0.29"'
+    );
+  }
   
   // Corriger la configuration Java pour utiliser JVM 17
   content = content.replace(
