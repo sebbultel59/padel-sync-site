@@ -3781,34 +3781,24 @@ Padel Sync — Ton match en 3 clics 🎾`;
             setShowEditGroup(true);
           }, 300);
         }}
-      >
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
-          onPress={() => {
-            setEditClubPickerVisible(false);
-            setClubSearchText("");
-            setTimeout(() => {
-              setShowEditGroup(true);
-            }, 300);
-          }}
         >
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1, justifyContent: 'flex-end' }}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        >
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+            onPress={() => {
+              setEditClubPickerVisible(false);
+              setClubSearchText("");
+              setTimeout(() => {
+                setShowEditGroup(true);
+              }, 300);
+            }}
           >
-            <Pressable
-              style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
-              onPress={() => {
-                setEditClubPickerVisible(false);
-                setClubSearchText("");
-                setTimeout(() => {
-                  setShowEditGroup(true);
-                }, 300);
-              }}
-            >
-              <Pressable onPress={(e) => e.stopPropagation()}>
-                <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' }}>
+            <Pressable onPress={(e) => e.stopPropagation()}>
+              <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' }}>
                   {/* En-tête fixe - toujours visible en haut */}
                   <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#ffffff' }}>
                     <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
