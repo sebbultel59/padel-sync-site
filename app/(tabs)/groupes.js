@@ -1023,10 +1023,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
       }
       
-      // Utiliser une URL web avec le code dans le QR code
-      // La page web redirigera vers l'app si installée, sinon vers les stores
-      const webLink = buildInviteWebLink(inviteCode);
-      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(webLink)}`;
+      // Utiliser directement le code dans le QR code (sans URL web)
+      // L'utilisateur devra saisir le code manuellement dans l'app
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(inviteCode)}`;
       setQrUrl(qr);
       setQrCode(inviteCode); // Afficher le code sous le QR code pour saisie manuelle
       setQrVisible(true);
@@ -1034,7 +1033,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
       console.error('[QR] Erreur:', e);
       Alert.alert("Erreur", "Impossible de générer le QR code");
     }
-  }, [activeGroup?.id, activeGroup?.visibility, meId, buildInviteWebLink]);
+  }, [activeGroup?.id, activeGroup?.visibility, meId]);
 
   const onChangeGroupAvatar = useCallback(async () => {
     if (!activeGroup?.id) return;
