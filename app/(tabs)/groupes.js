@@ -3642,16 +3642,12 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
               </View>
             ) : (
-              <KeyboardAvoidingView 
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+              <ScrollView 
+                style={{ maxHeight: 500 }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               >
-                <ScrollView 
-                  style={{ maxHeight: 500 }}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {clubsList
+                {clubsList
                     .filter((c) => {
                       if (!clubSearchText.trim()) return true;
                       const searchLower = clubSearchText.toLowerCase().trim();
@@ -3759,7 +3755,6 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   </View>
                 )}
               </ScrollView>
-              </KeyboardAvoidingView>
             )}
           </View>
         </Pressable>
@@ -3827,15 +3822,11 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
               </View>
             ) : (
-              <KeyboardAvoidingView 
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+              <ScrollView 
+                style={{ maxHeight: 500 }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               >
-                <ScrollView 
-                  style={{ maxHeight: 500 }}
-                  keyboardShouldPersistTaps="handled"
-                >
                 <Pressable
                   onPress={() => {
                     setEditingGroupClubId(null);
