@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Script pour forcer la version Kotlin 2.1.20 dans les plugins Expo
+ * Script pour forcer la version Kotlin 2.1.0 dans les plugins Expo
  * Ce script doit être exécuté avant le build Android en production
+ * Compatible avec KSP 2.1.0-1.0.29
  */
 
 const fs = require('fs');
@@ -24,10 +25,10 @@ function fixKotlinVersion(pluginPath) {
   
   let content = fs.readFileSync(pluginPath, 'utf8');
   
-  // Forcer la version Kotlin à 2.1.20
+  // Forcer la version Kotlin à 2.1.0 (compatible avec KSP 2.1.0-1.0.29)
   content = content.replace(
     /kotlin\s*\(\s*["']jvm["']\s*\)\s*version\s*["'][^"']+["']/g,
-    'kotlin("jvm") version "2.1.20"'
+    'kotlin("jvm") version "2.1.0"'
   );
   
   // Corriger la configuration Java pour utiliser JVM 17
