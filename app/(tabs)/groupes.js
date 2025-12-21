@@ -868,12 +868,6 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
     return `syncpadel://join?group_id=${groupId}`;
   }, []);
 
-  const buildInviteWebLink = useCallback((code) => {
-    // Utiliser une URL web universelle pour les QR codes (reconnue par tous les scanners)
-    // La page web redirigera automatiquement vers l'app si elle est installée, sinon vers les stores
-    return `https://syncpadel.app/join?code=${code}`;
-  }, []);
-
   const onInviteLink = useCallback(async () => {
     if (!activeGroup?.id) return;
     try {
