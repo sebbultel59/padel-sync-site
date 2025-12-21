@@ -2652,7 +2652,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                         paddingVertical: 6,
                         paddingHorizontal: 12,
                         borderRadius: 8,
-                        backgroundColor: "#10b981"
+                        backgroundColor: "#ff8c00"
                       }}
                     >
                       <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 14 }}>
