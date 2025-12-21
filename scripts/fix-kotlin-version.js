@@ -140,7 +140,7 @@ function findPluginBuildFiles(nodeModulesPath, pluginName) {
   const results = [];
   
   function searchDir(dir, depth = 0) {
-    if (depth > 10) return; // Limiter la profondeur
+    if (depth > 15) return; // Augmenter la profondeur pour trouver tous les fichiers
     
     try {
       const files = fs.readdirSync(dir);
@@ -149,12 +149,19 @@ function findPluginBuildFiles(nodeModulesPath, pluginName) {
         const stat = fs.statSync(fullPath);
         
         if (stat.isDirectory()) {
-          if (file === pluginName || file.includes(pluginName)) {
-            const buildGradle = path.join(fullPath, 'build.gradle.kts');
-            if (fs.existsSync(buildGradle)) {
+          // Chercher build.gradle.kts dans ce répertoire
+          const buildGradle = path.join(fullPath, 'build.gradle.kts');
+          if (fs.existsSync(buildGradle)) {
+            // Vérifier si c'est lié au plugin recherché
+            if (file === pluginName || file.includes(pluginName) || 
+                fullPath.includes(pluginName) ||
+                (pluginName === 'expo-updates' && fullPath.includes('expo-updates'))) {
               results.push(buildGradle);
             }
-          } else if (!file.startsWith('.') && file !== 'node_modules' && depth < 5) {
+          }
+          
+          // Continuer la recherche récursive
+          if (!file.startsWith('.') && file !== 'node_modules' && depth < 10) {
             searchDir(fullPath, depth + 1);
           }
         }
@@ -164,7 +171,21 @@ function findPluginBuildFiles(nodeModulesPath, pluginName) {
     }
   }
   
-  searchDir(nodeModulesPath);
+  // Chercher spécifiquement dans expo-updates
+  if (pluginName === 'expo-updates' || pluginName === 'expo-updates-gradle-plugin') {
+    const expoUpdatesPath = path.join(nodeModulesPath, 'expo-updates');
+    if (fs.existsSync(expoUpdatesPath)) {
+      searchDir(expoUpdatesPath, 0);
+    }
+    // Chercher aussi dans @expo/expo-updates si présent
+    const expoUpdatesScopedPath = path.join(nodeModulesPath, '@expo', 'expo-updates');
+    if (fs.existsSync(expoUpdatesScopedPath)) {
+      searchDir(expoUpdatesScopedPath, 0);
+    }
+  } else {
+    searchDir(nodeModulesPath);
+  }
+  
   return results;
 }
 
