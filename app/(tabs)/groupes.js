@@ -3648,20 +3648,22 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     <ActivityIndicator size="large" color={BRAND} />
                     <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
                   </View>
-                ) : (
-                  <ScrollView 
-                    style={{ maxHeight: 350 }}
-                    keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="on-drag"
-                  >
-                {clubsList
-                    .filter((c) => {
-                      if (!clubSearchText.trim()) return true;
-                      const searchLower = clubSearchText.toLowerCase().trim();
-                      const nameMatch = c.name?.toLowerCase().includes(searchLower);
-                      const addressMatch = c.address?.toLowerCase().includes(searchLower);
-                      return nameMatch || addressMatch;
-                    })
+                ) : (() => {
+                  const filteredClubs = clubsList.filter((c) => {
+                    if (!clubSearchText.trim()) return true;
+                    const searchLower = clubSearchText.toLowerCase().trim();
+                    const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                    const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                    return nameMatch || addressMatch;
+                  });
+                  const scrollViewHeight = filteredClubs.length === 1 ? 500 : 350;
+                  return (
+                    <ScrollView 
+                      style={{ maxHeight: scrollViewHeight }}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="on-drag"
+                    >
+                      {filteredClubs
                     .map((c, idx, filteredList) => (
                   <Pressable
                     key={c.id || idx}
@@ -3747,22 +3749,17 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       {createClubId === c.id && <Ionicons name="checkmark" size={20} color={BRAND} />}
                     </View>
                   </Pressable>
-                ))}
-                {clubsList.filter((c) => {
-                  if (!clubSearchText.trim()) return true;
-                  const searchLower = clubSearchText.toLowerCase().trim();
-                  const nameMatch = c.name?.toLowerCase().includes(searchLower);
-                  const addressMatch = c.address?.toLowerCase().includes(searchLower);
-                  return nameMatch || addressMatch;
-                }).length === 0 && !loadingClubs && (
-                  <View style={{ padding: 40, alignItems: 'center' }}>
-                    <Text style={{ color: '#6b7280' }}>
-                      {clubSearchText.trim() ? 'Aucun club trouvé' : 'Aucun club disponible'}
-                    </Text>
-                  </View>
-                )}
-                </ScrollView>
-              )}
+                      ))}
+                      {filteredClubs.length === 0 && (
+                        <View style={{ padding: 40, alignItems: 'center' }}>
+                          <Text style={{ color: '#6b7280' }}>
+                            {clubSearchText.trim() ? 'Aucun club trouvé' : 'Aucun club disponible'}
+                          </Text>
+                        </View>
+                      )}
+                    </ScrollView>
+                  );
+                })()}
               </View>
             </Pressable>
           </Pressable>
@@ -3949,22 +3946,17 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       {editingGroupClubId === c.id && <Ionicons name="checkmark" size={20} color={BRAND} />}
                     </View>
                   </Pressable>
-                ))}
-                {clubsList.filter((c) => {
-                  if (!clubSearchText.trim()) return true;
-                  const searchLower = clubSearchText.toLowerCase().trim();
-                  const nameMatch = c.name?.toLowerCase().includes(searchLower);
-                  const addressMatch = c.address?.toLowerCase().includes(searchLower);
-                  return nameMatch || addressMatch;
-                }).length === 0 && !loadingClubs && (
-                  <View style={{ padding: 40, alignItems: 'center' }}>
-                    <Text style={{ color: '#6b7280' }}>
-                      {clubSearchText.trim() ? 'Aucun club trouvé' : 'Aucun club disponible'}
-                    </Text>
-                  </View>
-                )}
-                  </ScrollView>
-                )}
+                        ))}
+                        {filteredClubs.length === 0 && (
+                          <View style={{ padding: 40, alignItems: 'center' }}>
+                            <Text style={{ color: '#6b7280' }}>
+                              {clubSearchText.trim() ? 'Aucun club trouvé' : 'Aucun club disponible'}
+                            </Text>
+                          </View>
+                        )}
+                      </ScrollView>
+                    );
+                  })()}
               </View>
             </Pressable>
           </Pressable>
