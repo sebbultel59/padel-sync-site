@@ -56,10 +56,10 @@ export default function Join() {
     if (!inviteCode) return Alert.alert("Code requis", "Entre un code d'invitation.");
     
     // Vérifier si c'est un deep link ou une URL
-    if (inviteCode.includes('padelsync://join?group_id=') || inviteCode.includes('group_id=')) {
+    if (inviteCode.includes('syncpadel://join?group_id=') || inviteCode.includes('group_id=')) {
       try {
         let groupId;
-        if (inviteCode.startsWith('padelsync://join?group_id=')) {
+        if (inviteCode.startsWith('syncpadel://join?group_id=')) {
           const match = inviteCode.match(/group_id=([^&]+)/);
           if (match && match[1]) {
             groupId = match[1];
@@ -89,8 +89,8 @@ export default function Join() {
       const text = await Clipboard.getString();
       if (!text) return;
       
-      // Vérifier si c'est un deep link padelsync://
-      if (text.startsWith('padelsync://join?group_id=')) {
+      // Vérifier si c'est un deep link syncpadel://
+      if (text.startsWith('syncpadel://join?group_id=')) {
         try {
           // Extraire le group_id depuis le deep link
           const match = text.match(/group_id=([^&]+)/);
@@ -133,7 +133,7 @@ export default function Join() {
         Entre un code d'invitation ou colle un lien d'invitation
       </Text>
       <TextInput
-        placeholder="Code d'invitation ou lien padelsync://join?group_id=..."
+        placeholder="Code d'invitation ou lien syncpadel://join?group_id=..."
         value={inviteCode}
         onChangeText={setInviteCode}
         autoCapitalize="none"

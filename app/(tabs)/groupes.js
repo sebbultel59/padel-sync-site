@@ -292,6 +292,7 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
 
   const [qrVisible, setQrVisible] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
+  const [qrCode, setQrCode] = useState(""); // Code d'invitation affiché sous le QR code
 
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
@@ -968,15 +969,71 @@ Padel Sync — Ton match en 3 clics 🎾`;
     }
   }, [activeGroup?.id, meId]);
 
-  const onInviteQR = useCallback(() => {
+  const onInviteQR = useCallback(async () => {
     if (!activeGroup?.id) return;
-    // Utiliser une URL web universelle pour le QR code
-    // La page web redirigera automatiquement vers l'app si installée, sinon vers les stores
-    const webLink = buildInviteWebLink(activeGroup.id);
-    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(webLink)}`;
-    setQrUrl(qr);
-    setQrVisible(true);
-  }, [activeGroup?.id, buildInviteWebLink]);
+    try {
+      // Récupérer le code d'invitation pour l'inclure directement dans le QR code
+      // C'est plus simple et fiable : l'utilisateur scanne et entre le code dans l'app
+      let inviteCode;
+      
+      // Pour les groupes privés : utiliser le code unique réutilisable
+      if (activeGroup.visibility === 'private') {
+        const { data: code, error: rpcError } = await supabase.rpc('get_or_create_group_invite_code', {
+          p_group_id: activeGroup.id
+        });
+        
+        if (rpcError) {
+          console.error('[QR] Erreur récupération code:', rpcError);
+          Alert.alert("Erreur", "Impossible de récupérer le code d'invitation");
+          return;
+        }
+        inviteCode = code;
+      } else {
+        // Pour les groupes publics : récupérer ou créer un code
+        const { data: existingInvite, error: fetchError } = await supabase
+          .from('invitations')
+          .select('code')
+          .eq('group_id', activeGroup.id)
+          .eq('used', false)
+          .eq('reusable', false)
+          .limit(1)
+          .maybeSingle();
+        
+        if (existingInvite?.code) {
+          inviteCode = existingInvite.code;
+        } else {
+          // Créer un nouveau code
+          const { data: newInvite, error: createError } = await supabase
+            .from('invitations')
+            .insert({
+              group_id: activeGroup.id,
+              code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+              created_by: meId,
+              reusable: false
+            })
+            .select('code')
+            .single();
+          
+          if (createError) {
+            console.error('[QR] Erreur création code:', createError);
+            Alert.alert("Erreur", "Impossible de créer le code d'invitation");
+            return;
+          }
+          inviteCode = newInvite.code;
+        }
+      }
+      
+      // Utiliser directement le code d'invitation dans le QR code
+      // L'utilisateur scanne le QR code, voit le code, et l'entre dans l'app
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(inviteCode)}`;
+      setQrUrl(qr);
+      setQrCode(inviteCode); // Afficher le code sous le QR code
+      setQrVisible(true);
+    } catch (e) {
+      console.error('[QR] Erreur:', e);
+      Alert.alert("Erreur", "Impossible de générer le QR code");
+    }
+  }, [activeGroup?.id, activeGroup?.visibility, meId]);
 
   const onChangeGroupAvatar = useCallback(async () => {
     if (!activeGroup?.id) return;
@@ -3823,6 +3880,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
           <View style={s.qrCard}>
             <Text style={{ fontWeight: "800", marginBottom: 12 }}>Scanner pour rejoindre</Text>
             {qrUrl ? <Image source={{ uri: qrUrl }} style={{ width: 240, height: 240, borderRadius: 12 }} /> : <ActivityIndicator />}
+            {qrCode ? (
+              <>
+                <Text style={{ marginTop: 16, fontSize: 14, color: "#666", textAlign: "center" }}>
+                  Ou entre le code manuellement :
+                </Text>
+                <Text style={{ marginTop: 8, fontSize: 24, fontWeight: "700", letterSpacing: 4, textAlign: "center", color: BRAND }}>
+                  {qrCode}
+                </Text>
+              </>
+            ) : null}
             <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
