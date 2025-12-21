@@ -26,6 +26,8 @@ function fixKotlinVersion(pluginPath) {
   
   let content = fs.readFileSync(pluginPath, 'utf8');
   
+  const originalContent = content;
+  
   // Forcer la version Kotlin à 2.1.0 (compatible avec KSP 2.1.0-1.0.29)
   // Remplacer toutes les occurrences de kotlin version, y compris dans les plugins
   content = content.replace(
@@ -39,11 +41,39 @@ function fixKotlinVersion(pluginPath) {
     'kotlinVersion = "2.1.0"'
   );
   
-  // Remplacer dans les plugins Kotlin
+  // Remplacer dans les plugins Kotlin Android
   content = content.replace(
     /id\s*\(\s*["']org\.jetbrains\.kotlin\.android["']\s*\)\s*version\s*["'][^"']+["']/g,
     'id("org.jetbrains.kotlin.android") version "2.1.0"'
   );
+  
+  // Remplacer les références à kotlin-gradle-plugin dans dependencies
+  content = content.replace(
+    /classpath\s*\(\s*["']org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^"']+["']\s*\)/g,
+    'classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")'
+  );
+  
+  // Remplacer les références à kotlin multiplatform
+  content = content.replace(
+    /kotlin\s*\(\s*["']multiplatform["']\s*\)\s*version\s*["'][^"']+["']/g,
+    'kotlin("multiplatform") version "2.1.0"'
+  );
+  
+  // Remplacer les références à kotlin dans plugins block
+  content = content.replace(
+    /kotlin\s*\(\s*["']android["']\s*\)\s*version\s*["'][^"']+["']/g,
+    'kotlin("android") version "2.1.0"'
+  );
+  
+  // Si le contenu a changé, on sauvegarde
+  if (content !== originalContent) {
+    fs.writeFileSync(pluginPath, content);
+    console.log(`✅ Kotlin version fixed in ${path.basename(path.dirname(pluginPath))}`);
+    return true;
+  } else {
+    console.log(`ℹ️  No Kotlin version found to fix in ${path.basename(path.dirname(pluginPath))}`);
+    return false;
+  }
   
   // Corriger la configuration Java pour utiliser JVM 17
   content = content.replace(
@@ -68,9 +98,6 @@ function fixKotlinVersion(pluginPath) {
     );
   }
   
-  fs.writeFileSync(pluginPath, content);
-  console.log(`✅ Kotlin version fixed in ${path.basename(path.dirname(pluginPath))}`);
-  
   // Forcer la recompilation en supprimant le cache de build du plugin
   const pluginDir = path.dirname(pluginPath);
   const buildDir = path.join(pluginDir, 'build');
@@ -82,8 +109,6 @@ function fixKotlinVersion(pluginPath) {
       console.log(`⚠️  Could not clear build cache (this is OK)`);
     }
   }
-  
-  return true;
 }
 
 // Chercher récursivement les plugins dans node_modules
@@ -129,17 +154,23 @@ for (const pluginName of pluginsToFix) {
     path.join(nodeModulesPath, 'expo-dev-launcher', 'expo-dev-launcher-gradle-plugin', 'build.gradle.kts'),
     path.join(nodeModulesPath, 'expo-updates', 'expo-updates-gradle-plugin', 'build.gradle.kts'),
     path.join(nodeModulesPath, 'expo-updates', 'android', 'build.gradle.kts'), // Module expo-updates
+    path.join(nodeModulesPath, '@expo', 'expo-updates', 'expo-updates-gradle-plugin', 'build.gradle.kts'), // Alternative path
+    path.join(nodeModulesPath, '@expo', 'expo-updates', 'android', 'build.gradle.kts'), // Alternative path
     path.join(nodeModulesPath, 'expo-dev-menu', 'build.gradle.kts'),
     path.join(nodeModulesPath, 'expo-dev-menu', 'android', 'build.gradle.kts'),
   ];
   
   let found = false;
   for (const pluginPath of standardPaths) {
-    if (fs.existsSync(pluginPath) && pluginPath.includes(pluginName)) {
-      if (fixKotlinVersion(pluginPath)) {
-        fixedCount++;
-        found = true;
-        break;
+    if (fs.existsSync(pluginPath)) {
+      // Vérifier si le chemin correspond au plugin recherché
+      const matchesPlugin = pluginPath.includes(pluginName) || 
+                           (pluginName === 'expo-updates' && pluginPath.includes('expo-updates'));
+      if (matchesPlugin) {
+        if (fixKotlinVersion(pluginPath)) {
+          fixedCount++;
+          found = true;
+        }
       }
     }
   }
