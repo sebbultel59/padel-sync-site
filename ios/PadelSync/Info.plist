@@ -58,19 +58,19 @@
     <key>NSCameraUsageDescription</key>
     <string>Permet de scanner ou ajouter des photos de profil ou de club.</string>
     <key>NSFaceIDUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+    <string>Permet d'utiliser Face ID pour sécuriser votre compte.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <string>Nous utilisons votre position pour trouver les clubs de padel proches.</string>
     <key>NSLocationAlwaysUsageDescription</key>
     <string>Nous utilisons votre position pour trouver les clubs de padel proches.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Nous utilisons votre position pour trouver les clubs de padel proches.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>Permet d'enregistrer des messages vocaux dans les discussions.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>Permet d'enregistrer des images liées aux matchs.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your photos</string>
+    <string>Permet d'accéder à vos photos pour les ajouter à votre profil ou aux matchs.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
