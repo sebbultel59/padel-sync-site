@@ -3642,16 +3642,24 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 500 }}>
-                {clubsList
-                  .filter((c) => {
-                    if (!clubSearchText.trim()) return true;
-                    const searchLower = clubSearchText.toLowerCase().trim();
-                    const nameMatch = c.name?.toLowerCase().includes(searchLower);
-                    const addressMatch = c.address?.toLowerCase().includes(searchLower);
-                    return nameMatch || addressMatch;
-                  })
-                  .map((c, idx, filteredList) => (
+              <KeyboardAvoidingView 
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+              >
+                <ScrollView 
+                  style={{ maxHeight: 500 }}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {clubsList
+                    .filter((c) => {
+                      if (!clubSearchText.trim()) return true;
+                      const searchLower = clubSearchText.toLowerCase().trim();
+                      const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                      const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                      return nameMatch || addressMatch;
+                    })
+                    .map((c, idx, filteredList) => (
                   <Pressable
                     key={c.id || idx}
                     onPress={() => {
@@ -3818,40 +3826,48 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 500 }}>
-                <Pressable
-                  onPress={() => {
-                    setEditingGroupClubId(null);
-                    setEditClubPickerVisible(false);
-                    setClubSearchText("");
-                    setTimeout(() => {
-                      setShowEditGroup(true);
-                    }, 300);
-                  }}
-                  style={({ pressed }) => ({
-                    paddingVertical: 16,
-                    paddingHorizontal: 20,
-                    backgroundColor: pressed ? '#f3f4f6' : !editingGroupClubId ? '#e0f2fe' : '#ffffff',
-                    borderBottomWidth: 1,
-                    borderBottomColor: '#e5e7eb',
-                  })}
+              <KeyboardAvoidingView 
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+              >
+                <ScrollView 
+                  style={{ maxHeight: 500 }}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text style={{ fontSize: 16, color: '#111827', fontWeight: !editingGroupClubId ? '700' : '400' }}>
-                      Aucun club
-                    </Text>
-                    {!editingGroupClubId && <Ionicons name="checkmark" size={20} color={BRAND} />}
-                  </View>
-                </Pressable>
-                {clubsList
-                  .filter((c) => {
-                    if (!clubSearchText.trim()) return true;
-                    const searchLower = clubSearchText.toLowerCase().trim();
-                    const nameMatch = c.name?.toLowerCase().includes(searchLower);
-                    const addressMatch = c.address?.toLowerCase().includes(searchLower);
-                    return nameMatch || addressMatch;
-                  })
-                  .map((c, idx, filteredList) => (
+                  <Pressable
+                    onPress={() => {
+                      setEditingGroupClubId(null);
+                      setEditClubPickerVisible(false);
+                      setClubSearchText("");
+                      setTimeout(() => {
+                        setShowEditGroup(true);
+                      }, 300);
+                    }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 16,
+                      paddingHorizontal: 20,
+                      backgroundColor: pressed ? '#f3f4f6' : !editingGroupClubId ? '#e0f2fe' : '#ffffff',
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#e5e7eb',
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 16, color: '#111827', fontWeight: !editingGroupClubId ? '700' : '400' }}>
+                        Aucun club
+                      </Text>
+                      {!editingGroupClubId && <Ionicons name="checkmark" size={20} color={BRAND} />}
+                    </View>
+                  </Pressable>
+                  {clubsList
+                    .filter((c) => {
+                      if (!clubSearchText.trim()) return true;
+                      const searchLower = clubSearchText.toLowerCase().trim();
+                      const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                      const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                      return nameMatch || addressMatch;
+                    })
+                    .map((c, idx, filteredList) => (
                   <Pressable
                     key={c.id || idx}
                     onPress={() => {
