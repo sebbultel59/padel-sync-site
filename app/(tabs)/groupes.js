@@ -1537,6 +1537,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
   const [clubsList, setClubsList] = useState([]);
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [clubPickerVisible, setClubPickerVisible] = useState(false);
+  const [clubSearchText, setClubSearchText] = useState("");
   const [addressHome, setAddressHome] = useState(null);
   const cityDebounceTimer = useRef(null);
   const cityAbortController = useRef(null);
@@ -3585,6 +3586,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         onRequestClose={() => {
           // Fermer la modale de sélection et rouvrir la modale de création
           setClubPickerVisible(false);
+          setClubSearchText("");
           setTimeout(() => {
             setShowCreate(true);
           }, 300); // Petit délai pour laisser la modale se fermer
@@ -3595,6 +3597,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
           onPress={() => {
             // Fermer la modale de sélection et rouvrir la modale de création
             setClubPickerVisible(false);
+            setClubSearchText("");
             setTimeout(() => {
               setShowCreate(true);
             }, 300); // Petit délai pour laisser la modale se fermer
@@ -3610,6 +3613,28 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   Triés par distance du domicile
                 </Text>
               )}
+              {/* Barre de recherche */}
+              <TextInput
+                style={{
+                  marginTop: 12,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderWidth: 1,
+                  borderColor: '#d1d5db',
+                  borderRadius: 8,
+                  backgroundColor: '#f9fafb',
+                  fontSize: 16,
+                  color: '#111827',
+                }}
+                placeholder="Rechercher un club..."
+                placeholderTextColor="#9ca3af"
+                value={clubSearchText}
+                onChangeText={(text) => {
+                  setClubSearchText(text);
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
             </View>
             {loadingClubs ? (
               <View style={{ padding: 40, alignItems: 'center' }}>
@@ -3618,7 +3643,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
               </View>
             ) : (
               <ScrollView style={{ maxHeight: 500 }}>
-                {clubsList.map((c, idx) => (
+                {clubsList
+                  .filter((c) => {
+                    if (!clubSearchText.trim()) return true;
+                    const searchLower = clubSearchText.toLowerCase().trim();
+                    const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                    const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                    return nameMatch || addressMatch;
+                  })
+                  .map((c, idx, filteredList) => (
                   <Pressable
                     key={c.id || idx}
                     onPress={() => {
@@ -3671,6 +3704,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       }
                       
                       setClubPickerVisible(false);
+                      setClubSearchText("");
                       setTimeout(() => {
                         setShowCreate(true);
                       }, 300); // Petit délai pour laisser la modale se fermer
@@ -3679,7 +3713,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       paddingVertical: 16,
                       paddingHorizontal: 20,
                       backgroundColor: pressed ? '#f3f4f6' : createClubId === c.id ? '#e0f2fe' : '#ffffff',
-                      borderBottomWidth: idx < clubsList.length - 1 ? 1 : 0,
+                      borderBottomWidth: idx < filteredList.length - 1 ? 1 : 0,
                       borderBottomColor: '#e5e7eb',
                     })}
                   >
@@ -3703,9 +3737,17 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     </View>
                   </Pressable>
                 ))}
-                {clubsList.length === 0 && !loadingClubs && (
+                {clubsList.filter((c) => {
+                  if (!clubSearchText.trim()) return true;
+                  const searchLower = clubSearchText.toLowerCase().trim();
+                  const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                  const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                  return nameMatch || addressMatch;
+                }).length === 0 && !loadingClubs && (
                   <View style={{ padding: 40, alignItems: 'center' }}>
-                    <Text style={{ color: '#6b7280' }}>Aucun club disponible</Text>
+                    <Text style={{ color: '#6b7280' }}>
+                      {clubSearchText.trim() ? 'Aucun club trouvé' : 'Aucun club disponible'}
+                    </Text>
                   </View>
                 )}
               </ScrollView>
@@ -3721,6 +3763,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
         animationType="slide"
         onRequestClose={() => {
           setEditClubPickerVisible(false);
+          setClubSearchText("");
           setTimeout(() => {
             setShowEditGroup(true);
           }, 300);
@@ -3730,6 +3773,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
           style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
           onPress={() => {
             setEditClubPickerVisible(false);
+            setClubSearchText("");
             setTimeout(() => {
               setShowEditGroup(true);
             }, 300);
@@ -3745,6 +3789,28 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   Triés par distance du domicile
                 </Text>
               )}
+              {/* Barre de recherche */}
+              <TextInput
+                style={{
+                  marginTop: 12,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderWidth: 1,
+                  borderColor: '#d1d5db',
+                  borderRadius: 8,
+                  backgroundColor: '#f9fafb',
+                  fontSize: 16,
+                  color: '#111827',
+                }}
+                placeholder="Rechercher un club..."
+                placeholderTextColor="#9ca3af"
+                value={clubSearchText}
+                onChangeText={(text) => {
+                  setClubSearchText(text);
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
             </View>
             {loadingClubs ? (
               <View style={{ padding: 40, alignItems: 'center' }}>
@@ -3757,6 +3823,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   onPress={() => {
                     setEditingGroupClubId(null);
                     setEditClubPickerVisible(false);
+                    setClubSearchText("");
                     setTimeout(() => {
                       setShowEditGroup(true);
                     }, 300);
@@ -3776,7 +3843,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     {!editingGroupClubId && <Ionicons name="checkmark" size={20} color={BRAND} />}
                   </View>
                 </Pressable>
-                {clubsList.map((c, idx) => (
+                {clubsList
+                  .filter((c) => {
+                    if (!clubSearchText.trim()) return true;
+                    const searchLower = clubSearchText.toLowerCase().trim();
+                    const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                    const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                    return nameMatch || addressMatch;
+                  })
+                  .map((c, idx, filteredList) => (
                   <Pressable
                     key={c.id || idx}
                     onPress={() => {
@@ -3818,6 +3893,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       }
                       
                       setEditClubPickerVisible(false);
+                      setClubSearchText("");
                       setTimeout(() => {
                         setShowEditGroup(true);
                       }, 300);
@@ -3826,7 +3902,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       paddingVertical: 16,
                       paddingHorizontal: 20,
                       backgroundColor: pressed ? '#f3f4f6' : editingGroupClubId === c.id ? '#e0f2fe' : '#ffffff',
-                      borderBottomWidth: idx < clubsList.length - 1 ? 1 : 0,
+                      borderBottomWidth: idx < filteredList.length - 1 ? 1 : 0,
                       borderBottomColor: '#e5e7eb',
                     })}
                   >
