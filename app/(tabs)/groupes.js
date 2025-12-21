@@ -3933,7 +3933,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     Alert.alert("Partage impossible", e?.message ?? String(e));
                   }
                 })} 
-                style={[s.btn, { backgroundColor: "#ff8c00", marginTop: 14, paddingVertical: 16, paddingHorizontal: 20 }, Platform.OS === "web" && { cursor: "pointer" }]} 
+                style={[s.btn, { backgroundColor: "#10b981", marginTop: 14, paddingVertical: 16, paddingHorizontal: 20 }, Platform.OS === "web" && { cursor: "pointer" }]} 
               >
                 <Text style={s.btnTxt}>Envoyer l'invitation</Text>
               </Pressable>
