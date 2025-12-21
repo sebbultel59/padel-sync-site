@@ -8,10 +8,11 @@
 const fs = require('fs');
 const path = require('path');
 
-// Liste des plugins à corriger
+// Liste des plugins et modules à corriger
 const pluginsToFix = [
   'expo-dev-launcher-gradle-plugin',
   'expo-updates-gradle-plugin',
+  'expo-updates', // Module expo-updates lui-même
   'expo-dev-menu'
 ];
 
@@ -26,9 +27,22 @@ function fixKotlinVersion(pluginPath) {
   let content = fs.readFileSync(pluginPath, 'utf8');
   
   // Forcer la version Kotlin à 2.1.0 (compatible avec KSP 2.1.0-1.0.29)
+  // Remplacer toutes les occurrences de kotlin version, y compris dans les plugins
   content = content.replace(
     /kotlin\s*\(\s*["']jvm["']\s*\)\s*version\s*["'][^"']+["']/g,
     'kotlin("jvm") version "2.1.0"'
+  );
+  
+  // Remplacer aussi les références à kotlinVersion dans les variables
+  content = content.replace(
+    /kotlinVersion\s*=\s*["'][^"']+["']/g,
+    'kotlinVersion = "2.1.0"'
+  );
+  
+  // Remplacer dans les plugins Kotlin
+  content = content.replace(
+    /id\s*\(\s*["']org\.jetbrains\.kotlin\.android["']\s*\)\s*version\s*["'][^"']+["']/g,
+    'id("org.jetbrains.kotlin.android") version "2.1.0"'
   );
   
   // Corriger la configuration Java pour utiliser JVM 17
@@ -114,6 +128,7 @@ for (const pluginName of pluginsToFix) {
   const standardPaths = [
     path.join(nodeModulesPath, 'expo-dev-launcher', 'expo-dev-launcher-gradle-plugin', 'build.gradle.kts'),
     path.join(nodeModulesPath, 'expo-updates', 'expo-updates-gradle-plugin', 'build.gradle.kts'),
+    path.join(nodeModulesPath, 'expo-updates', 'android', 'build.gradle.kts'), // Module expo-updates
     path.join(nodeModulesPath, 'expo-dev-menu', 'build.gradle.kts'),
     path.join(nodeModulesPath, 'expo-dev-menu', 'android', 'build.gradle.kts'),
   ];
