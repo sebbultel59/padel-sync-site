@@ -3955,7 +3955,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     </Text>
                   </View>
                 )}
-              </ScrollView>
+                </ScrollView>
+              </KeyboardAvoidingView>
             )}
           </View>
         </Pressable>
