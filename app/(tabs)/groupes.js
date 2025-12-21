@@ -3603,12 +3603,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
             }, 300); // Petit délai pour laisser la modale se fermer
           }}
         >
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1, justifyContent: 'flex-end' }}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-          >
-            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' }}>
+          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' }}>
               {/* En-tête fixe */}
               <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
                 <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
@@ -3649,7 +3644,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </View>
               ) : (
                 <ScrollView 
-                  style={{ flex: 1 }}
+                  style={{ maxHeight: 400 }}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="on-drag"
                 >
