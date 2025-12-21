@@ -148,7 +148,11 @@ function findPluginBuildFiles(nodeModulesPath, pluginName) {
 const nodeModulesPath = path.join(__dirname, '..', 'node_modules');
 let fixedCount = 0;
 
+console.log('🔍 Searching for Kotlin version issues in Expo modules...');
+console.log(`📁 Node modules path: ${nodeModulesPath}`);
+
 for (const pluginName of pluginsToFix) {
+  console.log(`\n🔎 Looking for: ${pluginName}`);
   // Chercher dans les emplacements standards
   const standardPaths = [
     path.join(nodeModulesPath, 'expo-dev-launcher', 'expo-dev-launcher-gradle-plugin', 'build.gradle.kts'),
@@ -167,11 +171,14 @@ for (const pluginName of pluginsToFix) {
       const matchesPlugin = pluginPath.includes(pluginName) || 
                            (pluginName === 'expo-updates' && pluginPath.includes('expo-updates'));
       if (matchesPlugin) {
+        console.log(`  ✓ Found: ${pluginPath}`);
         if (fixKotlinVersion(pluginPath)) {
           fixedCount++;
           found = true;
         }
       }
+    } else {
+      console.log(`  ✗ Not found: ${pluginPath}`);
     }
   }
   
