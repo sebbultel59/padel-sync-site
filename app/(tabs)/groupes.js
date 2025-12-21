@@ -3675,8 +3675,50 @@ Padel Sync — Ton match en 3 clics 🎾`;
                       // Sélectionner le club, fermer la modale de sélection et rouvrir la modale de création
                       setCreateClubId(c.id);
                       
-                      // Ne plus extraire automatiquement la ville pour éviter le double affichage
-                      // L'utilisateur peut saisir la ville manuellement si nécessaire
+                      // Extraire la ville de l'adresse du club si disponible
+                      if (c.address) {
+                        const address = c.address.trim();
+                        let cityName = '';
+                        
+                        // Pattern 1: Chercher "Code Postal Ville" (5 chiffres suivis d'un espace et d'un nom)
+                        // Ex: "123 Rue Example, 59000 Lille, France" -> "Lille"
+                        const cpCityMatch = address.match(/(\d{5})\s+([^,]+?)(?:\s*,\s*|$)/);
+                        if (cpCityMatch) {
+                          cityName = cpCityMatch[2].trim();
+                        } else {
+                          // Pattern 2: Si pas de code postal, prendre l'avant-dernière partie si plusieurs virgules
+                          // Ex: "123 Rue Example, Ville, Pays" -> "Ville"
+                          const addressParts = address.split(',').map(part => part.trim());
+                          if (addressParts.length > 2) {
+                            // Prendre l'avant-dernière partie (généralement la ville, la dernière étant le pays)
+                            cityName = addressParts[addressParts.length - 2];
+                          } else if (addressParts.length === 2) {
+                            // Si seulement 2 parties, prendre la dernière (probablement "Code Postal Ville" ou "Ville")
+                            cityName = addressParts[1];
+                            // Enlever le code postal si présent
+                            cityName = cityName.replace(/^\d{5}\s*/, '').trim();
+                          } else {
+                            // Si pas de virgule, chercher un code postal dans la chaîne
+                            const cpMatch = address.match(/\d{5}\s+([^\s,]+)/);
+                            if (cpMatch) {
+                              cityName = cpMatch[1];
+                            } else {
+                              // Dernier recours: prendre la dernière partie après le dernier espace
+                              const parts = address.split(/\s+/);
+                              if (parts.length > 1) {
+                                cityName = parts[parts.length - 1];
+                              }
+                            }
+                          }
+                        }
+                        
+                        // Nettoyer: enlever "France" ou autres noms de pays communs
+                        cityName = cityName.replace(/\s*(France|FRANCE|france)\s*$/i, '').trim();
+                        
+                        if (cityName && cityName.length > 1) {
+                          setCreateCity(cityName);
+                        }
+                      }
                       
                       setClubPickerVisible(false);
                       setClubSearchText("");
@@ -3848,8 +3890,40 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     onPress={() => {
                       setEditingGroupClubId(c.id);
                       
-                      // Ne plus extraire automatiquement la ville pour éviter le double affichage
-                      // L'utilisateur peut saisir la ville manuellement si nécessaire
+                      // Extraire la ville de l'adresse du club si disponible
+                      if (c.address) {
+                        const address = c.address.trim();
+                        let cityName = '';
+                        
+                        const cpCityMatch = address.match(/(\d{5})\s+([^,]+?)(?:\s*,\s*|$)/);
+                        if (cpCityMatch) {
+                          cityName = cpCityMatch[2].trim();
+                        } else {
+                          const addressParts = address.split(',').map(part => part.trim());
+                          if (addressParts.length > 2) {
+                            cityName = addressParts[addressParts.length - 2];
+                          } else if (addressParts.length === 2) {
+                            cityName = addressParts[1];
+                            cityName = cityName.replace(/^\d{5}\s*/, '').trim();
+                          } else {
+                            const cpMatch = address.match(/\d{5}\s+([^\s,]+)/);
+                            if (cpMatch) {
+                              cityName = cpMatch[1];
+                            } else {
+                              const parts = address.split(/\s+/);
+                              if (parts.length > 1) {
+                                cityName = parts[parts.length - 1];
+                              }
+                            }
+                          }
+                        }
+                        
+                        cityName = cityName.replace(/\s*(France|FRANCE|france)\s*$/i, '').trim();
+                        
+                        if (cityName && cityName.length > 1) {
+                          setEditingGroupCity(cityName);
+                        }
+                      }
                       
                       setEditClubPickerVisible(false);
                       setClubSearchText("");
