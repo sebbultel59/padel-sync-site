@@ -3763,9 +3763,10 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 )}
                 </ScrollView>
               )}
-            </View>
-          </KeyboardAvoidingView>
-        </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal sélection club pour édition */}
