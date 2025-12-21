@@ -3763,8 +3763,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 )}
                 </ScrollView>
               )}
-            </KeyboardAvoidingView>
-          </View>
+            </View>
+          </KeyboardAvoidingView>
         </Pressable>
       </Modal>
 
@@ -3964,8 +3964,8 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 )}
                 </ScrollView>
               )}
-            </KeyboardAvoidingView>
-          </View>
+            </View>
+          </KeyboardAvoidingView>
         </Pressable>
       </Modal>
 
