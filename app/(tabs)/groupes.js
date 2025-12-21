@@ -3884,10 +3884,15 @@ Padel Sync — Ton match en 3 clics 🎾`;
             {qrCode ? (
               <>
                 <Text style={{ marginTop: 16, fontSize: 14, color: "#666", textAlign: "center" }}>
-                  Ou entre le code manuellement :
+                  Scanne le QR code ci-dessus pour voir le code, puis :
                 </Text>
                 <Text style={{ marginTop: 8, fontSize: 24, fontWeight: "700", letterSpacing: 4, textAlign: "center", color: BRAND }}>
                   {qrCode}
+                </Text>
+                <Text style={{ marginTop: 8, fontSize: 12, color: "#999", textAlign: "center", paddingHorizontal: 20 }}>
+                  1. Ouvre l'app Padel Sync{'\n'}
+                  2. Va dans "Groupes" → "Rejoindre un groupe"{'\n'}
+                  3. Entre le code ci-dessus
                 </Text>
               </>
             ) : null}
