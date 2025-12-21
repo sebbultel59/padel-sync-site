@@ -291,8 +291,7 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
   const [profileVisible, setProfileVisible] = useState(false);
 
   const [qrVisible, setQrVisible] = useState(false);
-  const [qrUrl, setQrUrl] = useState("");
-  const [qrCode, setQrCode] = useState(""); // Code d'invitation affiché sous le QR code
+  const [qrCode, setQrCode] = useState(""); // Code d'invitation affiché
 
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
