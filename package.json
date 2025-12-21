@@ -11,7 +11,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "vercel-build": "echo 'Static files ready'",
-    "postinstall": "patch-package --ignore-errors || true && node scripts/remove-dev-client-always.js || true && node scripts/fix-kotlin-version.js || true"
+    "postinstall": "patch-package --ignore-errors || true && node scripts/remove-dev-client-always.js || true"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
