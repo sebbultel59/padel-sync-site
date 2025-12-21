@@ -46,7 +46,8 @@ export default {
             kotlinVersion: "2.1.0",
             gradleProperties: {
               "org.gradle.jvmargs":
-                "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError"
+                "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError",
+              "ksp.version": "2.1.0-1.0.29"
             }
           }
         }
