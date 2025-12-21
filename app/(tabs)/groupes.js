@@ -2726,7 +2726,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 <Text style={s.btnTxt}>Inviter</Text>
               </Pressable>
               <Pressable onPress={press("invite-qr", onInviteQR)} style={[s.btn, { backgroundColor: "#111827", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
-                <Text style={s.btnTxt}>QR</Text>
+                <Text style={s.btnTxt}>Inviter via CODE</Text>
               </Pressable>
             </View>
 
