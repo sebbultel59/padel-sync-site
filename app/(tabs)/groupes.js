@@ -3926,9 +3926,17 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     </View>
                   </Pressable>
                 ))}
-                {clubsList.length === 0 && !loadingClubs && (
+                {clubsList.filter((c) => {
+                  if (!clubSearchText.trim()) return true;
+                  const searchLower = clubSearchText.toLowerCase().trim();
+                  const nameMatch = c.name?.toLowerCase().includes(searchLower);
+                  const addressMatch = c.address?.toLowerCase().includes(searchLower);
+                  return nameMatch || addressMatch;
+                }).length === 0 && !loadingClubs && (
                   <View style={{ padding: 40, alignItems: 'center' }}>
-                    <Text style={{ color: '#6b7280' }}>Aucun club disponible</Text>
+                    <Text style={{ color: '#6b7280' }}>
+                      {clubSearchText.trim() ? 'Aucun club trouvé' : 'Aucun club disponible'}
+                    </Text>
                   </View>
                 )}
               </ScrollView>
