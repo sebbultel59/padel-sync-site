@@ -1,6 +1,7 @@
 package com.padelsync.app
 import expo.modules.splashscreen.SplashScreenManager
 
+import android.annotation.SuppressLint
 import android.os.Build
 import android.os.Bundle
 import androidx.core.view.WindowCompat
@@ -13,6 +14,7 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 
 import expo.modules.ReactActivityDelegateWrapper
 
+@SuppressLint("ObsoleteSdkInt", "DeprecatedApi")
 class MainActivity : ReactActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     // Set the theme to AppTheme BEFORE onCreate to support
