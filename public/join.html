@@ -33,6 +33,15 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
+      .fallback {
+        margin-top: 20px;
+        font-size: 0.9em;
+        opacity: 0.9;
+      }
+      .fallback a {
+        color: white;
+        text-decoration: underline;
+      }
     </style>
     <script>
       // Récupère le code ou group_id dans l'URL: /join?code=ABC123 ou /join?group_id=...
@@ -69,13 +78,54 @@
         
         if (isMobile) {
           // Sur mobile, essayer d'ouvrir l'app immédiatement
+          let appOpened = false;
+          let redirectTimeout;
+          
+          // Fonction pour vérifier si l'app s'est ouverte
+          const checkAppOpened = () => {
+            return document.hidden || document.webkitHidden;
+          };
+          
+          // Écouter les changements de visibilité
+          const handleVisibilityChange = () => {
+            if (checkAppOpened()) {
+              appOpened = true;
+              if (redirectTimeout) clearTimeout(redirectTimeout);
+            }
+          };
+          document.addEventListener('visibilitychange', handleVisibilityChange);
+          document.addEventListener('webkitvisibilitychange', handleVisibilityChange);
+          
+          // Essayer d'ouvrir l'app
           window.location.href = scheme;
           
-          // Si l'app n'est pas installée, redirige vers le store approprié
-          let hasRedirected = false;
-          const redirectTimeout = setTimeout(() => {
-            if (!hasRedirected) {
-              hasRedirected = true;
+          // Vérifier immédiatement si la page est cachée
+          setTimeout(() => {
+            if (checkAppOpened()) {
+              appOpened = true;
+            }
+          }, 100);
+          
+          // Afficher un message de secours après 1 seconde
+          setTimeout(() => {
+            if (!appOpened && !document.hidden) {
+              const container = document.querySelector('.container');
+              if (container) {
+                container.innerHTML += `
+                  <div class="fallback">
+                    <p>L'app ne s'est pas ouverte ?</p>
+                    <p>
+                      <a href="${isIOS ? iosAppLink : isAndroid ? androidAppLink : '/download'}">Télécharger l'app</a>
+                    </p>
+                  </div>
+                `;
+              }
+            }
+          }, 1000);
+          
+          // Si l'app n'est pas installée, redirige vers le store après un délai
+          redirectTimeout = setTimeout(() => {
+            if (!appOpened && !document.hidden) {
               // Rediriger vers le store approprié
               if (isIOS) {
                 window.location.href = iosAppLink;
@@ -85,18 +135,7 @@
                 window.location.href = '/download';
               }
             }
-          }, 1500);
-          
-          // Détecter si l'app s'est ouverte (page devient invisible)
-          let hidden = false;
-          const visibilityChange = () => {
-            if (document.hidden || document.webkitHidden) {
-              hidden = true;
-              clearTimeout(redirectTimeout);
-            }
-          };
-          document.addEventListener('visibilitychange', visibilityChange);
-          document.addEventListener('webkitvisibilitychange', visibilityChange);
+          }, 2000); // Délai de 2 secondes pour laisser le temps à l'app de s'ouvrir
         } else {
           // Sur desktop, afficher un message avec des liens vers les stores
           document.body.innerHTML = `
