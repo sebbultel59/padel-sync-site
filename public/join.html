@@ -35,24 +35,33 @@
       }
     </style>
     <script>
-      // Récupère le group_id dans l'URL: /join?group_id=ABC123
+      // Récupère le code ou group_id dans l'URL: /join?code=ABC123 ou /join?group_id=...
       const params = new URLSearchParams(window.location.search);
+      const code = params.get('code') || '';
       const groupId = params.get('group_id') || '';
       
-      if (!groupId) {
-        // Pas de group_id, redirige vers la page de téléchargement
+      // URLs des stores
+      const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
+      const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
+      
+      // Construire le deep link selon ce qu'on a reçu
+      let scheme;
+      if (code) {
+        // Si on a un code, utiliser syncpadel://join?code=ABC123
+        scheme = `syncpadel://join?code=${encodeURIComponent(code)}`;
+      } else if (groupId) {
+        // Si on a un group_id, utiliser syncpadel://join?group_id=...
+        scheme = `syncpadel://join?group_id=${encodeURIComponent(groupId)}`;
+      } else {
+        // Pas de code ni group_id, redirige vers la page de téléchargement
         document.body.innerHTML = '<div class="container"><h1>Lien invalide</h1><p>Le lien d\'invitation est invalide.</p></div>';
         setTimeout(() => {
           window.location.href = '/download';
         }, 2000);
-      } else {
-        // URLs des stores
-        const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
-        const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
-        
-        // Essaie d'ouvrir l'app via le schéma custom (syncpadel:// selon app.config.js)
-        const scheme = `syncpadel://join?group_id=${groupId}`;
-        
+        scheme = null;
+      }
+      
+      if (scheme) {
         // Détection améliorée pour mobile
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);

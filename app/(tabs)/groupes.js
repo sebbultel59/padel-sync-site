@@ -868,10 +868,10 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
     return `syncpadel://join?group_id=${groupId}`;
   }, []);
 
-  const buildInviteWebLink = useCallback((groupId) => {
+  const buildInviteWebLink = useCallback((code) => {
     // Utiliser une URL web universelle pour les QR codes (reconnue par tous les scanners)
-    // La page web redirigera automatiquement vers l'app si elle est installée
-    return `https://syncpadel.app/join?group_id=${groupId}`;
+    // La page web redirigera automatiquement vers l'app si elle est installée, sinon vers les stores
+    return `https://syncpadel.app/join?code=${code}`;
   }, []);
 
   const onInviteLink = useCallback(async () => {
@@ -1023,10 +1023,10 @@ Padel Sync — Ton match en 3 clics 🎾`;
         }
       }
       
-      // Utiliser directement le code d'invitation dans le QR code
-      // C'est la solution la plus simple et fiable : tous les scanners reconnaissent le texte
-      // L'utilisateur scanne, voit le code, et l'entre dans l'app
-      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(inviteCode)}`;
+      // Utiliser une URL web avec le code dans le QR code
+      // La page web redirigera vers l'app si installée, sinon vers les stores
+      const webLink = buildInviteWebLink(inviteCode);
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(webLink)}`;
       setQrUrl(qr);
       setQrCode(inviteCode); // Afficher le code sous le QR code pour saisie manuelle
       setQrVisible(true);
@@ -1034,7 +1034,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
       console.error('[QR] Erreur:', e);
       Alert.alert("Erreur", "Impossible de générer le QR code");
     }
-  }, [activeGroup?.id, activeGroup?.visibility, meId]);
+  }, [activeGroup?.id, activeGroup?.visibility, meId, buildInviteWebLink]);
 
   const onChangeGroupAvatar = useCallback(async () => {
     if (!activeGroup?.id) return;
