@@ -50,8 +50,8 @@
         const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
         const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
         
-        // Essaie d'ouvrir l'app via le schéma custom
-        const scheme = `padelsync://join?group_id=${groupId}`;
+        // Essaie d'ouvrir l'app via le schéma custom (syncpadel:// selon app.config.js)
+        const scheme = `syncpadel://join?group_id=${groupId}`;
         
         // Détection améliorée pour mobile
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
