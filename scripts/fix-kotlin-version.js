@@ -65,16 +65,6 @@ function fixKotlinVersion(pluginPath) {
     'kotlin("android") version "2.1.0"'
   );
   
-  // Si le contenu a changé, on sauvegarde
-  if (content !== originalContent) {
-    fs.writeFileSync(pluginPath, content);
-    console.log(`✅ Kotlin version fixed in ${path.basename(path.dirname(pluginPath))}`);
-    return true;
-  } else {
-    console.log(`ℹ️  No Kotlin version found to fix in ${path.basename(path.dirname(pluginPath))}`);
-    return false;
-  }
-  
   // Corriger la configuration Java pour utiliser JVM 17
   content = content.replace(
     /java\s*\{[\s\S]*?sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+[\s\S]*?targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+[\s\S]*?\}/,
@@ -98,16 +88,27 @@ function fixKotlinVersion(pluginPath) {
     );
   }
   
-  // Forcer la recompilation en supprimant le cache de build du plugin
-  const pluginDir = path.dirname(pluginPath);
-  const buildDir = path.join(pluginDir, 'build');
-  if (fs.existsSync(buildDir)) {
-    try {
-      fs.rmSync(buildDir, { recursive: true, force: true });
-      console.log(`✅ Cleared build cache for ${path.basename(pluginDir)}`);
-    } catch (e) {
-      console.log(`⚠️  Could not clear build cache (this is OK)`);
+  // Si le contenu a changé, on sauvegarde
+  if (content !== originalContent) {
+    fs.writeFileSync(pluginPath, content);
+    console.log(`✅ Kotlin version fixed in ${path.basename(path.dirname(pluginPath))}`);
+    
+    // Forcer la recompilation en supprimant le cache de build du plugin
+    const pluginDir = path.dirname(pluginPath);
+    const buildDir = path.join(pluginDir, 'build');
+    if (fs.existsSync(buildDir)) {
+      try {
+        fs.rmSync(buildDir, { recursive: true, force: true });
+        console.log(`✅ Cleared build cache for ${path.basename(pluginDir)}`);
+      } catch (e) {
+        console.log(`⚠️  Could not clear build cache (this is OK)`);
+      }
     }
+    
+    return true;
+  } else {
+    console.log(`ℹ️  No Kotlin version found to fix in ${path.basename(path.dirname(pluginPath))}`);
+    return false;
   }
 }
 
