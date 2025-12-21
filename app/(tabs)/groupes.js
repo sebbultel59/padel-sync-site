@@ -3784,9 +3784,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
             }, 300);
           }}
         >
-          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' }}>
-            {/* En-tête fixe */}
-            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%', flexDirection: 'column' }}>
+            {/* En-tête fixe - toujours visible en haut */}
+            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#ffffff' }}>
               <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
                 Sélectionner un club support
               </Text>
@@ -3818,17 +3818,23 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 autoCorrect={false}
               />
             </View>
-            {loadingClubs ? (
-              <View style={{ padding: 40, alignItems: 'center' }}>
-                <ActivityIndicator size="large" color={BRAND} />
-                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
-              </View>
-            ) : (
-              <ScrollView 
-                style={{ maxHeight: 400 }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-              >
+            {/* Liste scrollable qui s'adapte au clavier */}
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              style={{ flex: 1 }}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+            >
+              {loadingClubs ? (
+                <View style={{ padding: 40, alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color={BRAND} />
+                  <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+                </View>
+              ) : (
+                <ScrollView 
+                  style={{ flex: 1 }}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                >
                 <Pressable
                   onPress={() => {
                     setEditingGroupClubId(null);
@@ -3949,8 +3955,9 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     </Text>
                   </View>
                 )}
-              </ScrollView>
-            )}
+                </ScrollView>
+              )}
+            </KeyboardAvoidingView>
           </View>
         </Pressable>
       </Modal>
