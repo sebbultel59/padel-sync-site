@@ -65,6 +65,27 @@ function fixKotlinVersion(pluginPath) {
     'kotlin("android") version "2.1.0"'
   );
   
+  // Remplacer les références à KSP plugin
+  content = content.replace(
+    /id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)\s*version\s*["'][^"']+["']/g,
+    'id("com.google.devtools.ksp") version "2.1.0-1.0.29"'
+  );
+  
+  // Remplacer les références à KSP dans dependencies
+  content = content.replace(
+    /ksp\s*\(\s*["'][^"']+["']\s*\)/g,
+    (match) => {
+      // Garder la dépendance mais s'assurer que KSP est compatible
+      return match;
+    }
+  );
+  
+  // Forcer la version KSP dans les variables
+  content = content.replace(
+    /kspVersion\s*=\s*["'][^"']+["']/g,
+    'kspVersion = "2.1.0-1.0.29"'
+  );
+  
   // Corriger la configuration Java pour utiliser JVM 17
   content = content.replace(
     /java\s*\{[\s\S]*?sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+[\s\S]*?targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+[\s\S]*?\}/,
@@ -107,6 +128,8 @@ function fixKotlinVersion(pluginPath) {
     
     return true;
   } else {
+    // Même si le contenu n'a pas changé, vérifier si on doit quand même sauvegarder
+    // (par exemple si le fichier utilise déjà Kotlin 2.1.0 mais qu'on veut s'assurer)
     console.log(`ℹ️  No Kotlin version found to fix in ${path.basename(path.dirname(pluginPath))}`);
     return false;
   }
@@ -185,10 +208,14 @@ for (const pluginName of pluginsToFix) {
   
   // Si pas trouvé, chercher récursivement
   if (!found) {
+    console.log(`  🔍 Searching recursively for ${pluginName}...`);
     const foundPaths = findPluginBuildFiles(nodeModulesPath, pluginName);
+    console.log(`  📋 Found ${foundPaths.length} potential file(s)`);
     for (const pluginPath of foundPaths) {
+      console.log(`  ✓ Trying: ${pluginPath}`);
       if (fixKotlinVersion(pluginPath)) {
         fixedCount++;
+        found = true;
         break;
       }
     }
