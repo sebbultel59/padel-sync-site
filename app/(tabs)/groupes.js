@@ -3886,6 +3886,61 @@ Padel Sync — Ton match en 3 clics 🎾`;
             ) : (
               <ActivityIndicator style={{ marginTop: 20 }} />
             )}
+            {qrCode ? (
+              <Pressable 
+                onPress={press("share-invite-code", async () => {
+                  try {
+                    // Liens de téléchargement de l'app
+                    const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
+                    const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
+                    
+                    const message = `🎾 Rejoins mon groupe Padel Sync !
+
+Organise tes matchs en 3 clics avec l'app Padel Sync 📱
+
+
+
+🔑 CODE DU GROUPE
+
+${qrCode}
+
+
+
+➡️ Une fois l'app installée
+
+1️⃣ Ouvre l'app Padel Sync
+
+2️⃣ Va dans l'onglet "Groupes"
+
+3️⃣ Clique sur "Rejoindre un groupe"
+
+4️⃣ Entre le code ci-dessus
+
+
+
+📲 Installe l'app ici
+
+🍎 iOS
+${iosAppLink}
+
+🤖 Android
+${androidAppLink}
+
+
+
+Padel Sync — Ton match en 3 clics 🎾`;
+                    
+                    await Share.share({ message });
+                  } catch (e) {
+                    console.error('[Share Code] Erreur:', e);
+                    Alert.alert("Partage impossible", e?.message ?? String(e));
+                  }
+                })} 
+                style={[s.btn, { backgroundColor: "#ff8c00", marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} 
+              >
+                <Text style={s.btnTxt}>Envoyer l'invitation</Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
