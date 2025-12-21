@@ -884,34 +884,34 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
         inviteCode = code;
       } else {
         // Pour les groupes publics : créer ou récupérer un code d'invitation à usage unique
-        const { data: existingInvite, error: fetchError } = await supabase
-          .from('invitations')
-          .select('code')
-          .eq('group_id', activeGroup.id)
-          .eq('used', false)
+      const { data: existingInvite, error: fetchError } = await supabase
+        .from('invitations')
+        .select('code')
+        .eq('group_id', activeGroup.id)
+        .eq('used', false)
           .eq('reusable', false)  // S'assurer qu'on ne récupère pas un code réutilisable
-          .limit(1)
-          .maybeSingle();
-        
-        if (existingInvite?.code) {
-          inviteCode = existingInvite.code;
-        } else {
+        .limit(1)
+        .maybeSingle();
+      
+      if (existingInvite?.code) {
+        inviteCode = existingInvite.code;
+      } else {
           // Créer un nouveau code d'invitation à usage unique
-          const { data: newInvite, error: createError } = await supabase
-            .from('invitations')
-            .insert({
-              group_id: activeGroup.id,
-              code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+        const { data: newInvite, error: createError } = await supabase
+          .from('invitations')
+          .insert({
+            group_id: activeGroup.id,
+            code: Math.random().toString(36).substring(2, 8).toUpperCase(),
               created_by: meId,
               reusable: false  // Code à usage unique pour les groupes publics
-            })
-            .select('code')
-            .single();
-          
-          if (createError) {
-            throw createError;
-          }
-          inviteCode = newInvite.code;
+          })
+          .select('code')
+          .single();
+        
+        if (createError) {
+          throw createError;
+        }
+        inviteCode = newInvite.code;
         }
       }
       
@@ -1018,7 +1018,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
       
       // Afficher le code d'invitation (sans QR code)
       setQrCode(inviteCode);
-      setQrVisible(true);
+    setQrVisible(true);
     } catch (e) {
       console.error('[QR] Erreur:', e);
       Alert.alert("Erreur", "Impossible de générer le QR code");
@@ -3759,6 +3759,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   </View>
                 )}
               </ScrollView>
+              </KeyboardAvoidingView>
             )}
           </View>
         </Pressable>
@@ -3835,30 +3836,30 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   style={{ maxHeight: 500 }}
                   keyboardShouldPersistTaps="handled"
                 >
-                  <Pressable
-                    onPress={() => {
-                      setEditingGroupClubId(null);
-                      setEditClubPickerVisible(false);
+                <Pressable
+                  onPress={() => {
+                    setEditingGroupClubId(null);
+                    setEditClubPickerVisible(false);
                       setClubSearchText("");
-                      setTimeout(() => {
-                        setShowEditGroup(true);
-                      }, 300);
-                    }}
-                    style={({ pressed }) => ({
-                      paddingVertical: 16,
-                      paddingHorizontal: 20,
-                      backgroundColor: pressed ? '#f3f4f6' : !editingGroupClubId ? '#e0f2fe' : '#ffffff',
-                      borderBottomWidth: 1,
-                      borderBottomColor: '#e5e7eb',
-                    })}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={{ fontSize: 16, color: '#111827', fontWeight: !editingGroupClubId ? '700' : '400' }}>
-                        Aucun club
-                      </Text>
-                      {!editingGroupClubId && <Ionicons name="checkmark" size={20} color={BRAND} />}
-                    </View>
-                  </Pressable>
+                    setTimeout(() => {
+                      setShowEditGroup(true);
+                    }, 300);
+                  }}
+                  style={({ pressed }) => ({
+                    paddingVertical: 16,
+                    paddingHorizontal: 20,
+                    backgroundColor: pressed ? '#f3f4f6' : !editingGroupClubId ? '#e0f2fe' : '#ffffff',
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#e5e7eb',
+                  })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 16, color: '#111827', fontWeight: !editingGroupClubId ? '700' : '400' }}>
+                      Aucun club
+                    </Text>
+                    {!editingGroupClubId && <Ionicons name="checkmark" size={20} color={BRAND} />}
+                  </View>
+                </Pressable>
                   {clubsList
                     .filter((c) => {
                       if (!clubSearchText.trim()) return true;
@@ -3955,7 +3956,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     </Text>
                   </View>
                 )}
-                </ScrollView>
+              </ScrollView>
               </KeyboardAvoidingView>
             )}
           </View>
