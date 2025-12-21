@@ -3656,12 +3656,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     const addressMatch = c.address?.toLowerCase().includes(searchLower);
                     return nameMatch || addressMatch;
                   });
-                  const scrollViewHeight = filteredClubs.length === 1 ? 500 : 350;
+                  // Hauteur adaptative : plus grande si peu de résultats, mais réduite pour laisser place au clavier
+                  const baseHeight = filteredClubs.length === 1 ? 500 : 350;
+                  const scrollViewHeight = clubSearchText.trim() ? Math.min(baseHeight, 250) : baseHeight;
                   return (
                     <ScrollView 
                       style={{ maxHeight: scrollViewHeight }}
+                      contentContainerStyle={{ paddingBottom: 20 }}
                       keyboardShouldPersistTaps="handled"
                       keyboardDismissMode="on-drag"
+                      showsVerticalScrollIndicator={true}
                     >
                       {filteredClubs
                     .map((c, idx, filteredList) => (
@@ -3844,12 +3848,16 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     });
                     // Compter l'option "Aucun club" + les clubs filtrés
                     const totalItems = 1 + filteredClubs.length;
-                    const scrollViewHeight = totalItems === 2 ? 500 : 350;
+                    const baseHeight = totalItems === 2 ? 500 : 350;
+                    // Réduire la hauteur quand on recherche pour laisser place au clavier
+                    const scrollViewHeight = clubSearchText.trim() ? Math.min(baseHeight, 250) : baseHeight;
                     return (
                       <ScrollView 
                         style={{ maxHeight: scrollViewHeight }}
+                        contentContainerStyle={{ paddingBottom: 20 }}
                         keyboardShouldPersistTaps="handled"
                         keyboardDismissMode="on-drag"
+                        showsVerticalScrollIndicator={true}
                       >
                         <Pressable
                           onPress={() => {
