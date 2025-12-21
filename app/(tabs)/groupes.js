@@ -3791,46 +3791,45 @@ Padel Sync — Ton match en 3 clics 🎾`;
             }, 300);
           }}
         >
-          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%', flexDirection: 'column' }}>
-            {/* En-tête fixe - toujours visible en haut */}
-            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#ffffff' }}>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
-                Sélectionner un club support
-              </Text>
-              {addressHome?.lat && addressHome?.lng && (
-                <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                  Triés par distance du domicile
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1, justifyContent: 'flex-end' }}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+          >
+            <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' }}>
+              {/* En-tête fixe - toujours visible en haut */}
+              <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#ffffff' }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827' }}>
+                  Sélectionner un club support
                 </Text>
-              )}
-              {/* Barre de recherche */}
-              <TextInput
-                style={{
-                  marginTop: 12,
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderWidth: 1,
-                  borderColor: '#d1d5db',
-                  borderRadius: 8,
-                  backgroundColor: '#f9fafb',
-                  fontSize: 16,
-                  color: '#111827',
-                }}
-                placeholder="Rechercher un club..."
-                placeholderTextColor="#9ca3af"
-                value={clubSearchText}
-                onChangeText={(text) => {
-                  setClubSearchText(text);
-                }}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-            {/* Liste scrollable qui s'adapte au clavier */}
-            <KeyboardAvoidingView 
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
-              style={{ flex: 1 }}
-              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-            >
+                {addressHome?.lat && addressHome?.lng && (
+                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    Triés par distance du domicile
+                  </Text>
+                )}
+                {/* Barre de recherche */}
+                <TextInput
+                  style={{
+                    marginTop: 12,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                    borderColor: '#d1d5db',
+                    borderRadius: 8,
+                    backgroundColor: '#f9fafb',
+                    fontSize: 16,
+                    color: '#111827',
+                  }}
+                  placeholder="Rechercher un club..."
+                  placeholderTextColor="#9ca3af"
+                  value={clubSearchText}
+                  onChangeText={(text) => {
+                    setClubSearchText(text);
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
               {loadingClubs ? (
                 <View style={{ padding: 40, alignItems: 'center' }}>
                   <ActivityIndicator size="large" color={BRAND} />
@@ -3838,11 +3837,11 @@ Padel Sync — Ton match en 3 clics 🎾`;
                 </View>
               ) : (
                 <ScrollView 
-                  style={{ flex: 1 }}
+                  style={{ maxHeight: 350 }}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="on-drag"
                 >
-                <Pressable
+                  <Pressable
                   onPress={() => {
                     setEditingGroupClubId(null);
                     setEditClubPickerVisible(false);
