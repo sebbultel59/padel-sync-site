@@ -4,13 +4,13 @@ export default {
     slug: "padel-sync",
     entryPoint: "./index.js",
     scheme: "syncpadel",
-    version: "3.0.9",
+    version: "3.1.0",
     newArchEnabled: true,
     icon: "./assets/icon.png", // chemin par défaut pour éviter les erreurs build iOS
     ios: {
       bundleIdentifier: "app.syncpadel.mobile",
       supportsTablet: false,
-      buildNumber: "42",
+      buildNumber: "43",
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
@@ -25,7 +25,7 @@ export default {
     },
     android: {
       package: "com.padelsync.app",
-      versionCode: 42,
+      versionCode: 43,
       newArchEnabled: true,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png", // chemin corrigé

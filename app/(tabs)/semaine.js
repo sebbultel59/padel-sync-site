@@ -421,6 +421,7 @@ export default function Semaine() {
       // 2) availability (via get_availability_effective pour modèle hybride)
       let av = [];
       if (groupId) {
+        console.log('[fetchData] Chargement disponibilités pour groupe:', groupId, 'semaine:', start, '->', end);
         const { data: avData, error: eAv } = await supabase
           .rpc("get_availability_effective", {
             p_group: groupId,
@@ -430,6 +431,7 @@ export default function Semaine() {
           });
         if (eAv) throw eAv;
         av = avData ?? [];
+        console.log('[fetchData] Disponibilités effectives chargées:', av.length);
         
         // Charger aussi les exceptions 'neutral' de l'utilisateur depuis availability
         // car get_availability_effective les exclut, mais on en a besoin pour l'affichage
@@ -444,6 +446,7 @@ export default function Semaine() {
             .gte("start", start)
             .lt("start", end);
           if (!eNeutral && neutralExceptions && neutralExceptions.length > 0) {
+            console.log('[fetchData] Exceptions "neutral" trouvées:', neutralExceptions.length);
             // Vérifier pour chaque exception 'neutral' si une disponibilité globale existe
             // On ne garde que celles qui masquent effectivement une globale
             const { data: globalAvailabilities, error: eGlobal } = await supabase
@@ -454,6 +457,7 @@ export default function Semaine() {
               .lt("start", end);
             
             if (!eGlobal && globalAvailabilities) {
+              console.log('[fetchData] Disponibilités globales trouvées:', globalAvailabilities.length);
               const globalStarts = new Set(
                 globalAvailabilities.map(g => normalizeSlotTime(g.start))
               );
@@ -462,9 +466,12 @@ export default function Semaine() {
                 const normalizedStart = normalizeSlotTime(ne.start);
                 return globalStarts.has(normalizedStart);
               });
+              console.log('[fetchData] Exceptions "neutral" valides (masquent une globale):', validNeutralExceptions.length);
               if (validNeutralExceptions.length > 0) {
                 av = [...av, ...validNeutralExceptions];
               }
+            } else {
+              console.log('[fetchData] Pas de disponibilités globales trouvées pour cette période');
             }
           }
         }
@@ -769,6 +776,29 @@ export default function Semaine() {
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
       } else if (mine.status === 'available') {
         // Supprimer la disponibilité (toggle off) - utiliser les fonctions RPC
+        console.log('[toggleMyAvailability] Suppression créneau:', {
+          start: normalizedStart,
+          end: normalizedEndForRpc,
+          applyToAllGroups,
+          groupId: gid,
+        });
+        
+        // Vérifier si une disponibilité globale existe (pour logging)
+        if (!applyToAllGroups) {
+          const { data: globalCheck } = await supabase
+            .from("availability_global")
+            .select("start, end")
+            .eq("user_id", user.id)
+            .eq("start", normalizedStart)
+            .eq("end", normalizedEndForRpc)
+            .single();
+          if (globalCheck) {
+            console.log('[toggleMyAvailability] Disponibilité globale trouvée, création exception "neutral" pour masquer');
+          } else {
+            console.log('[toggleMyAvailability] Pas de disponibilité globale, suppression exception');
+          }
+        }
+        
         // Mettre à jour optimiste : ajouter une entrée 'neutral' pour que myStatusByStart la détecte
         setSlots((prev) => {
           const filtered = prev.filter((s) => {
@@ -791,6 +821,7 @@ export default function Semaine() {
         
         // Utiliser les fonctions RPC qui gèrent correctement la suppression
         if (applyToAllGroups) {
+          console.log('[toggleMyAvailability] Appel set_availability_global avec status=neutral');
           const { error } = await supabase.rpc("set_availability_global", {
             p_user: user.id,
             p_start: normalizedStart,
@@ -802,7 +833,9 @@ export default function Semaine() {
             await fetchData(); // Recharger pour restaurer l'état correct
             throw error;
           }
+          console.log('[toggleMyAvailability] Disponibilité globale supprimée avec succès');
         } else {
+          console.log('[toggleMyAvailability] Appel set_availability_group avec status=neutral');
           const { error } = await supabase.rpc("set_availability_group", {
             p_user: user.id,
             p_group: gid,
@@ -815,6 +848,7 @@ export default function Semaine() {
             await fetchData(); // Recharger pour restaurer l'état correct
             throw error;
           }
+          console.log('[toggleMyAvailability] Exception créée/supprimée avec succès');
         }
         
         DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });
@@ -927,6 +961,30 @@ export default function Semaine() {
         }
       } else if (mine && mine.status !== status) {
         if (status === 'neutral') {
+          console.log('[setMyAvailability] Suppression créneau:', {
+            start: normalizedStart,
+            end: normalizedEnd,
+            applyToAllGroups,
+            groupId: gid,
+            currentStatus: mine.status,
+          });
+          
+          // Vérifier si une disponibilité globale existe (pour logging)
+          if (!applyToAllGroups) {
+            const { data: globalCheck } = await supabase
+              .from("availability_global")
+              .select("start, end")
+              .eq("user_id", user.id)
+              .eq("start", normalizedStart)
+              .eq("end", normalizedEnd)
+              .single();
+            if (globalCheck) {
+              console.log('[setMyAvailability] Disponibilité globale trouvée, création exception "neutral" pour masquer');
+            } else {
+              console.log('[setMyAvailability] Pas de disponibilité globale, suppression exception');
+            }
+          }
+          
           // Supprimer - mise à jour optimiste de l'UI d'abord
           setSlots((prev) => {
             return prev.filter((s) => {
@@ -940,6 +998,7 @@ export default function Semaine() {
           // Utiliser les fonctions RPC qui gèrent maintenant correctement la suppression
           // quand status='neutral'
           if (applyToAllGroups) {
+            console.log('[setMyAvailability] Appel set_availability_global avec status=neutral');
             const { error } = await supabase.rpc("set_availability_global", {
               p_user: user.id,
               p_start: normalizedStart,
@@ -951,7 +1010,9 @@ export default function Semaine() {
               await fetchData(); // Recharger pour restaurer l'état correct
               throw error;
             }
+            console.log('[setMyAvailability] Disponibilité globale supprimée avec succès');
           } else {
+            console.log('[setMyAvailability] Appel set_availability_group avec status=neutral');
             const { error } = await supabase.rpc("set_availability_group", {
               p_user: user.id,
               p_group: gid,
@@ -964,6 +1025,7 @@ export default function Semaine() {
               await fetchData(); // Recharger pour restaurer l'état correct
               throw error;
             }
+            console.log('[setMyAvailability] Exception créée/supprimée avec succès');
           }
           return;
         }
@@ -1116,6 +1178,12 @@ export default function Semaine() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!gid || !user) return;
 
+      console.log('[setMyNeutralBulk] Suppression en masse:', {
+        count: startIsos.length,
+        applyToAllGroups,
+        groupId: gid,
+      });
+
       // Optimistic: enlever localement toutes mes lignes correspondantes (avec normalisation)
       setSlots((prev) => {
         const normalizedStartIsos = new Set(startIsos.map(s => normalizeSlotTime(s)));
@@ -1136,6 +1204,7 @@ export default function Semaine() {
         const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString());
         
         if (applyToAllGroups) {
+          console.log('[setMyNeutralBulk] Appel set_availability_global pour:', normalizedStart);
           const { error } = await supabase.rpc("set_availability_global", {
             p_user: user.id,
             p_start: normalizedStart,
@@ -1147,6 +1216,7 @@ export default function Semaine() {
             throw error;
           }
         } else {
+          console.log('[setMyNeutralBulk] Appel set_availability_group pour:', normalizedStart);
           const { error } = await supabase.rpc("set_availability_group", {
             p_user: user.id,
             p_group: gid,
@@ -1160,6 +1230,8 @@ export default function Semaine() {
           }
         }
       }
+      
+      console.log('[setMyNeutralBulk] Suppression en masse terminée avec succès');
 
       // Notifier les autres pages (notamment matches) que la disponibilité a changé
       DeviceEventEmitter.emit('AVAILABILITY_CHANGED', { groupId: gid, userId: user.id });

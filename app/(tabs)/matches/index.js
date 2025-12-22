@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActionSheetIOS,
@@ -150,6 +150,7 @@ const colorForLevel = (level) => {
 export default function MatchesScreen() {
   const navigation = useNavigation();
   const router = useRouter();
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { start } = useCopilot();
@@ -301,7 +302,11 @@ export default function MatchesScreen() {
   const [meId, setMeId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingWeek, setLoadingWeek] = useState(false); // Chargement spécifique pour le changement de semaine
-  const [tab, setTab] = useState('proposes');
+  const [tab, setTab] = useState(() => {
+    // Initialiser le tab depuis les paramètres d'URL si présent
+    const urlTab = params?.tab;
+    return (urlTab === 'valides' ? 'valides' : 'proposes');
+  });
   const [mode, setMode] = useState('long');
   const [rsvpMode, setRsvpMode] = useState('long');
   const [confirmedMode, setConfirmedMode] = useState('long');
@@ -1974,7 +1979,26 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               profilesMap[key] = p;
               console.log('[Matches] Profile loaded:', key, p.display_name || p.name || p.email || 'sans nom');
             });
-            console.log('[Matches] Loaded', profilesData.length, 'profiles into map');
+            
+            // S'assurer que le profil du joueur authentifié est toujours inclus
+            if (meId && !profilesMap[String(meId)]) {
+              console.log('[Matches] Chargement profil joueur authentifié manquant:', meId);
+              try {
+                const { data: myProfileData, error: myProfileError } = await supabase
+                  .from('profiles')
+                  .select('*')
+                  .eq('id', meId)
+                  .maybeSingle();
+                if (!myProfileError && myProfileData) {
+                  profilesMap[String(meId)] = myProfileData;
+                  console.log('[Matches] Profil joueur authentifié chargé:', meId, myProfileData.display_name || myProfileData.name || myProfileData.email || 'sans nom');
+                }
+              } catch (e) {
+                console.warn('[Matches] Erreur chargement profil joueur authentifié:', e);
+              }
+            }
+            
+            console.log('[Matches] Loaded', Object.keys(profilesMap).length, 'profiles into map');
             setProfilesById(profilesMap);
       } else {
             console.warn('[Matches] No profiles loaded for members');
@@ -2276,6 +2300,14 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setDisplayHourReady(newHourReady);
     }
   }, [longSectionsWeek, hourReadyWeek, dataVersion]);
+
+  // Mettre à jour le tab si le paramètre d'URL change
+  useEffect(() => {
+    const urlTab = params?.tab;
+    if (urlTab === 'valides' || urlTab === 'proposes') {
+      setTab(urlTab);
+    }
+  }, [params?.tab]);
 
   useEffect(() => {
     (async () => {
@@ -4540,6 +4572,12 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     };
     // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
     const canCreate = type === 'ready' && selectedIds.length === 3;
+    
+    // Séparer le joueur authentifié des autres joueurs
+    const otherUserIds = userIds.filter(uid => String(uid) !== String(meId));
+    const myProfile = meId ? profileOf(profilesById, meId) : null;
+    const isMeAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+    
     return (
       <View style={[cardStyle, { minHeight: 120 }]}>
         <Text style={{ fontWeight: "800", color: "#111827", fontSize: 16, marginBottom: 6 }}>
@@ -4549,25 +4587,8 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         <View style={{ marginBottom: 8 }}>
           <Badge tone='amber' text={`${type === 'ready' ? '🎾' : '🔥'} ${userIds.length} joueurs`} />
         </View>
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
-          {userIds.map((uid) => {
-            const p = profileOf(profilesById, uid);
-            const isSelected = selectedIds.includes(String(uid));
-            const canSelect = selectedIds.length < 3 || isSelected; // Limite à 3 joueurs max
-            return (
-              <LevelAvatar
-                key={String(uid)}
-                profile={p}
-                onPress={canSelect ? () => toggleSelect(uid) : undefined}
-                onLongPressProfile={openProfile}
-                selected={isSelected}
-                size={48}
-              />
-            );
-          })}
-        </View>
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-          {type === "ready" ? (
+        {type === "ready" && (
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
@@ -4592,7 +4613,60 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
                 </Text>
               </View>
             </Pressable>
-          ) : null}
+          </View>
+        )}
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
+          {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
+          {isMeAvailable && myProfile && (
+            <>
+              <View style={{ position: 'relative' }}>
+                <LevelAvatar
+                  key={`me-${meId}`}
+                  profile={myProfile}
+                  onPress={undefined} // Non sélectionnable
+                  onLongPressProfile={openProfile}
+                  selected={false}
+                  size={48}
+                />
+                {/* Badge pour indiquer que c'est le créateur */}
+                <View style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -4,
+                  backgroundColor: '#15803d',
+                  borderRadius: 10,
+                  width: 20,
+                  height: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: 2,
+                  borderColor: '#ffffff',
+                }}>
+                  <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>✓</Text>
+                </View>
+              </View>
+              {/* Symbole + entre mon avatar et les autres */}
+              {otherUserIds.length > 0 && (
+                <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginHorizontal: 4 }}>+</Text>
+              )}
+            </>
+          )}
+          {/* Afficher les autres joueurs */}
+          {otherUserIds.map((uid) => {
+            const p = profileOf(profilesById, uid);
+            const isSelected = selectedIds.includes(String(uid));
+            const canSelect = selectedIds.length < 3 || isSelected; // Limite à 3 joueurs max
+            return (
+              <LevelAvatar
+                key={String(uid)}
+                profile={p}
+                onPress={canSelect ? () => toggleSelect(uid) : undefined}
+                onLongPressProfile={openProfile}
+                selected={isSelected}
+                size={48}
+              />
+            );
+          })}
         </View>
       </View>
     );
@@ -4601,8 +4675,11 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 // --- 1h30 ---
 const LongSlotRow = ({ item }) => {
   console.log('[LongSlotRow] Rendered for item:', item.time_slot_id, 'starts_at:', item.starts_at);
-  // Utiliser tous les joueurs disponibles pour ce créneau (pas seulement les membres du groupe)
-  const userIds = (item.ready_user_ids || []).filter(uid => String(uid) !== String(meId));
+  // Utiliser tous les joueurs disponibles pour ce créneau
+  const allUserIds = item.ready_user_ids || [];
+  const otherUserIds = allUserIds.filter(uid => String(uid) !== String(meId));
+  const myProfile = meId ? profileOf(profilesById, meId) : null;
+  const isMeAvailable = meId && allUserIds.some(uid => String(uid) === String(meId));
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -4624,24 +4701,7 @@ const LongSlotRow = ({ item }) => {
         {formatRange(item.starts_at, item.ends_at)}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
-        {userIds.map((uid) => {
-          const p = profilesById[String(uid)] || {};
-          console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
-          return (
-            <LevelAvatar
-              key={String(uid)}
-              profile={p}
-              onPress={() => toggleSelect(uid)}
-              onLongPressProfile={openProfile}
-              selected={selectedIds.includes(String(uid))}
-              size={48}
-            />
-          );
-        })}
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
         <Pressable
           disabled={!canCreate}
           accessibilityState={{ disabled: !canCreate }}
@@ -4667,14 +4727,70 @@ const LongSlotRow = ({ item }) => {
           </View>
         </Pressable>
       </View>
+
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
+        {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
+        {isMeAvailable && myProfile && (
+          <>
+            <View style={{ position: 'relative' }}>
+              <LevelAvatar
+                key={`me-${meId}`}
+                profile={myProfile}
+                onPress={undefined} // Non sélectionnable
+                onLongPressProfile={openProfile}
+                selected={false}
+                size={48}
+              />
+              {/* Badge pour indiquer que c'est le créateur */}
+              <View style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                backgroundColor: '#156bc9',
+                borderRadius: 10,
+                width: 20,
+                height: 20,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 2,
+                borderColor: '#ffffff',
+              }}>
+                <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>✓</Text>
+              </View>
+            </View>
+            {/* Symbole + entre mon avatar et les autres */}
+            {otherUserIds.length > 0 && (
+              <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginHorizontal: 4 }}>+</Text>
+            )}
+          </>
+        )}
+        {/* Afficher les autres joueurs */}
+        {otherUserIds.map((uid) => {
+          const p = profileOf(profilesById, uid);
+          console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
+          return (
+            <LevelAvatar
+              key={String(uid)}
+              profile={p}
+              onPress={() => toggleSelect(uid)}
+              onLongPressProfile={openProfile}
+              selected={selectedIds.includes(String(uid))}
+              size={48}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 };
 
 // --- 1h ---
 const HourSlotRow = ({ item }) => {
-  // Utiliser tous les joueurs disponibles pour ce créneau (pas seulement les membres du groupe)
-  const userIds = (item.ready_user_ids || []).filter(uid => String(uid) !== String(meId));
+  // Utiliser tous les joueurs disponibles pour ce créneau
+  const allUserIds = item.ready_user_ids || [];
+  const otherUserIds = allUserIds.filter(uid => String(uid) !== String(meId));
+  const myProfile = meId ? profileOf(profilesById, meId) : null;
+  const isMeAvailable = meId && allUserIds.some(uid => String(uid) === String(meId));
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -4696,24 +4812,7 @@ const HourSlotRow = ({ item }) => {
         {formatRange(item.starts_at, item.ends_at)}
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
-        {userIds.map((uid) => {
-          const p = profilesById[String(uid)] || {};
-          console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
-          return (
-            <LevelAvatar
-              key={String(uid)}
-              profile={p}
-              onPress={() => toggleSelect(uid)}
-              onLongPressProfile={openProfile}
-              selected={selectedIds.includes(String(uid))}
-              size={48}
-            />
-          );
-        })}
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
         <Pressable
           disabled={!canCreate}
           accessibilityState={{ disabled: !canCreate }}
@@ -4738,6 +4837,59 @@ const HourSlotRow = ({ item }) => {
             </Text>
           </View>
         </Pressable>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
+        {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
+        {isMeAvailable && myProfile && (
+          <>
+            <View style={{ position: 'relative' }}>
+              <LevelAvatar
+                key={`me-${meId}`}
+                profile={myProfile}
+                onPress={undefined} // Non sélectionnable
+                onLongPressProfile={openProfile}
+                selected={false}
+                size={48}
+              />
+              {/* Badge pour indiquer que c'est le créateur */}
+              <View style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                backgroundColor: '#156bc9',
+                borderRadius: 10,
+                width: 20,
+                height: 20,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 2,
+                borderColor: '#ffffff',
+              }}>
+                <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>✓</Text>
+              </View>
+            </View>
+            {/* Symbole + entre mon avatar et les autres */}
+            {otherUserIds.length > 0 && (
+              <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginHorizontal: 4 }}>+</Text>
+            )}
+          </>
+        )}
+        {/* Afficher les autres joueurs */}
+        {otherUserIds.map((uid) => {
+          const p = profileOf(profilesById, uid);
+          console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
+          return (
+            <LevelAvatar
+              key={String(uid)}
+              profile={p}
+              onPress={() => toggleSelect(uid)}
+              onLongPressProfile={openProfile}
+              selected={selectedIds.includes(String(uid))}
+              size={48}
+            />
+          );
+        })}
       </View>
     </View>
   );
@@ -4804,6 +4956,10 @@ const HourSlotRow = ({ item }) => {
   };
 
   const MatchCardConfirmed = ({ m }) => {
+    // Récupérer le groupe actif pour accéder au club_id
+    const { activeGroup } = useActiveGroup();
+    const router = useRouter();
+    
     // time_slots peut être un array ou un objet
     const initialSlot = Array.isArray(m?.time_slots) ? (m.time_slots[0] || null) : (m?.time_slots || null);
     const [loadedSlot, setLoadedSlot] = React.useState(initialSlot);
@@ -4868,9 +5024,10 @@ const HourSlotRow = ({ item }) => {
       }
     }, [m?.time_slot_id, loadedSlot, m?.time_slots]);
     
-    // Charger les informations du club du match pour le bouton d'appel
+    // Charger les informations du club support du groupe pour le bouton d'appel
     React.useEffect(() => {
-      const clubId = m?.club_id || slot?.club_id;
+      // Utiliser le club_id du groupe actif (club support) si disponible
+      const clubId = activeGroup?.club_id;
       if (!clubId) {
         setMatchClub(null);
         return;
@@ -4892,7 +5049,7 @@ const HourSlotRow = ({ item }) => {
           setMatchClub(null);
         }
       })();
-    }, [m?.club_id, slot?.club_id]);
+    }, [activeGroup?.club_id]);
     
     // Vérifier si un résultat existe déjà pour ce match et récupérer les détails
     React.useEffect(() => {
@@ -5419,24 +5576,30 @@ const HourSlotRow = ({ item }) => {
                 flex: 1,
                 backgroundColor: '#15803d', // vert
                 paddingVertical: 10,
-                paddingHorizontal: 12,
+                paddingHorizontal: 10,
                 borderRadius: 8,
                 alignSelf: 'center',
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
+                minHeight: 56, // Même hauteur que le bouton PISTE RÉSERVÉE (36px image + 20px padding)
               }}
             >
-              <Ionicons name="call" size={24} color="#ffffff" style={{ marginRight: 8 }} />
+              <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
               <Text
                 style={{
                   color: '#ffffff',
-                  fontWeight: '800',
+                  fontWeight: '900',
                   fontSize: 14,
                   textAlign: 'center',
                 }}
               >
-                {matchClub.call_button_label || `Appeler ${matchClub.name || 'le club'}`}
+                {matchClub.call_button_label ? 
+                  matchClub.call_button_label.includes('\n') ? 
+                    matchClub.call_button_label : 
+                    matchClub.call_button_label.replace(/\s+/, '\n') :
+                  `Appeler\n${matchClub.name || 'le club'}`
+                }
               </Text>
             </Pressable>
           ) : (
@@ -5446,19 +5609,20 @@ const HourSlotRow = ({ item }) => {
                 flex: 1,
                 backgroundColor: '#480c3d', // violine
                 paddingVertical: 10,
-                paddingHorizontal: 12,
+                paddingHorizontal: 10,
                 borderRadius: 8,
                 alignSelf: 'center',
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
+                minHeight: 56, // Même hauteur que le bouton PISTE RÉSERVÉE
               }}
             >
-              <Ionicons name="call" size={24} color="#ffffff" style={{ marginRight: 8 }} />
+              <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
               <Text
                 style={{
                   color: '#ffffff',
-                  fontWeight: '800',
+                  fontWeight: '900',
                   fontSize: 14,
                   textAlign: 'center',
                 }}
@@ -5474,7 +5638,8 @@ const HourSlotRow = ({ item }) => {
             style={{
               flex: 1,
               backgroundColor: m?.is_court_reserved ? '#10b981' : '#ef4444',
-              padding: 10,
+              paddingVertical: 4,
+              paddingHorizontal: 10,
               borderRadius: 8,
               flexDirection: 'row',
               alignItems: 'center',
@@ -5485,9 +5650,9 @@ const HourSlotRow = ({ item }) => {
               <Image
                 source={{ uri: profilesById[String(m.court_reserved_by)].avatar_url }}
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 20,
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
                   marginRight: 16,
                   borderWidth: 0,
                   borderColor: '#fff',
@@ -5515,7 +5680,7 @@ const HourSlotRow = ({ item }) => {
               style={{
                 color: '#ffffff',
                 fontWeight: '900',
-                fontSize: 12,
+                fontSize: 14,
                 textAlign: 'center',
               }}
             >
@@ -5523,6 +5688,37 @@ const HourSlotRow = ({ item }) => {
             </Text>
           </Pressable>
         </View>
+
+        {/* Bouton "Discuter avec les joueurs" - visible uniquement si l'utilisateur est dans les 4 confirmés */}
+        {isUserInAccepted && (
+          <Pressable
+            onPress={() => {
+              router.push(`/matches/${m.id}/chat`);
+            }}
+            style={{
+              marginTop: 8,
+              backgroundColor: '#7c3aed',
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="chatbubble-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+            <Text
+              style={{
+                color: '#ffffff',
+                fontWeight: '800',
+                fontSize: 14,
+                textAlign: 'center',
+              }}
+            >
+              Discuter avec les joueurs
+            </Text>
+          </Pressable>
+        )}
 
         {/* Bouton "Me faire remplacer" - visible uniquement si l'utilisateur est dans les 4 confirmés */}
         {isUserInAccepted && (
