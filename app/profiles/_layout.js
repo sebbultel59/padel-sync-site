@@ -5,8 +5,7 @@ export default function ProfilesLayout() {
   return (
     <Stack
       screenOptions={{
-        headerShown: true,
-        headerTitle: "Profil",
+        headerShown: false,
       }}
     />
   );

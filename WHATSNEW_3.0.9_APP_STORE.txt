@@ -1,0 +1,72 @@
+Padel Sync 3.0.9 - What's New
+
+NEW FEATURES
+
+Simplified Code-Based Invitation
+• Replaced QR code system with a simple, readable invitation code
+• New "Invite via CODE" button to generate and share your code in one click
+• Invitation code displayed prominently in a clear and intuitive interface
+• Step-by-step instructions to join a group using the code
+
+Enhanced Invitation Sharing
+• New "Send Invitation" button to share directly from the app
+• Automatic sharing message including:
+  - The group invitation code
+  - Detailed instructions to join
+  - iOS and Android download links
+  - A personalized call-to-action message
+
+Improved Club Search
+• Search bar added in club support selection
+• Real-time filtering as you type
+• Automatic sorting by distance from home (if location available)
+• Optimized interface with better keyboard handling
+
+IMPROVEMENTS
+
+User Interface
+• Modernized design with more visible buttons
+• Optimized colors: green for primary actions, dark red for close
+• Improved spacing around buttons for better ergonomics
+• Simplified navigation for faster onboarding
+
+User Experience
+• Simplified and clearer invitation modal
+• Improved keyboard management in selection modals
+• Optimized display of club list even with keyboard open
+• Streamlined user flow for invitations and group creation
+
+BUG FIXES
+
+Android 15 Compatibility
+• Fixed compatibility issues with Android 15
+• Resolved warnings related to deprecated APIs for edge-to-edge display
+• App now fully compatible with the latest Android versions
+
+Stability and Performance
+• Technical fixes to improve Android build stability
+• Aligned Kotlin and KSP versions to eliminate compilation errors
+• General optimizations for better performance
+
+TECHNICAL IMPROVEMENTS
+
+Build and Compilation
+• Added ProGuard configuration to optimize builds
+• Improved Lint configuration to reduce warnings
+• Optimized build scripts for faster and more reliable compilation
+
+Compatibility
+• Full support for Android 15 (API 35)
+• Maintained compatibility with iOS 15.1+
+• Using latest recommended APIs for edge-to-edge display
+
+WHY THIS UPDATE?
+
+This version 3.0.9 focuses on improving the invitation experience, an essential feature for gathering your padel partners. We've simplified the process so you can invite your friends in just a few seconds, without any complications.
+
+The club search improvements also allow you to find your support club more quickly when creating or editing a group.
+
+Finally, this update ensures compatibility with the latest Android versions, including Android 15, so you can continue using Padel Sync on all your devices.
+
+Keep organizing your matches easily with Padel Sync!
+

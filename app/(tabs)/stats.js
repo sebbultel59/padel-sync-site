@@ -5,22 +5,22 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from "../../context/auth";
 import { usePlayerBadges } from "../../hooks/usePlayerBadges";
 import { usePlayerRating } from "../../hooks/usePlayerRating";
 import { usePlayerStats } from "../../hooks/usePlayerStats";
 import { useActiveGroup } from "../../lib/activeGroup";
-import { supabase } from "../../lib/supabase";
-import { useAuth } from "../../context/auth";
 import { getBadgeImage } from "../../lib/badgeImages";
+import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
 
@@ -96,6 +96,12 @@ export default function StatsScreen() {
   const [groupRank, setGroupRank] = useState(null);
   const [loadingRanks, setLoadingRanks] = useState(true);
   const [favoriteClubId, setFavoriteClubId] = useState(null);
+
+  // Historique des 5 derniers matchs (forme du moment)
+  const [historyMatches, setHistoryMatches] = useState([]);
+  const [historyProfilesById, setHistoryProfilesById] = useState({});
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
 
   // Charger le profil
   useEffect(() => {
@@ -177,6 +183,224 @@ export default function StatsScreen() {
       }
     })();
   }, [club]);
+
+  // Charger l'historique des 5 derniers matchs confirmés du groupe actif
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!activeGroup?.id) {
+        setHistoryMatches([]);
+        setHistoryProfilesById({});
+        return;
+      }
+
+      try {
+        setHistoryLoading(true);
+        setHistoryError(null);
+
+        const groupId = activeGroup.id;
+
+        // 1. Charger les 5 derniers matchs confirmés du groupe
+        const { data: matchesData, error: matchesError } = await supabase
+          .from('matches')
+          .select(`
+            id,
+            status,
+            created_at,
+            time_slot_id,
+            time_slots (
+              id,
+              starts_at,
+              ends_at
+            )
+          `)
+          .eq('group_id', groupId)
+          .eq('status', 'confirmed')
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (matchesError) throw matchesError;
+
+        if (!matchesData || matchesData.length === 0) {
+          setHistoryMatches([]);
+          setHistoryProfilesById({});
+          return;
+        }
+
+        const matchIds = matchesData.map(m => m.id);
+
+        // 2. Charger les résultats de ces matchs
+        const { data: resultsData, error: resultsError } = await supabase
+          .from('match_results')
+          .select(`
+            match_id,
+            team1_score,
+            team2_score,
+            winner_team,
+            team1_player1_id,
+            team1_player2_id,
+            team2_player1_id,
+            team2_player2_id,
+            score_text,
+            recorded_at
+          `)
+          .in('match_id', matchIds);
+
+        if (resultsError) throw resultsError;
+
+        // 3. Charger les RSVPs de ces matchs
+        const { data: rsvpsData, error: rsvpsError } = await supabase
+          .from('match_rsvps')
+          .select('match_id, user_id, status')
+          .in('match_id', matchIds);
+
+        if (rsvpsError) throw rsvpsError;
+
+        // 4. Indexer résultats et RSVPs par match
+        const resultsByMatchId = new Map();
+        (resultsData || []).forEach(result => {
+          resultsByMatchId.set(result.match_id, result);
+        });
+
+        const rsvpsByMatchId = new Map();
+        (rsvpsData || []).forEach(rsvp => {
+          if (!rsvpsByMatchId.has(rsvp.match_id)) {
+            rsvpsByMatchId.set(rsvp.match_id, []);
+          }
+          rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
+        });
+
+        // 5. Charger les profils de tous les joueurs concernés
+        const allUserIds = new Set();
+        (rsvpsData || []).forEach(r => {
+          if (r.user_id) allUserIds.add(String(r.user_id));
+        });
+        (resultsData || []).forEach(res => {
+          [
+            res.team1_player1_id,
+            res.team1_player2_id,
+            res.team2_player1_id,
+            res.team2_player2_id,
+          ].forEach(id => {
+            if (id) allUserIds.add(String(id));
+          });
+        });
+
+        let profilesMap = {};
+        if (allUserIds.size > 0) {
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, display_name, avatar_url, email, niveau')
+            .in('id', Array.from(allUserIds));
+
+          if (profilesError) throw profilesError;
+
+          profilesMap = (profilesData || []).reduce((acc, p) => {
+            acc[p.id] = p;
+            return acc;
+          }, {});
+        }
+
+        // 6. Combiner les données pour le rendu
+        const matchesWithDetails = matchesData.map(match => ({
+          ...match,
+          result: resultsByMatchId.get(match.id) || null,
+          rsvps: rsvpsByMatchId.get(match.id) || [],
+        }));
+
+        setHistoryMatches(matchesWithDetails);
+        setHistoryProfilesById(profilesMap);
+      } catch (e) {
+        console.error('[Stats] Error loading history matches:', e);
+        setHistoryMatches([]);
+        setHistoryProfilesById({});
+        setHistoryError(e?.message || 'Erreur lors du chargement des derniers matchs.');
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+
+    loadHistory();
+  }, [activeGroup?.id]);
+
+  // Avatar utilisé pour l'historique des matchs (forme du moment)
+  const HistoryAvatar = ({ profile = {}, size = 40 }) => {
+    const uri = profile?.avatar_url || null;
+    const fallback = profile?.display_name || profile?.name || profile?.email || 'Joueur';
+    const level = profile?.niveau ?? profile?.level ?? null;
+
+    let initials = 'U';
+    if (fallback) {
+      const parts = fallback.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        initials = (parts[0][0] || 'U') + (parts[1][0] || 'U');
+      } else if (parts[0]) {
+        initials = parts[0].substring(0, 2).toUpperCase();
+      }
+    }
+
+    return (
+      <View style={{ position: 'relative', width: size, height: size }}>
+        <View
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: '#d1d5db',
+            borderWidth: 2,
+            borderColor: '#374151',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          {uri ? (
+            <Image
+              source={{ uri }}
+              style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
+            />
+          ) : (
+            <Text
+              style={{
+                fontSize: size < 40 ? size / 2.5 : size / 3,
+                fontWeight: '900',
+                color: '#374151',
+                textAlign: 'center',
+              }}
+            >
+              {initials}
+            </Text>
+          )}
+        </View>
+        {level != null && level !== '' && (
+          <View
+            style={{
+              position: 'absolute',
+              right: -4,
+              bottom: -4,
+              width: Math.max(22, Math.round(size * 0.38)),
+              height: Math.max(22, Math.round(size * 0.38)),
+              borderRadius: Math.max(11, Math.round(size * 0.19)),
+              backgroundColor: colorForLevel(level),
+              borderWidth: 1,
+              borderColor: '#ffffff',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text
+              style={{
+                color: '#000000',
+                fontWeight: '900',
+                fontSize: Math.max(10, Math.round(size * 0.34 * 0.6)),
+              }}
+            >
+              {String(level)}
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   // Charger les classements
   useEffect(() => {
@@ -697,15 +921,307 @@ export default function StatsScreen() {
             <Text style={s.tileTitle}>FORME DU MOMENT</Text>
           </View>
           <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-            <Text style={{ fontSize: 14, color: '#9ca3af', fontStyle: 'italic', textAlign: 'center' }}>
-              À venir : historique des 5 derniers matchs et série.
-            </Text>
+            {historyLoading ? (
+              <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                <ActivityIndicator size="small" color={BRAND} />
+                <Text style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+                  Chargement des 5 derniers matchs...
+                </Text>
+              </View>
+            ) : historyError ? (
+              <Text style={{ fontSize: 12, color: '#ef4444', textAlign: 'center' }}>
+                {historyError}
+              </Text>
+            ) : historyMatches.length === 0 ? (
+              <Text style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center' }}>
+                Aucun match validé récent dans ce groupe.
+              </Text>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 16 }}>
+                    MES 5 DERNIERS MATCHS
+                  </Text>
+                  {me?.id && (
+                    <Pressable
+                      onPress={() => {
+                        router.push({
+                          pathname: '/stats/history',
+                          params: { userId: me.id },
+                        });
+                      }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                    >
+                      <Text style={{ fontSize: 12, color: '#e0ff00', fontWeight: '600' }}>
+                        Voir tout
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+                {historyMatches.map((match) => {
+                  const slot = match.time_slots || {};
+                  const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
+
+                  const formatHistoryDate = (startDate, endDate) => {
+                    if (!startDate || !endDate) return 'Date inconnue';
+                    const start = new Date(startDate);
+                    const end = new Date(endDate);
+                    const WD = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+                    const MO = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+                    const wd = WD[start.getDay()] || '';
+                    const dd = String(start.getDate()).padStart(2, '0');
+                    const mo = MO[start.getMonth()] || '';
+                    const startTime = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                    const endTime = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                    return `${wd} ${dd} ${mo} - ${startTime} à ${endTime}`;
+                  };
+
+                  const dateTimeStr = slot.starts_at && slot.ends_at
+                    ? formatHistoryDate(slot.starts_at, slot.ends_at)
+                    : (matchDate ? matchDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Date inconnue');
+
+                  const matchRsvps = match.rsvps || [];
+                  const acceptedPlayers = matchRsvps.filter(r => String(r.status || '').toLowerCase() === 'accepted');
+
+                  return (
+                    <View
+                      key={match.id}
+                      style={{
+                        backgroundColor: '#1e3a5f',
+                        borderRadius: 12,
+                        padding: 12,
+                        marginBottom: 8,
+                        borderWidth: 1,
+                        borderColor: '#2d4a6f',
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
+                            {dateTimeStr}
+                          </Text>
+                          {acceptedPlayers.length > 0 && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                              {(() => {
+                                if (match.result) {
+                                  const team1Players = [
+                                    match.result.team1_player1_id,
+                                    match.result.team1_player2_id
+                                  ].filter(Boolean);
+                                  const team2Players = [
+                                    match.result.team2_player1_id,
+                                    match.result.team2_player2_id
+                                  ].filter(Boolean);
+
+                                  const parseSets = (scoreText) => {
+                                    if (!scoreText) return [];
+                                    const sets = scoreText.split(',').map(s => s.trim());
+                                    return sets.map(set => {
+                                      const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                                      return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                                    });
+                                  };
+
+                                  const sets = parseSets(match.result.score_text);
+                                  let team1SetsWon = 0;
+                                  let team2SetsWon = 0;
+
+                                  sets.forEach(set => {
+                                    if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
+                                      team1SetsWon++;
+                                    } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
+                                      team2SetsWon++;
+                                    }
+                                  });
+
+                                  const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+
+                                  const winningTeamPlayers = actualWinnerTeam === 'team1' ? team1Players : team2Players;
+                                  const losingTeamPlayers = actualWinnerTeam === 'team1' ? team2Players : team1Players;
+
+                                  return (
+                                    <>
+                                      {winningTeamPlayers.map((playerId) => {
+                                        const p = historyProfilesById[String(playerId)];
+                                        if (!p) return null;
+                                        return (
+                                          <View key={playerId} style={{ borderWidth: 2, borderColor: '#10b981', borderRadius: 24, padding: 2 }}>
+                                            <HistoryAvatar
+                                              profile={p}
+                                              size={40}
+                                            />
+                                          </View>
+                                        );
+                                      })}
+                                      <Ionicons name="flash" size={20} color="#10b981" style={{ marginHorizontal: 4 }} />
+                                      {losingTeamPlayers.map((playerId) => {
+                                        const p = historyProfilesById[String(playerId)];
+                                        if (!p) return null;
+                                        return (
+                                          <View key={playerId} style={{ borderWidth: 2, borderColor: '#ef4444', borderRadius: 24, padding: 2 }}>
+                                            <HistoryAvatar
+                                              profile={p}
+                                              size={40}
+                                            />
+                                          </View>
+                                        );
+                                      })}
+                                    </>
+                                  );
+                                } else {
+                                  return acceptedPlayers.slice(0, 4).map((r) => {
+                                    const p = historyProfilesById[String(r.user_id)];
+                                    if (!p) return null;
+                                    return (
+                                      <HistoryAvatar
+                                        key={r.user_id}
+                                        profile={p}
+                                        size={40}
+                                      />
+                                    );
+                                  });
+                                }
+                              })()}
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      {match.result ? (
+                        <>
+                          <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#2d4a6f' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                              <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
+                              <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
+                                Résultat enregistré
+                              </Text>
+                            </View>
+                            {(() => {
+                              const parseSets = (scoreText) => {
+                                if (!scoreText) return [];
+                                const sets = scoreText.split(',').map(s => s.trim());
+                                return sets.map(set => {
+                                  const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                                  return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                                });
+                              };
+
+                              const sets = parseSets(match.result.score_text);
+                              while (sets.length < 3) {
+                                sets.push({ team1: 0, team2: 0 });
+                              }
+
+                              let team1SetsWon = 0;
+                              let team2SetsWon = 0;
+
+                              sets.forEach(set => {
+                                if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
+                                  team1SetsWon++;
+                                } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
+                                  team2SetsWon++;
+                                }
+                              });
+
+                              const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+
+                              const team1Player1 = historyProfilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
+                              const team1Player2 = historyProfilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
+                              const team2Player1 = historyProfilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1';
+                              const team2Player2 = historyProfilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2';
+
+                              const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
+                              const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';
+
+                              return (
+                                <View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                    <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                      {team1Player1} / {team1Player2}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                      {sets.map((set, index) => (
+                                        <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                          {set.team1}
+                                        </Text>
+                                      ))}
+                                    </View>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                      {team2Player1} / {team2Player2}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                      {sets.map((set, index) => (
+                                        <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                          {set.team2}
+                                        </Text>
+                                      ))}
+                                    </View>
+                                  </View>
+                                </View>
+                              );
+                            })()}
+                          </View>
+                          <Pressable
+                            onPress={() => {
+                              router.push({
+                                pathname: '/matches/record-result',
+                                params: { matchId: match.id },
+                              });
+                            }}
+                            style={{
+                              marginTop: 12,
+                              backgroundColor: '#9ca3af',
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              borderRadius: 8,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Ionicons name="create-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                            <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
+                              Modifier le score
+                            </Text>
+                          </Pressable>
+                        </>
+                      ) : (
+                        <Pressable
+                          onPress={() => {
+                            router.push({
+                              pathname: '/matches/record-result',
+                              params: { matchId: match.id },
+                            });
+                          }}
+                          style={{
+                            marginTop: 8,
+                            backgroundColor: '#1a4b97',
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Ionicons name="trophy-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
+                            Enregistrer le score
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+              </>
+            )}
           </View>
         </>
       ))}
 
       {/* Section Badges */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8, marginTop: 16 }}>
+      <View style={{ marginBottom: 8, marginTop: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <Ionicons name="medal" size={22} color="#E0FF00" />
           <Text style={s.tileTitle} numberOfLines={1}>
@@ -715,10 +1231,10 @@ export default function StatsScreen() {
         {!badgesLoading && me?.id && (
           <Pressable
             onPress={() => router.push(`/profiles/${me.id}/trophies`)}
-            style={{ position: 'absolute', right: 0, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+            style={{ marginTop: 4, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 4 }}
           >
-            <Text style={{ fontSize: 12, color: BRAND, fontWeight: '600' }}>Voir tous</Text>
-            <Ionicons name="chevron-forward" size={14} color={BRAND} />
+            <Text style={{ fontSize: 12, color: '#E0FF00', fontWeight: '600' }}>Voir tous</Text>
+            <Ionicons name="chevron-forward" size={14} color="#E0FF00" />
           </Pressable>
         )}
       </View>
@@ -736,7 +1252,7 @@ export default function StatsScreen() {
             {/* Badges rares */}
             {featuredRare.length > 0 && (
               <View style={{ marginTop: 8 }}>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Rares</Text>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#ff751d', textTransform: 'uppercase', marginBottom: 6 }}>Rares</Text>
                 <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                   {featuredRare.slice(0, 3).map((badge) => (
                     <BadgeIcon key={badge.id} badge={badge} size={120} />
@@ -748,7 +1264,7 @@ export default function StatsScreen() {
             {/* Badges récents */}
             {featuredRecent.length > 0 && (
               <View style={{ marginTop: featuredRare.length > 0 ? 12 : 8 }}>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Récents</Text>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#ff751d', textTransform: 'uppercase', marginBottom: 6 }}>Récents</Text>
                 <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                   {featuredRecent.slice(0, 3).map((badge) => (
                     <BadgeIcon key={badge.id} badge={badge} size={120} />
@@ -911,7 +1427,7 @@ const s = StyleSheet.create({
     width: '100%',
   },
   tileTitle: {
-    fontSize: 16,
+    fontSize: 18,
     color: "#E0FF00",
     fontWeight: "700",
     textTransform: 'uppercase',

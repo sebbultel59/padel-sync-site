@@ -5163,6 +5163,9 @@ const HourSlotRow = ({ item }) => {
     const [userLocation, setUserLocation] = React.useState(null);
     
     // État pour le club du match (pour le bouton d'appel)
+    // Utiliser une référence pour mémoriser le club et éviter les changements
+    const matchClubRef = React.useRef(null);
+    const clubIdRef = React.useRef(null);
     const [matchClub, setMatchClub] = React.useState(null);
     const [loadingClub, setLoadingClub] = React.useState(true);
     
@@ -5221,8 +5224,23 @@ const HourSlotRow = ({ item }) => {
       // Utiliser le club_id du groupe actif (club support) si disponible
       const clubId = activeGroup?.club_id;
       
+      // Si le club_id n'a pas changé et qu'on a déjà le club, ne pas recharger
+      if (clubIdRef.current === clubId && matchClubRef.current) {
+        // S'assurer que le state correspond à la référence
+        if (!matchClub || matchClub.id !== matchClubRef.current.id) {
+          setMatchClub(matchClubRef.current);
+        }
+        if (loadingClub) {
+          setLoadingClub(false);
+        }
+        return;
+      }
+      
+      clubIdRef.current = clubId;
+      
       if (!clubId) {
         if (!cancelled) {
+          matchClubRef.current = null;
           setMatchClub(null);
           setLoadingClub(false);
         }
@@ -5241,13 +5259,25 @@ const HourSlotRow = ({ item }) => {
         
         if (error) {
           console.warn('[MatchCardConfirmed] Erreur chargement club:', error);
-          setMatchClub(null);
+          if (!cancelled) {
+            matchClubRef.current = null;
+            setMatchClub(null);
+            setLoadingClub(false);
+          }
         } else if (clubData && clubData.call_button_enabled && clubData.call_phone) {
-          setMatchClub(clubData);
+          // Toujours mettre à jour la référence et le state
+          matchClubRef.current = clubData;
+          if (!cancelled) {
+            setMatchClub(clubData);
+            setLoadingClub(false);
+          }
         } else {
-          setMatchClub(null);
+          if (!cancelled) {
+            matchClubRef.current = null;
+            setMatchClub(null);
+            setLoadingClub(false);
+          }
         }
-        setLoadingClub(false);
       })();
       
       return () => {
@@ -5297,6 +5327,45 @@ const HourSlotRow = ({ item }) => {
     const rsvps = rsvpsByMatch[m.id] || [];
     const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
     const acceptedCount = accepted.length;
+    
+    // Mémoriser le texte du bouton "Appeler" pour éviter les changements de formatage
+    // Utiliser uniquement la référence pour éviter les changements
+    const callButtonTextRef = React.useRef(null);
+    const callButtonText = React.useMemo(() => {
+      // Utiliser la référence plutôt que le state
+      const club = matchClubRef.current;
+      if (!club) {
+        callButtonTextRef.current = null;
+        return null;
+      }
+      
+      // Créer une clé unique basée sur les propriétés du club
+      const clubKey = `${club.id}-${club.call_button_label || ''}-${club.name || ''}`;
+      
+      // Si le texte n'a pas changé, retourner la valeur mémorisée
+      if (callButtonTextRef.current && callButtonTextRef.current.key === clubKey) {
+        return callButtonTextRef.current.value;
+      }
+      
+      const label = club.call_button_label;
+      const name = club.name;
+      let result;
+      
+      if (label) {
+        // Normaliser le texte pour éviter les variations - garder le formatage original exact
+        result = label.includes('\n')
+          ? label
+          : label.replace(/\s+/, '\n');
+      } else {
+        // Format standardisé : "Appeler" avec première lettre en majuscule
+        const clubName = name || 'le club';
+        result = `Appeler\n${clubName}`;
+      }
+      
+      // Mémoriser le résultat
+      callButtonTextRef.current = { key: clubKey, value: result };
+      return result;
+    }, [matchClubRef.current?.id, matchClubRef.current?.call_button_label, matchClubRef.current?.name]);
     // Vérifier si l'utilisateur actuel est dans les joueurs confirmés
     // Vérifier aussi avec différentes variantes de comparaison pour être sûr
     const isUserInAccepted = React.useMemo(() => {
@@ -5763,80 +5832,76 @@ const HourSlotRow = ({ item }) => {
             marginBottom: 4,
             flexDirection: 'row',
             justifyContent: 'space-between',
-            alignItems: 'center',
+            alignItems: 'stretch',
             gap: 8,
           }}
         >
           {/* Bouton appeler le club (si configuré) ou contacter un club */}
-          {matchClub ? (
+          {(() => {
+            // Utiliser UNIQUEMENT la référence pour éviter les changements
+            const club = matchClubRef.current;
+            
+            // Calculer le texte directement depuis la référence
+            // Texte par défaut sur 2 lignes : "APPELER" puis "un club"
+            let buttonText = 'APPELER\nun club';
+            let phoneNumber = null;
+            
+            if (club && club.call_phone) {
+              phoneNumber = club.call_phone;
+              const label = club.call_button_label;
+              const name = club.name;
+              if (label) {
+                buttonText = label.includes('\n') ? label : label.replace(/\s+/, '\n');
+              } else {
+                buttonText = `APPELER\n${name || 'le club'}`;
+              }
+            }
+            
+            // Toujours afficher le même bouton (violet) avec le texte personnalisé
+            return (
               <Pressable
                 onPress={() => {
-                  const phoneUrl = `tel:${matchClub.call_phone}`;
-                  Linking.openURL(phoneUrl).catch(() => {
-                    Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
-                  });
+                  if (phoneNumber) {
+                    const phoneUrl = `tel:${phoneNumber}`;
+                    Linking.openURL(phoneUrl).catch(() => {
+                      Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
+                    });
+                  } else {
+                    setClubModalOpen(true);
+                  }
                 }}
                 style={{
-                  width: '50%',
-                  backgroundColor: '#15803d', // vert
+                  width: '48%',
+                  backgroundColor: '#480c3d', // violine - toujours la même couleur
                   paddingVertical: 0,
                   paddingHorizontal: 10,
                   borderRadius: 8,
-                  alignSelf: 'center',
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  height: 56, // Hauteur fixe identique au bouton PISTE RÉSERVÉE
+                  height: 56,
+                  minHeight: 56,
+                  maxHeight: 56,
                 }}
               >
-                <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
+                <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8, width: 30, height: 30 }} />
                 <Text
                   style={{
                     color: '#ffffff',
                     fontWeight: '900',
                     fontSize: 14,
                     textAlign: 'center',
+                    lineHeight: 16,
+                    textTransform: 'none', // Forcer aucun changement de casse
                   }}
+                  numberOfLines={2}
+                  allowFontScaling={false}
                 >
-                  {matchClub.call_button_label ? 
-                    matchClub.call_button_label.includes('\n') ? 
-                      matchClub.call_button_label : 
-                      matchClub.call_button_label.replace(/\s+/, '\n') :
-                    `Appeler\n${matchClub.name || 'le club'}`
-                  }
+                  {buttonText}
                 </Text>
               </Pressable>
-            ) : (
-              !loadingClub && (
-                <Pressable
-                  onPress={() => setClubModalOpen(true)}
-                  style={{
-                    width: '50%',
-                    backgroundColor: '#480c3d', // violine
-                    paddingVertical: 0,
-                    paddingHorizontal: 10,
-                    borderRadius: 8,
-                    alignSelf: 'center',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: 56, // Hauteur fixe identique au bouton PISTE RÉSERVÉE
-                  }}
-                >
-                  <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
-                  <Text
-                    style={{
-                      color: '#ffffff',
-                      fontWeight: '900',
-                      fontSize: 14,
-                      textAlign: 'center',
-                    }}
-                  >
-                    APPELER un{'\n'}club
-                  </Text>
-                </Pressable>
-              )
-            )}
+            );
+          })()}
 
           {/* Bouton réserver / réservé */}
           <Pressable
@@ -5850,38 +5915,40 @@ const HourSlotRow = ({ item }) => {
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              height: 56, // Hauteur fixe pour aligner avec le bouton APPELER
+              height: 56,
+              minHeight: 56,
+              maxHeight: 56,
             }}
           >
-            {m?.is_court_reserved && m.court_reserved_by && profilesById?.[String(m.court_reserved_by)]?.avatar_url ? (
-              <Image
-                source={{ uri: profilesById[String(m.court_reserved_by)].avatar_url }}
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  marginRight: 16,
-                  borderWidth: 0,
-                  borderColor: '#fff',
-                  resizeMode: 'cover',
-                }}
-              />
-            ) : (
-              <Image
-                source={require('../../../assets/icons/calendrier.png')}
-                style={{
-                  width: 48,
-                  height: 48,
-                  marginRight: 16,
-                  shadowColor: '#fff',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8,
-                  shadowRadius: 3,
-                  resizeMode: 'contain',
-                  tintColor: 'white',
-                }}
-              />
-            )}
+            <View style={{ width: 48, height: 48, marginRight: 16, alignItems: 'center', justifyContent: 'center' }}>
+              {m?.is_court_reserved && m.court_reserved_by && profilesById?.[String(m.court_reserved_by)]?.avatar_url ? (
+                <Image
+                  source={{ uri: profilesById[String(m.court_reserved_by)].avatar_url }}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    borderWidth: 0,
+                    borderColor: '#fff',
+                    resizeMode: 'cover',
+                  }}
+                />
+              ) : (
+                <Image
+                  source={require('../../../assets/icons/calendrier.png')}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    shadowColor: '#fff',
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 0.8,
+                    shadowRadius: 3,
+                    resizeMode: 'contain',
+                    tintColor: 'white',
+                  }}
+                />
+              )}
+            </View>
 
             <Text
               style={{
@@ -5889,7 +5956,9 @@ const HourSlotRow = ({ item }) => {
                 fontWeight: '900',
                 fontSize: 14,
                 textAlign: 'center',
+                lineHeight: 16,
               }}
+              numberOfLines={2}
             >
               {m?.is_court_reserved ? 'PISTE\nRÉSERVÉE' : 'PISTE NON\nRÉSERVÉE'}
             </Text>

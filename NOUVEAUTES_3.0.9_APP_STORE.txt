@@ -1,0 +1,73 @@
+🎾 Padel Sync 3.0.9 - Nouveautés et améliorations
+
+✨ NOUVELLES FONCTIONNALITÉS
+
+Invitation simplifiée par code
+• Remplacement du système QR code par un code d'invitation simple et lisible
+• Nouveau bouton "Inviter via CODE" pour générer et partager votre code en un clic
+• Code d'invitation affiché en grand dans une interface claire et intuitive
+• Instructions étape par étape pour rejoindre un groupe avec le code
+
+Partage d'invitation enrichi
+• Nouveau bouton "Envoyer l'invitation" pour partager directement depuis l'app
+• Message de partage automatique incluant :
+  - Le code d'invitation du groupe
+  - Les instructions détaillées pour rejoindre
+  - Les liens de téléchargement iOS et Android
+  - Un message d'accroche personnalisé
+
+Recherche de clubs améliorée
+• Barre de recherche ajoutée dans la sélection de clubs support
+• Filtrage en temps réel lors de la saisie
+• Tri automatique par distance du domicile (si position disponible)
+• Interface optimisée avec meilleure gestion du clavier
+
+🔧 AMÉLIORATIONS
+
+Interface utilisateur
+• Design modernisé avec nouveaux boutons plus visibles
+• Couleurs optimisées : vert pour les actions principales, rouge foncé pour fermer
+• Espacement amélioré autour des boutons pour une meilleure ergonomie
+• Navigation simplifiée pour une prise en main plus rapide
+
+Expérience utilisateur
+• Modal d'invitation simplifiée et plus claire
+• Gestion améliorée du clavier dans les modals de sélection
+• Affichage optimisé de la liste des clubs même avec le clavier ouvert
+• Parcours utilisateur fluidifié pour l'invitation et la création de groupes
+
+🐛 CORRECTIONS DE BUGS
+
+Compatibilité Android 15
+• Résolution des problèmes de compatibilité avec Android 15
+• Correction des avertissements liés aux API obsolètes pour l'affichage bord à bord
+• Application maintenant entièrement compatible avec les dernières versions d'Android
+
+Stabilité et performances
+• Corrections techniques pour améliorer la stabilité des builds Android
+• Alignement des versions Kotlin et KSP pour éliminer les erreurs de compilation
+• Optimisations générales pour de meilleures performances
+
+🔧 AMÉLIORATIONS TECHNIQUES
+
+Build et compilation
+• Configuration ProGuard ajoutée pour optimiser les builds
+• Configuration Lint améliorée pour réduire les avertissements
+• Scripts de build optimisés pour une compilation plus rapide et fiable
+
+Compatibilité
+• Support complet d'Android 15 (API 35)
+• Compatibilité maintenue avec iOS 15.1+
+• Utilisation des dernières API recommandées pour l'affichage bord à bord
+
+📱 POURQUOI CETTE MISE À JOUR ?
+
+Cette version 3.0.9 se concentre sur l'amélioration de l'expérience d'invitation, une fonctionnalité essentielle pour rassembler vos partenaires de padel. Nous avons simplifié le processus pour que vous puissiez inviter vos amis en quelques secondes, sans complication.
+
+Les améliorations de la recherche de clubs vous permettent également de trouver plus rapidement votre club support lors de la création ou de l'édition d'un groupe.
+
+Enfin, cette mise à jour garantit la compatibilité avec les dernières versions d'Android, notamment Android 15, pour que vous puissiez continuer à utiliser Padel Sync sur tous vos appareils.
+
+🎾 Continuez à organiser vos matchs facilement avec Padel Sync !
+
+

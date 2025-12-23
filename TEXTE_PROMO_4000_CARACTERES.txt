@@ -1,0 +1,53 @@
+🎾 Padel Sync 3.0.9 : Invitez vos amis en un clic !
+
+✨ NOUVELLE VERSION - Améliorations majeures du système d'invitation
+
+Invitez vos partenaires de padel plus facilement que jamais ! La version 3.0.9 apporte des améliorations significatives pour rendre l'organisation de vos matchs encore plus simple et intuitive.
+
+🎯 INVITATION SIMPLIFIÉE
+
+• Nouveau système d'invitation par code : Plus besoin de QR code compliqué ! Un simple code d'invitation que vous pouvez partager instantanément
+• Partage en un clic : Le bouton "Inviter via CODE" vous permet de générer et partager votre code d'invitation en quelques secondes
+• Message de partage enrichi : Lorsque vous partagez votre invitation, le message inclut automatiquement :
+  - Le code d'invitation de votre groupe
+  - Les instructions claires pour rejoindre le groupe
+  - Les liens de téléchargement de l'app (iOS et Android)
+  - Un message d'accroche personnalisé
+
+🔍 RECHERCHE DE CLUBS AMÉLIORÉE
+
+• Barre de recherche en temps réel : Trouvez rapidement votre club support grâce à la nouvelle barre de recherche
+• Filtrage instantané : Les résultats se mettent à jour au fur et à mesure de votre saisie
+• Tri intelligent : Les clubs sont automatiquement triés par distance de votre domicile (si votre position est disponible)
+• Interface optimisée : Meilleure gestion du clavier pour une expérience fluide
+
+🎨 DESIGN ET ERGONOMIE
+
+• Interface modernisée : Nouveaux boutons avec des couleurs plus claires et visibles
+• Espacement amélioré : Meilleure ergonomie avec des boutons plus faciles à utiliser
+• Navigation simplifiée : Parcours utilisateur optimisé pour une prise en main immédiate
+
+🔧 COMPATIBILITÉ ET PERFORMANCES
+
+• Compatible Android 15 : Votre application est maintenant compatible avec la dernière version d'Android
+• Optimisations techniques : Amélioration de la stabilité et des performances
+• Corrections de bugs : Résolution de plusieurs problèmes pour une expérience plus fluide
+
+📱 POURQUOI CHOISIR PADEL SYNC ?
+
+Padel Sync est l'application de référence pour organiser vos matchs de padel en 3 clics. Que vous soyez un joueur occasionnel ou un passionné régulier, notre application vous permet de :
+
+✓ Créer et gérer vos groupes de joueurs facilement
+✓ Organiser vos matchs en quelques secondes
+✓ Inviter vos amis et partenaires simplement
+✓ Suivre vos statistiques et performances
+✓ Trouver les clubs de padel près de chez vous
+✓ Communiquer avec votre groupe directement dans l'app
+
+🎾 REJOIGNEZ LA COMMUNAUTÉ
+
+Des milliers de joueurs de padel utilisent déjà Padel Sync pour organiser leurs matchs. Rejoignez-les et découvrez une nouvelle façon de vivre votre passion du padel !
+
+Téléchargez Padel Sync maintenant et transformez votre façon d'organiser vos matchs. Vos meilleurs matchs commencent ici !
+
+#PadelSync #Padel #Matchs #Organisation #Sport
