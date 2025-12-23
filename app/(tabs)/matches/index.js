@@ -1570,32 +1570,27 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     }, 0)
   , [displayHourReady, displayLongSections]);
   
+  // Matchs à confirmer pour moi : ceux où mon RSVP est "maybe" (je n'ai pas encore confirmé)
   const rsvpTabCount = React.useMemo(() => {
     if (!meId) return 0;
     return (pendingWeek || []).filter(m => {
-      // Vérifier que le match est dans la semaine
-      if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return false;
-      if (!isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)) return false;
-      // Ne montrer que les matchs où le joueur a un RSVP (accepted ou maybe)
+      // Ne garder que les matchs où mon RSVP est "maybe"
       const rsvps = rsvpsByMatch[m.id] || [];
       const mine = rsvps.find((r) => String(r.user_id) === String(meId));
-      return mine && (mine.status === 'accepted' || mine.status === 'maybe');
+      return mine && String(mine.status).toLowerCase() === 'maybe';
     }).length;
-  }, [pendingWeek, currentWs, currentWe, rsvpsByMatch, meId]);
+  }, [pendingWeek, rsvpsByMatch, meId]);
   
-  // Compteur des matchs en attente (statut 'maybe')
+  // Matchs "en attente" pour moi : j'ai déjà confirmé (status "accepted")
   const pendingCount = React.useMemo(() => {
     if (!meId) return 0;
     return (pendingWeek || []).filter(m => {
-      // Vérifier que le match est dans la semaine
-      if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return false;
-      if (!isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)) return false;
-      // Ne montrer que les matchs où le joueur a un RSVP avec statut 'maybe'
+      // Ne garder que les matchs où mon RSVP est "accepted"
       const rsvps = rsvpsByMatch[m.id] || [];
       const mine = rsvps.find((r) => String(r.user_id) === String(meId));
-      return mine && mine.status === 'maybe';
+      return mine && String(mine.status).toLowerCase() === 'accepted';
     }).length;
-  }, [pendingWeek, currentWs, currentWe, rsvpsByMatch, meId]);
+  }, [pendingWeek, rsvpsByMatch, meId]);
   
   // Animation de clignotement pour le tab "match à confirmer"
   const rsvpBlinkAnim = useRef(new Animated.Value(1)).current;
@@ -1638,6 +1633,21 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       return inRange;
     });
     console.log('[Matches] ConfirmedTabCount (with week filter):', filtered.length, 'matches');
+    return filtered.length;
+  }, [confirmedWeek, currentWs, currentWe]);
+  
+  // Compteur des matchs validés sans réservation de terrain
+  const confirmedWithoutReservationCount = React.useMemo(() => {
+    const filtered = (confirmedWeek || []).filter(m => {
+      // Si pas de time_slots, inclure dans le compteur (sera affiché dans les listes)
+      if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
+        return true;
+      }
+      const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+      if (!inRange) return false;
+      // Ne compter que ceux sans réservation de terrain
+      return !m?.is_court_reserved;
+    });
     return filtered.length;
   }, [confirmedWeek, currentWs, currentWe]);
   
@@ -5154,6 +5164,7 @@ const HourSlotRow = ({ item }) => {
     
     // État pour le club du match (pour le bouton d'appel)
     const [matchClub, setMatchClub] = React.useState(null);
+    const [loadingClub, setLoadingClub] = React.useState(true);
     
     // État pour vérifier si un résultat existe déjà et stocker les détails
     const [matchResult, setMatchResult] = React.useState(null);
@@ -5205,19 +5216,28 @@ const HourSlotRow = ({ item }) => {
     
     // Charger les informations du club support du groupe pour le bouton d'appel
     React.useEffect(() => {
+      let cancelled = false;
+      
       // Utiliser le club_id du groupe actif (club support) si disponible
       const clubId = activeGroup?.club_id;
+      
       if (!clubId) {
-        setMatchClub(null);
+        if (!cancelled) {
+          setMatchClub(null);
+          setLoadingClub(false);
+        }
         return;
       }
       
+      setLoadingClub(true);
       (async () => {
         const { data: clubData, error } = await supabase
           .from('clubs')
           .select('id, name, call_button_enabled, call_button_label, call_phone')
           .eq('id', clubId)
           .maybeSingle();
+        
+        if (cancelled) return;
         
         if (error) {
           console.warn('[MatchCardConfirmed] Erreur chargement club:', error);
@@ -5227,7 +5247,12 @@ const HourSlotRow = ({ item }) => {
         } else {
           setMatchClub(null);
         }
+        setLoadingClub(false);
       })();
+      
+      return () => {
+        cancelled = true;
+      };
     }, [activeGroup?.club_id]);
     
     // Vérifier si un résultat existe déjà pour ce match et récupérer les détails
@@ -5744,85 +5769,88 @@ const HourSlotRow = ({ item }) => {
         >
           {/* Bouton appeler le club (si configuré) ou contacter un club */}
           {matchClub ? (
-            <Pressable
-              onPress={() => {
-                const phoneUrl = `tel:${matchClub.call_phone}`;
-                Linking.openURL(phoneUrl).catch(() => {
-                  Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
-                });
-              }}
-              style={{
-                flex: 1,
-                backgroundColor: '#15803d', // vert
-                paddingVertical: 10,
-                paddingHorizontal: 10,
-                borderRadius: 8,
-                alignSelf: 'center',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 56, // Même hauteur que le bouton PISTE RÉSERVÉE (36px image + 20px padding)
-              }}
-            >
-              <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
-              <Text
+              <Pressable
+                onPress={() => {
+                  const phoneUrl = `tel:${matchClub.call_phone}`;
+                  Linking.openURL(phoneUrl).catch(() => {
+                    Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
+                  });
+                }}
                 style={{
-                  color: '#ffffff',
-                  fontWeight: '900',
-                  fontSize: 14,
-                  textAlign: 'center',
+                  width: '50%',
+                  backgroundColor: '#15803d', // vert
+                  paddingVertical: 0,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                  alignSelf: 'center',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: 56, // Hauteur fixe identique au bouton PISTE RÉSERVÉE
                 }}
               >
-                {matchClub.call_button_label ? 
-                  matchClub.call_button_label.includes('\n') ? 
-                    matchClub.call_button_label : 
-                    matchClub.call_button_label.replace(/\s+/, '\n') :
-                  `Appeler\n${matchClub.name || 'le club'}`
-                }
-              </Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => setClubModalOpen(true)}
-              style={{
-                flex: 1,
-                backgroundColor: '#480c3d', // violine
-                paddingVertical: 10,
-                paddingHorizontal: 10,
-                borderRadius: 8,
-                alignSelf: 'center',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 56, // Même hauteur que le bouton PISTE RÉSERVÉE
-              }}
-            >
-              <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
-              <Text
-                style={{
-                  color: '#ffffff',
-                  fontWeight: '900',
-                  fontSize: 14,
-                  textAlign: 'center',
-                }}
-              >
-                APPELER un{'\n'}club
-              </Text>
-            </Pressable>
-          )}
+                <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
+                <Text
+                  style={{
+                    color: '#ffffff',
+                    fontWeight: '900',
+                    fontSize: 14,
+                    textAlign: 'center',
+                  }}
+                >
+                  {matchClub.call_button_label ? 
+                    matchClub.call_button_label.includes('\n') ? 
+                      matchClub.call_button_label : 
+                      matchClub.call_button_label.replace(/\s+/, '\n') :
+                    `Appeler\n${matchClub.name || 'le club'}`
+                  }
+                </Text>
+              </Pressable>
+            ) : (
+              !loadingClub && (
+                <Pressable
+                  onPress={() => setClubModalOpen(true)}
+                  style={{
+                    width: '50%',
+                    backgroundColor: '#480c3d', // violine
+                    paddingVertical: 0,
+                    paddingHorizontal: 10,
+                    borderRadius: 8,
+                    alignSelf: 'center',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: 56, // Hauteur fixe identique au bouton PISTE RÉSERVÉE
+                  }}
+                >
+                  <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text
+                    style={{
+                      color: '#ffffff',
+                      fontWeight: '900',
+                      fontSize: 14,
+                      textAlign: 'center',
+                    }}
+                  >
+                    APPELER un{'\n'}club
+                  </Text>
+                </Pressable>
+              )
+            )}
 
           {/* Bouton réserver / réservé */}
           <Pressable
             onPress={() => toggleCourtReservation(m.id, !!m.is_court_reserved)}
             style={{
-              flex: 1,
+              width: '50%',
               backgroundColor: m?.is_court_reserved ? '#10b981' : '#ef4444',
-              paddingVertical: 4,
+              paddingVertical: 0,
               paddingHorizontal: 10,
               borderRadius: 8,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
+              height: 56, // Hauteur fixe pour aligner avec le bouton APPELER
             }}
           >
             {m?.is_court_reserved && m.court_reserved_by && profilesById?.[String(m.court_reserved_by)]?.avatar_url ? (
@@ -5842,8 +5870,8 @@ const HourSlotRow = ({ item }) => {
               <Image
                 source={require('../../../assets/icons/calendrier.png')}
                 style={{
-                  width: 36,
-                  height: 36,
+                  width: 48,
+                  height: 48,
                   marginRight: 16,
                   shadowColor: '#fff',
                   shadowOffset: { width: 0, height: 0 },
@@ -6980,6 +7008,60 @@ const HourSlotRow = ({ item }) => {
     );
   };
 
+  // Composant pour l'icône rappel vibrante
+  const ReminderIcon = ({ phone, matchDate, onPress }) => {
+    const vibrateAnim = useRef(new Animated.Value(1)).current;
+    
+    useEffect(() => {
+      const vibrateAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(vibrateAnim, {
+            toValue: 0.95,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(vibrateAnim, {
+            toValue: 1.05,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(vibrateAnim, {
+            toValue: 1,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      vibrateAnimation.start();
+      return () => vibrateAnimation.stop();
+    }, [vibrateAnim]);
+
+    if (!phone) return null;
+
+    return (
+      <Pressable
+        onPress={onPress}
+        style={{ position: 'absolute', top: -4, right: -4, zIndex: 10 }}
+      >
+        <Animated.View
+          style={{
+            transform: [{ scale: vibrateAnim }],
+            backgroundColor: '#f59e0b',
+            borderRadius: 12,
+            width: 24,
+            height: 24,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 2,
+            borderColor: '#ffffff',
+          }}
+        >
+          <Ionicons name="notifications" size={14} color="#ffffff" />
+        </Animated.View>
+      </Pressable>
+    );
+  };
+
   const MatchCardPending = ({ m, rsvps: rsvpsProp }) => {
     const slot = m.time_slots || {};
     const rsvps = Array.isArray(rsvpsProp) ? rsvpsProp : (rsvpsByMatch[m.id] || []);
@@ -7136,13 +7218,34 @@ const HourSlotRow = ({ item }) => {
                   const p = profilesById[uid] || {};
                   const isPending = r.status === 'maybe';
                   console.log('[MatchCardPending] Pending user:', uid, 'profile exists:', !!p?.id, 'name:', p?.display_name || p?.name);
+                  
+                  // Obtenir la date du match
+                  const matchDate = slot?.starts_at && slot?.ends_at 
+                    ? formatRange(slot.starts_at, slot.ends_at)
+                    : 'ce match';
+                  
                   return (
-                    <View key={`pend-${uid}`} style={{ alignItems: 'center', gap: 4 }}>
+                    <View key={`pend-${uid}`} style={{ alignItems: 'center', gap: 4, position: 'relative' }}>
                       <LevelAvatar
                         profile={p}
                         rsvpStatus={r.status}
                         onLongPressProfile={openProfile}
                         size={48} // Garder à 48px comme avant
+                      />
+                      <ReminderIcon
+                        phone={p?.phone}
+                        matchDate={matchDate}
+                        onPress={() => {
+                          if (!p?.phone) {
+                            Alert.alert('Erreur', 'Ce joueur n\'a pas de numéro de téléphone enregistré.');
+                            return;
+                          }
+                          const message = `PADEL Sync - Réponds au match du ${matchDate}. Des joueurs t'attendent`;
+                          const smsUrl = `sms:${p.phone}?body=${encodeURIComponent(message)}`;
+                          Linking.openURL(smsUrl).catch(() => {
+                            Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application SMS');
+                          });
+                        }}
                       />
                       {isPending && (
                         <PendingPlayerName player={p} />
@@ -7744,11 +7847,27 @@ const HourSlotRow = ({ item }) => {
               opacity: rsvpBlinkAnim,
             }}
           >
-            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer${pendingCount > 0 ? ` (${pendingCount} en attente)` : ''}`}
+            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
+            {pendingCount > 0 && (
+              <>
+                {"\n"}
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#ef4444' }}>
+                  {`(${pendingCount} en attente)`}
+                </Text>
+              </>
+            )}
           </Animated.Text>
         ) : (
           <Text style={{ fontWeight: '900', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer${pendingCount > 0 ? ` (${pendingCount} en attente)` : ''}`}
+            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
+            {pendingCount > 0 && (
+              <>
+                {"\n"}
+                <Text style={{ fontSize: 11, fontWeight: '600', color: tab === 'rsvp' ? '#ffffff' : '#001831' }}>
+                  {`(${pendingCount} en attente)`}
+                </Text>
+              </>
+            )}
           </Text>
         )}
       </View>
@@ -7782,6 +7901,11 @@ const HourSlotRow = ({ item }) => {
         <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
           {valideWord(confirmedTabCount)}
         </Text>
+        {confirmedWithoutReservationCount > 0 && (
+          <Text style={{ fontSize: 11, fontWeight: '600', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', marginTop: 2 }}>
+            {`${confirmedWithoutReservationCount} sans résa`}
+          </Text>
+        )}
       </View>
     </Pressable>
     </View>
