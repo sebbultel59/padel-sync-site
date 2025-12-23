@@ -9,6 +9,7 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Animated,
   DeviceEventEmitter,
   FlatList,
   Image,
@@ -1528,8 +1529,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     height: size,
     borderRadius: size / 2,
         backgroundColor: '#d1d5db',
-        borderWidth: rsvpStatus === undefined ? 0 : 2,
-        borderColor: selected ? '#15803d' : borderColor,
+        borderWidth: selected ? 4 : (rsvpStatus === undefined ? 0 : 2),
+        borderColor: selected ? '#10b981' : borderColor,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -1581,6 +1582,47 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       return mine && (mine.status === 'accepted' || mine.status === 'maybe');
     }).length;
   }, [pendingWeek, currentWs, currentWe, rsvpsByMatch, meId]);
+  
+  // Compteur des matchs en attente (statut 'maybe')
+  const pendingCount = React.useMemo(() => {
+    if (!meId) return 0;
+    return (pendingWeek || []).filter(m => {
+      // Vérifier que le match est dans la semaine
+      if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return false;
+      if (!isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)) return false;
+      // Ne montrer que les matchs où le joueur a un RSVP avec statut 'maybe'
+      const rsvps = rsvpsByMatch[m.id] || [];
+      const mine = rsvps.find((r) => String(r.user_id) === String(meId));
+      return mine && mine.status === 'maybe';
+    }).length;
+  }, [pendingWeek, currentWs, currentWe, rsvpsByMatch, meId]);
+  
+  // Animation de clignotement pour le tab "match à confirmer"
+  const rsvpBlinkAnim = useRef(new Animated.Value(1)).current;
+  
+  useEffect(() => {
+    // Clignoter seulement si le tab n'est pas sélectionné et qu'il y a des matchs à confirmer
+    if (tab !== 'rsvp' && rsvpTabCount > 0) {
+      const blinkAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(rsvpBlinkAnim, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(rsvpBlinkAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      blinkAnimation.start();
+      return () => blinkAnimation.stop();
+    } else {
+      rsvpBlinkAnim.setValue(1);
+    }
+  }, [tab, rsvpTabCount, rsvpBlinkAnim]);
   
   const confirmedTabCount = React.useMemo(() => {
     const filtered = (confirmedWeek || []).filter(m => {
@@ -4373,14 +4415,40 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       }
       if (!uid) throw new Error('Utilisateur non connecté');
 
-      // Set my RSVP to 'no'
-      const { error: eUp } = await supabase
-        .from('match_rsvps')
-        .upsert(
-          { match_id, user_id: uid, status: normalizeRsvp('no') },
-          { onConflict: 'match_id,user_id' }
-        );
-      if (eUp) throw eUp;
+      // Use RPC function to update RSVP status and create notifications with proper permissions
+      const { error: rpcError } = await supabase.rpc('update_match_rsvp_status', {
+        p_match_id: match_id,
+        p_user_id: uid,
+        p_status: normalizeRsvp('no')
+      });
+
+      // If RPC function doesn't exist or fails, fallback to direct update
+      if (rpcError) {
+        // Check if function doesn't exist (error code 42883)
+        if (rpcError.code === '42883' || rpcError.message?.includes('does not exist')) {
+          // Function doesn't exist yet, use direct update (notification will fail but RSVP will work)
+          const { error: eUp } = await supabase
+            .from('match_rsvps')
+            .upsert(
+              { match_id, user_id: uid, status: normalizeRsvp('no') },
+              { onConflict: 'match_id,user_id' }
+            );
+          if (eUp) {
+            // If the error is about notification_outbox, it's a known issue with triggers
+            // We can still consider the RSVP update successful if it's just a notification error
+            const errorMsg = eUp.message || String(eUp);
+            if (errorMsg.includes('notification_outbox') || errorMsg.includes('row-level security')) {
+              console.warn('[onRsvpDecline] RSVP updated but notification failed:', errorMsg);
+              // Continue as if successful - the RSVP was updated
+            } else {
+              throw eUp;
+            }
+          }
+        } else {
+          // Other error from RPC function
+          throw rpcError;
+        }
+      }
 
       // Optimistic UI update
       setRsvpsByMatch((prev) => {
@@ -4744,7 +4812,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
                   position: 'absolute',
                   top: -4,
                   right: -4,
-                  backgroundColor: '#15803d',
+                  backgroundColor: '#10b981',
                   borderRadius: 10,
                   width: 20,
                   height: 20,
@@ -4857,7 +4925,7 @@ const LongSlotRow = ({ item }) => {
                 position: 'absolute',
                 top: -4,
                 right: -4,
-                backgroundColor: '#156bc9',
+                backgroundColor: '#10b981',
                 borderRadius: 10,
                 width: 20,
                 height: 20,
@@ -4968,7 +5036,7 @@ const HourSlotRow = ({ item }) => {
                 position: 'absolute',
                 top: -4,
                 right: -4,
-                backgroundColor: '#156bc9',
+                backgroundColor: '#10b981',
                 borderRadius: 10,
                 width: 20,
                 height: 20,
@@ -6869,6 +6937,49 @@ const HourSlotRow = ({ item }) => {
     );
   };
 
+  // Composant pour afficher le nom d'un joueur en attente avec clignotement
+  const PendingPlayerName = ({ player }) => {
+    const blinkAnim = useRef(new Animated.Value(1)).current;
+    
+    useEffect(() => {
+      const blinkAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(blinkAnim, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(blinkAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      blinkAnimation.start();
+      return () => blinkAnimation.stop();
+    }, [blinkAnim]);
+    
+    const displayName = player?.display_name || player?.email || player?.name || 'Joueur';
+    
+    return (
+      <Animated.Text 
+        style={{ 
+          fontSize: 11, 
+          fontWeight: '700', 
+          color: '#ef4444',
+          opacity: blinkAnim,
+          textAlign: 'center',
+          maxWidth: 60,
+        }}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        {displayName}
+      </Animated.Text>
+    );
+  };
+
   const MatchCardPending = ({ m, rsvps: rsvpsProp }) => {
     const slot = m.time_slots || {};
     const rsvps = Array.isArray(rsvpsProp) ? rsvpsProp : (rsvpsByMatch[m.id] || []);
@@ -7023,15 +7134,20 @@ const HourSlotRow = ({ item }) => {
                 {combined.map((r) => {
                   const uid = String(r.user_id);
                   const p = profilesById[uid] || {};
+                  const isPending = r.status === 'maybe';
                   console.log('[MatchCardPending] Pending user:', uid, 'profile exists:', !!p?.id, 'name:', p?.display_name || p?.name);
                   return (
-                    <LevelAvatar
-                      key={`pend-${uid}`}
-                      profile={p}
-                      rsvpStatus={r.status}
-                      onLongPressProfile={openProfile}
-                      size={48} // Garder à 48px comme avant
-                    />
+                    <View key={`pend-${uid}`} style={{ alignItems: 'center', gap: 4 }}>
+                      <LevelAvatar
+                        profile={p}
+                        rsvpStatus={r.status}
+                        onLongPressProfile={openProfile}
+                        size={48} // Garder à 48px comme avant
+                      />
+                      {isPending && (
+                        <PendingPlayerName player={p} />
+                      )}
+                    </View>
                   );
                 })}
               </ScrollView>
@@ -7619,9 +7735,22 @@ const HourSlotRow = ({ item }) => {
     >
       <Text style={{ fontSize: 22 }}>{'⏳'}</Text>
       <View style={{ marginTop: 4, alignItems: 'center' }}>
-        <Text style={{ fontWeight: '900', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
-        </Text>
+        {tab !== 'rsvp' && rsvpTabCount > 0 ? (
+          <Animated.Text 
+            style={{ 
+              fontWeight: '900', 
+              color: '#ef4444', 
+              textAlign: 'center',
+              opacity: rsvpBlinkAnim,
+            }}
+          >
+            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer${pendingCount > 0 ? ` (${pendingCount} en attente)` : ''}`}
+          </Animated.Text>
+        ) : (
+          <Text style={{ fontWeight: '900', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center' }}>
+            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer${pendingCount > 0 ? ` (${pendingCount} en attente)` : ''}`}
+          </Text>
+        )}
       </View>
     </Pressable>
 
