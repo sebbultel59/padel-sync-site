@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Image,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -28,6 +29,7 @@ interface Player {
   id: string;
   display_name: string;
   name?: string;
+  avatar_url?: string;
 }
 
 const MATCH_TYPES: { value: MatchType; label: string }[] = [
@@ -98,7 +100,7 @@ export default function MatchResultFormScreen() {
       const playerIds = rsvps.map(r => r.user_id);
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, display_name, name')
+        .select('id, display_name, name, avatar_url')
         .in('id', playerIds);
 
       if (profilesError) throw profilesError;
@@ -107,6 +109,7 @@ export default function MatchResultFormScreen() {
         id: p.id,
         display_name: p.display_name || p.name || 'Joueur',
         name: p.name,
+        avatar_url: p.avatar_url || undefined,
       }));
 
       setPlayers(playersList);
@@ -336,13 +339,13 @@ export default function MatchResultFormScreen() {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: Math.max(insets.bottom + 20, 100) }]}
+        contentContainerStyle={[styles.container, { paddingTop: 40, paddingBottom: Math.max(insets.bottom + 20, 100) }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={() => router.replace({ pathname: '/(tabs)/matches', params: { tab: 'valides' } })} style={styles.backButton}>
             <Text style={styles.backText}>← Retour</Text>
           </Pressable>
           <Text style={styles.title}>Résultat du match</Text>
@@ -422,8 +425,8 @@ export default function MatchResultFormScreen() {
         {!loadingPlayers && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Score par set</Text>
-            <Text style={styles.scoreHint}>
-              Score de l'équipe gagnante - Score de l'équipe perdante
+            <Text style={[styles.scoreHint, { textAlign: 'right' }]}>
+              Equipe gagnante - Equipe perdante
             </Text>
             <View style={styles.setsContainer}>
               {/* Set 1 */}
@@ -599,15 +602,30 @@ export default function MatchResultFormScreen() {
                     ]}
                     disabled={!canSelect}
                   >
-                    <Text
-                      style={[
-                        styles.modalOptionText,
-                        isSelected && styles.modalOptionTextSelected,
-                        !canSelect && styles.modalOptionTextDisabled,
-                      ]}
-                    >
-                      {player.display_name}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      {player.avatar_url ? (
+                        <Image
+                          source={{ uri: player.avatar_url }}
+                          style={{ width: 32, height: 32, borderRadius: 16 }}
+                        />
+                      ) : (
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: '#6b7280', fontSize: 14, fontWeight: '700' }}>
+                            {(player.display_name || player.name || 'J')[0].toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <Text
+                        style={[
+                          styles.modalOptionText,
+                          isSelected && styles.modalOptionTextSelected,
+                          !canSelect && styles.modalOptionTextDisabled,
+                          { flex: 1 },
+                        ]}
+                      >
+                        {player.display_name}
+                      </Text>
+                    </View>
                     {isSelected && <Text style={styles.modalCheck}>✓</Text>}
                   </Pressable>
                 );
@@ -653,15 +671,30 @@ export default function MatchResultFormScreen() {
                     ]}
                     disabled={!canSelect}
                   >
-                    <Text
-                      style={[
-                        styles.modalOptionText,
-                        isSelected && styles.modalOptionTextSelected,
-                        !canSelect && styles.modalOptionTextDisabled,
-                      ]}
-                    >
-                      {player.display_name}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      {player.avatar_url ? (
+                        <Image
+                          source={{ uri: player.avatar_url }}
+                          style={{ width: 32, height: 32, borderRadius: 16 }}
+                        />
+                      ) : (
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: '#6b7280', fontSize: 14, fontWeight: '700' }}>
+                            {(player.display_name || player.name || 'J')[0].toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <Text
+                        style={[
+                          styles.modalOptionText,
+                          isSelected && styles.modalOptionTextSelected,
+                          !canSelect && styles.modalOptionTextDisabled,
+                          { flex: 1 },
+                        ]}
+                      >
+                        {player.display_name}
+                      </Text>
+                    </View>
                     {isSelected && <Text style={styles.modalCheck}>✓</Text>}
                   </Pressable>
                 );

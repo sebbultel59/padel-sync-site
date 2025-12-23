@@ -322,6 +322,7 @@ export default function MatchesScreen() {
   const [profilesById, setProfilesById] = useState({});
   const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
   const [dataVersion, setDataVersion] = useState(0); // Version pour forcer le re-render des listes
+  const [historyMatches, setHistoryMatches] = useState([]); // 5 derniers matchs validés avec résultats
   // États pour les données affichées (mis à jour explicitement)
   const [displayLongSections, setDisplayLongSections] = useState([]);
   const [displayHourReady, setDisplayHourReady] = useState([]);
@@ -1509,7 +1510,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     }
   }
   
-  const borderColor = rsvpStatus === 'accepted' ? '#10b981' : rsvpStatus === 'no' ? '#ef4444' : '#f59e0b';
+  const borderColor = rsvpStatus === 'accepted' ? '#10b981' : rsvpStatus === 'no' ? '#ef4444' : rsvpStatus === undefined ? 'transparent' : '#f59e0b';
   const [imageError, setImageError] = React.useState(false);
   
   const isDisabled = !onPress && !onLongPress;
@@ -1527,7 +1528,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     height: size,
     borderRadius: size / 2,
         backgroundColor: '#d1d5db',
-        borderWidth: 2,
+        borderWidth: rsvpStatus === undefined ? 0 : 2,
         borderColor: selected ? '#15803d' : borderColor,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2308,6 +2309,116 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setTab(urlTab);
     }
   }, [params?.tab]);
+
+  // Charger l'historique des 5 derniers matchs validés
+  const loadHistoryMatches = useCallback(async () => {
+    if (!groupId) {
+      setHistoryMatches([]);
+      return;
+    }
+
+    try {
+      // Charger les 5 derniers matchs validés du groupe, triés par date décroissante
+      const { data: matchesData, error: matchesError } = await supabase
+        .from('matches')
+        .select(`
+          id,
+          status,
+          created_at,
+          time_slot_id,
+          time_slots (
+            id,
+            starts_at,
+            ends_at
+          )
+        `)
+        .eq('group_id', groupId)
+        .eq('status', 'confirmed')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (matchesError) throw matchesError;
+
+      if (!matchesData || matchesData.length === 0) {
+        setHistoryMatches([]);
+        return;
+      }
+
+      // Charger les résultats de ces matchs
+      const matchIds = matchesData.map(m => m.id);
+      const { data: resultsData, error: resultsError } = await supabase
+        .from('match_results')
+        .select(`
+          match_id,
+          team1_score,
+          team2_score,
+          winner_team,
+          team1_player1_id,
+          team1_player2_id,
+          team2_player1_id,
+          team2_player2_id,
+          score_text,
+          recorded_at
+        `)
+        .in('match_id', matchIds);
+
+      if (resultsError) {
+        console.warn('[History] Error loading results:', resultsError);
+      }
+
+      // Charger les RSVPs de ces matchs
+      const { data: rsvpsData, error: rsvpsError } = await supabase
+        .from('match_rsvps')
+        .select('match_id, user_id, status')
+        .in('match_id', matchIds);
+
+      if (rsvpsError) {
+        console.warn('[History] Error loading RSVPs:', rsvpsError);
+      }
+
+      // Créer une map des résultats par match_id
+      const resultsByMatchId = new Map();
+      (resultsData || []).forEach(result => {
+        resultsByMatchId.set(result.match_id, result);
+      });
+
+      // Créer une map des RSVPs par match_id
+      const rsvpsByMatchId = new Map();
+      (rsvpsData || []).forEach(rsvp => {
+        if (!rsvpsByMatchId.has(rsvp.match_id)) {
+          rsvpsByMatchId.set(rsvp.match_id, []);
+        }
+        rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
+      });
+
+      // Mettre à jour rsvpsByMatch pour inclure les RSVPs de l'historique
+      setRsvpsByMatch(prev => {
+        const next = { ...prev };
+        rsvpsByMatchId.forEach((rsvps, matchId) => {
+          next[matchId] = rsvps;
+        });
+        return next;
+      });
+
+      // Combiner les matchs avec leurs résultats
+      const matchesWithResults = matchesData.map(match => ({
+        ...match,
+        result: resultsByMatchId.get(match.id) || null,
+      }));
+
+      setHistoryMatches(matchesWithResults);
+    } catch (e) {
+      console.error('[History] Error loading history matches:', e);
+      setHistoryMatches([]);
+    }
+  }, [groupId]);
+
+  // Charger l'historique quand le groupe change ou quand on passe sur l'onglet valides
+  useEffect(() => {
+    if (tab === 'valides' && groupId) {
+      loadHistoryMatches();
+    }
+  }, [tab, groupId, loadHistoryMatches]);
 
   useEffect(() => {
     (async () => {
@@ -4613,7 +4724,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
                 </Text>
               </View>
             </Pressable>
-          </View>
+        </View>
         )}
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
           {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
@@ -7799,7 +7910,301 @@ const HourSlotRow = ({ item }) => {
                 )}
                 contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
                 scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+          ListFooterComponent={() => (
+            <>
+              {/* Ligne de séparation */}
+              {historyMatches.length > 0 && (
+                <View style={{ height: 1, backgroundColor: '#e0ff00', marginVertical: 20, marginHorizontal: 16 }} />
+              )}
+
+              {/* Historique des 5 derniers matchs */}
+              {historyMatches.length > 0 && (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 18, marginBottom: 12, paddingHorizontal: 4 }}>
+                    MES 5 DERNIERS MATCHS
+                  </Text>
+                  {historyMatches.map((match) => {
+                const slot = match.time_slots || {};
+                const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
+                
+                // Formater la date/heure au format "Mar 23 Déc - 21:00 à 22:30"
+                const formatHistoryDate = (startDate, endDate) => {
+                  if (!startDate || !endDate) return 'Date inconnue';
+                  const start = new Date(startDate);
+                  const end = new Date(endDate);
+                  const WD = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+                  const MO = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+                  const wd = WD[start.getDay()] || '';
+                  const dd = String(start.getDate()).padStart(2, '0');
+                  const mo = MO[start.getMonth()] || '';
+                  const startTime = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                  const endTime = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                  return `${wd} ${dd} ${mo} - ${startTime} à ${endTime}`;
+                };
+                
+                const dateTimeStr = slot.starts_at && slot.ends_at 
+                  ? formatHistoryDate(slot.starts_at, slot.ends_at)
+                  : (matchDate ? matchDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Date inconnue');
+                
+                // Récupérer les joueurs du match
+                const matchRsvps = rsvpsByMatch[match.id] || [];
+                const acceptedPlayers = matchRsvps.filter(r => String(r.status || '').toLowerCase() === 'accepted');
+                
+                return (
+                  <View
+                    key={match.id}
+                    style={{
+                      backgroundColor: '#1e3a5f',
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: '#2d4a6f',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
+                          {dateTimeStr}
+                        </Text>
+                        {acceptedPlayers.length > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                            {(() => {
+                              // Si le match a un résultat, organiser les joueurs par équipe (gagnante d'abord)
+                              if (match.result) {
+                                const team1Players = [
+                                  match.result.team1_player1_id,
+                                  match.result.team1_player2_id
+                                ].filter(Boolean);
+                                const team2Players = [
+                                  match.result.team2_player1_id,
+                                  match.result.team2_player2_id
+                                ].filter(Boolean);
+                                
+                                // Calculer le nombre de sets gagnés par chaque équipe
+                                const parseSets = (scoreText) => {
+                                  if (!scoreText) return [];
+                                  const sets = scoreText.split(',').map(s => s.trim());
+                                  return sets.map(set => {
+                                    const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                                    return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                                  });
+                                };
+                                
+                                const sets = parseSets(match.result.score_text);
+                                let team1SetsWon = 0;
+                                let team2SetsWon = 0;
+                                
+                                sets.forEach(set => {
+                                  // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
+                                  if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
+                                    team1SetsWon++;
+                                  } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
+                                    team2SetsWon++;
+                                  }
+                                });
+                                
+                                // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
+                                const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+                                
+                                // Équipe gagnante en premier (basée sur les sets gagnés, pas sur winner_team)
+                                const winningTeamPlayers = actualWinnerTeam === 'team1' ? team1Players : team2Players;
+                                const losingTeamPlayers = actualWinnerTeam === 'team1' ? team2Players : team1Players;
+                                
+                                return (
+                                  <>
+                                    {/* Joueurs de l'équipe gagnante avec bordure verte */}
+                                    {winningTeamPlayers.map((playerId) => {
+                                      const p = profilesById[String(playerId)];
+                                      if (!p) return null;
+                                      return (
+                                        <View key={playerId} style={{ borderWidth: 2, borderColor: '#10b981', borderRadius: 24, padding: 2 }}>
+                                          <LevelAvatar
+                                            profile={p}
+                                            size={40}
+                                            rsvpStatus={undefined}
+                                            onLongPressProfile={openProfile}
+                                          />
+                                        </View>
+                                      );
+                                    })}
+                                    {/* Icône éclair entre les équipes */}
+                                    <Ionicons name="flash" size={20} color="#10b981" style={{ marginHorizontal: 4 }} />
+                                    {/* Joueurs de l'équipe perdante avec bordure rouge */}
+                                    {losingTeamPlayers.map((playerId) => {
+                                      const p = profilesById[String(playerId)];
+                                      if (!p) return null;
+                                      return (
+                                        <View key={playerId} style={{ borderWidth: 2, borderColor: '#ef4444', borderRadius: 24, padding: 2 }}>
+                                          <LevelAvatar
+                                            profile={p}
+                                            size={40}
+                                            rsvpStatus={undefined}
+                                            onLongPressProfile={openProfile}
+                                          />
+                                        </View>
+                                      );
+                                    })}
+                                  </>
+                                );
+                              } else {
+                                // Pas de résultat, afficher tous les joueurs sans bordure spéciale
+                                return acceptedPlayers.slice(0, 4).map((r) => {
+                                  const p = profilesById[String(r.user_id)];
+                                  if (!p) return null;
+                                  return (
+                                    <LevelAvatar
+                                      key={r.user_id}
+                                      profile={p}
+                                      size={40}
+                                      onLongPressProfile={openProfile}
+                                    />
+                                  );
+                                });
+                              }
+                            })()}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    
+                    {match.result ? (
+                      // Afficher le score
+                      <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#2d4a6f' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                          <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
+                            Résultat enregistré
+                          </Text>
+                        </View>
+                        {(() => {
+                          const parseSets = (scoreText) => {
+                            if (!scoreText) return [];
+                            const sets = scoreText.split(',').map(s => s.trim());
+                            return sets.map(set => {
+                              const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                              return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                            });
+                          };
+                          
+                          const sets = parseSets(match.result.score_text);
+                          while (sets.length < 3) {
+                            sets.push({ team1: 0, team2: 0 });
+                          }
+                          
+                          // Calculer le nombre de sets gagnés par chaque équipe
+                          let team1SetsWon = 0;
+                          let team2SetsWon = 0;
+                          
+                          sets.forEach(set => {
+                            // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
+                            if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
+                              team1SetsWon++;
+                            } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
+                              team2SetsWon++;
+                            }
+                          });
+                          
+                          // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
+                          const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+                          
+                          const team1Player1 = profilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
+                          const team1Player2 = profilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
+                          const team2Player1 = profilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1';
+                          const team2Player2 = profilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2';
+                          
+                          // Couleurs basées sur le nombre de sets gagnés, pas sur winner_team
+                          const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
+                          const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';
+                          
+                          return (
+                            <View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                  {team1Player1} / {team1Player2}
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                  {sets.map((set, index) => (
+                                    <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                      {set.team1}
+                                    </Text>
+                                  ))}
+                                </View>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                  {team2Player1} / {team2Player2}
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                  {sets.map((set, index) => (
+                                    <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                      {set.team2}
+                                    </Text>
+                                  ))}
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })()}
+                        {/* Bouton pour modifier le résultat */}
+                        <Pressable
+                          onPress={() => {
+                            router.push({
+                              pathname: '/matches/record-result',
+                              params: { matchId: match.id },
+                            });
+                          }}
+                          style={{
+                            marginTop: 12,
+                            backgroundColor: '#9ca3af',
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Ionicons name="create-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
+                            Modifier le résultat
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      // Bouton pour enregistrer le score
+                      <Pressable
+                        onPress={() => {
+                          router.push({
+                            pathname: '/matches/record-result',
+                            params: { matchId: match.id },
+                          });
+                        }}
+                        style={{
+                          marginTop: 8,
+                          backgroundColor: '#1a4b97',
+                          paddingVertical: 8,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Ionicons name="trophy-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
+                          Enregistrer le score
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })}
+                </View>
+              )}
+              <View style={{ height: bottomPad + 100 }} />
+            </>
+          )}
         />
             )
           ) : (
@@ -7821,7 +8226,301 @@ const HourSlotRow = ({ item }) => {
                 )}
                 contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
                 scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+                ListFooterComponent={() => (
+                  <>
+                    {/* Ligne de séparation */}
+                    {historyMatches.length > 0 && (
+                      <View style={{ height: 1, backgroundColor: '#e0ff00', marginVertical: 20, marginHorizontal: 16 }} />
+                    )}
+
+                    {/* Historique des 5 derniers matchs */}
+                    {historyMatches.length > 0 && (
+                      <View style={{ marginBottom: 16 }}>
+                        <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 18, marginBottom: 12, paddingHorizontal: 4 }}>
+                          MES 5 DERNIERS MATCHS
+                        </Text>
+                        {historyMatches.map((match) => {
+                          const slot = match.time_slots || {};
+                          const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
+                          
+                          // Formater la date/heure au format "Mar 23 Déc - 21:00 à 22:30"
+                          const formatHistoryDate = (startDate, endDate) => {
+                            if (!startDate || !endDate) return 'Date inconnue';
+                            const start = new Date(startDate);
+                            const end = new Date(endDate);
+                            const WD = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+                            const MO = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+                            const wd = WD[start.getDay()] || '';
+                            const dd = String(start.getDate()).padStart(2, '0');
+                            const mo = MO[start.getMonth()] || '';
+                            const startTime = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                            const endTime = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                            return `${wd} ${dd} ${mo} - ${startTime} à ${endTime}`;
+                          };
+                          
+                          const dateTimeStr = slot.starts_at && slot.ends_at 
+                            ? formatHistoryDate(slot.starts_at, slot.ends_at)
+                            : (matchDate ? matchDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Date inconnue');
+                          
+                          // Récupérer les joueurs du match
+                          const matchRsvps = rsvpsByMatch[match.id] || [];
+                          const acceptedPlayers = matchRsvps.filter(r => String(r.status || '').toLowerCase() === 'accepted');
+                          
+                          return (
+                            <View
+                              key={match.id}
+                              style={{
+                                backgroundColor: '#1e3a5f',
+                                borderRadius: 12,
+                                padding: 12,
+                                marginBottom: 8,
+                                borderWidth: 1,
+                                borderColor: '#2d4a6f',
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
+                                    {dateTimeStr}
+                                  </Text>
+                                  {acceptedPlayers.length > 0 && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                                      {(() => {
+                                        // Si le match a un résultat, organiser les joueurs par équipe (gagnante d'abord)
+                                        if (match.result) {
+                                          const team1Players = [
+                                            match.result.team1_player1_id,
+                                            match.result.team1_player2_id
+                                          ].filter(Boolean);
+                                          const team2Players = [
+                                            match.result.team2_player1_id,
+                                            match.result.team2_player2_id
+                                          ].filter(Boolean);
+                                          
+                                          // Calculer le nombre de sets gagnés par chaque équipe
+                                          const parseSets = (scoreText) => {
+                                            if (!scoreText) return [];
+                                            const sets = scoreText.split(',').map(s => s.trim());
+                                            return sets.map(set => {
+                                              const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                                              return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                                            });
+                                          };
+                                          
+                                          const sets = parseSets(match.result.score_text);
+                                          let team1SetsWon = 0;
+                                          let team2SetsWon = 0;
+                                          
+                                          sets.forEach(set => {
+                                            // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
+                                            if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
+                                              team1SetsWon++;
+                                            } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
+                                              team2SetsWon++;
+                                            }
+                                          });
+                                          
+                                          // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
+                                          const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+                                          
+                                          // Équipe gagnante en premier (basée sur les sets gagnés, pas sur winner_team)
+                                          const winningTeamPlayers = actualWinnerTeam === 'team1' ? team1Players : team2Players;
+                                          const losingTeamPlayers = actualWinnerTeam === 'team1' ? team2Players : team1Players;
+                                          
+                                          return (
+                                            <>
+                                              {/* Joueurs de l'équipe gagnante avec bordure verte */}
+                                              {winningTeamPlayers.map((playerId) => {
+                                                const p = profilesById[String(playerId)];
+                                                if (!p) return null;
+                                                return (
+                                                  <View key={playerId} style={{ borderWidth: 2, borderColor: '#10b981', borderRadius: 24, padding: 2 }}>
+                                                    <LevelAvatar
+                                                      profile={p}
+                                                      size={40}
+                                                      rsvpStatus={undefined}
+                                                      onLongPressProfile={openProfile}
+                                                    />
+                                                  </View>
+                                                );
+                                              })}
+                                              {/* Icône éclair entre les équipes */}
+                                              <Ionicons name="flash" size={20} color="#10b981" style={{ marginHorizontal: 4 }} />
+                                              {/* Joueurs de l'équipe perdante avec bordure rouge */}
+                                              {losingTeamPlayers.map((playerId) => {
+                                                const p = profilesById[String(playerId)];
+                                                if (!p) return null;
+                                                return (
+                                                  <View key={playerId} style={{ borderWidth: 2, borderColor: '#ef4444', borderRadius: 24, padding: 2 }}>
+                                                    <LevelAvatar
+                                                      profile={p}
+                                                      size={40}
+                                                      rsvpStatus={undefined}
+                                                      onLongPressProfile={openProfile}
+                                                    />
+                                                  </View>
+                                                );
+                                              })}
+                                            </>
+                                          );
+                                        } else {
+                                          // Pas de résultat, afficher tous les joueurs sans bordure spéciale
+                                          return acceptedPlayers.slice(0, 4).map((r) => {
+                                            const p = profilesById[String(r.user_id)];
+                                            if (!p) return null;
+                                            return (
+                                              <LevelAvatar
+                                                key={r.user_id}
+                                                profile={p}
+                                                size={40}
+                                                onLongPressProfile={openProfile}
+                                              />
+                                            );
+                                          });
+                                        }
+                                      })()}
+                                    </View>
+                                  )}
+                                </View>
+                              </View>
+                              
+                              {match.result ? (
+                                // Afficher le score
+                                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#2d4a6f' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                    <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
+                                    <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
+                                      Résultat enregistré
+                                    </Text>
+                                  </View>
+                                  {(() => {
+                                    const parseSets = (scoreText) => {
+                                      if (!scoreText) return [];
+                                      const sets = scoreText.split(',').map(s => s.trim());
+                                      return sets.map(set => {
+                                        const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
+                                        return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
+                                      });
+                                    };
+                                    
+                                    const sets = parseSets(match.result.score_text);
+                                    while (sets.length < 3) {
+                                      sets.push({ team1: 0, team2: 0 });
+                                    }
+                                    
+                                    // Calculer le nombre de sets gagnés par chaque équipe
+                                    let team1SetsWon = 0;
+                                    let team2SetsWon = 0;
+                                    
+                                    sets.forEach(set => {
+                                      // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
+                                      if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
+                                        team1SetsWon++;
+                                      } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
+                                        team2SetsWon++;
+                                      }
+                                    });
+                                    
+                                    // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
+                                    const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+                                    
+                                    const team1Player1 = profilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
+                                    const team1Player2 = profilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
+                                    const team2Player1 = profilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1';
+                                    const team2Player2 = profilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2';
+                                    
+                                    // Couleurs basées sur le nombre de sets gagnés, pas sur winner_team
+                                    const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
+                                    const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';
+                                    
+                                    return (
+                                      <View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                          <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                            {team1Player1} / {team1Player2}
+                                          </Text>
+                                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                                            {sets.map((set, index) => (
+                                              <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                              {set.team1}
+                                            </Text>
+                                            ))}
+                                          </View>
+                                        </View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                          <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                            {team2Player1} / {team2Player2}
+                                          </Text>
+                                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                                            {sets.map((set, index) => (
+                                              <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                                {set.team2}
+                                              </Text>
+                                            ))}
+                                          </View>
+                                        </View>
+                                      </View>
+                                    );
+                                  })()}
+                                  {/* Bouton pour modifier le résultat */}
+                                  <Pressable
+                                    onPress={() => {
+                                      router.push({
+                                        pathname: '/matches/record-result',
+                                        params: { matchId: match.id },
+                                      });
+                                    }}
+                                    style={{
+                                      marginTop: 12,
+                                      backgroundColor: '#9ca3af',
+                                      paddingVertical: 8,
+                                      paddingHorizontal: 12,
+                                      borderRadius: 8,
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Ionicons name="create-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                                    <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
+                                      Modifier le résultat
+                                    </Text>
+                                  </Pressable>
+                                </View>
+                              ) : (
+                                // Bouton pour enregistrer le score
+                                <Pressable
+                                  onPress={() => {
+                                    router.push({
+                                      pathname: '/matches/record-result',
+                                      params: { matchId: match.id },
+                                    });
+                                  }}
+                                  style={{
+                                    marginTop: 8,
+                                    backgroundColor: '#1a4b97',
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Ionicons name="trophy-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                                  <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
+                                    Enregistrer le score
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                    <View style={{ height: bottomPad + 100 }} />
+                  </>
+                )}
               />
             )
           )}
