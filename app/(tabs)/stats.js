@@ -5,13 +5,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from "../../context/auth";
@@ -1090,12 +1090,6 @@ export default function StatsScreen() {
                       {match.result ? (
                         <>
                           <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#2d4a6f' }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                              <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
-                              <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
-                                Résultat enregistré
-                              </Text>
-                            </View>
                             {(() => {
                               const parseSets = (scoreText) => {
                                 if (!scoreText) return [];
@@ -1123,6 +1117,21 @@ export default function StatsScreen() {
                               });
 
                               const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
+                              
+                              // Déterminer si l'utilisateur actuel a gagné
+                              const userId = String(me?.id || user?.id || '');
+                              const isUserInTeam1 = userId && (
+                                String(match.result.team1_player1_id) === userId || 
+                                String(match.result.team1_player2_id) === userId
+                              );
+                              const isUserInTeam2 = userId && (
+                                String(match.result.team2_player1_id) === userId || 
+                                String(match.result.team2_player2_id) === userId
+                              );
+                              const isUserWinner = (isUserInTeam1 && actualWinnerTeam === 'team1') || 
+                                                   (isUserInTeam2 && actualWinnerTeam === 'team2');
+                              const isUserLoser = (isUserInTeam1 && actualWinnerTeam === 'team2') || 
+                                                  (isUserInTeam2 && actualWinnerTeam === 'team1');
 
                               const team1Player1 = historyProfilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
                               const team1Player2 = historyProfilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
@@ -1133,32 +1142,58 @@ export default function StatsScreen() {
                               const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';
 
                               return (
-                                <View>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                    <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
-                                      {team1Player1} / {team1Player2}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                                      {sets.map((set, index) => (
-                                        <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
-                                          {set.team1}
+                                <>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                    {isUserWinner ? (
+                                      <>
+                                        <Ionicons name="trophy" size={20} color="#10b981" style={{ marginRight: 6 }} />
+                                        <Text style={{ color: '#10b981', fontWeight: '700', fontSize: 16 }}>
+                                          Victoire
                                         </Text>
-                                      ))}
+                                      </>
+                                    ) : isUserLoser ? (
+                                      <>
+                                        <Ionicons name="close-circle" size={20} color="#ef4444" style={{ marginRight: 6 }} />
+                                        <Text style={{ color: '#ef4444', fontWeight: '700', fontSize: 16 }}>
+                                          Défaite
+                                        </Text>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
+                                        <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
+                                          Résultat enregistré
+                                        </Text>
+                                      </>
+                                    )}
+                                  </View>
+                                  <View>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                      <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                        {team1Player1} / {team1Player2}
+                                      </Text>
+                                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        {sets.map((set, index) => (
+                                          <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                            {set.team1}
+                                          </Text>
+                                        ))}
+                                      </View>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                      <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
+                                        {team2Player1} / {team2Player2}
+                                      </Text>
+                                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        {sets.map((set, index) => (
+                                          <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
+                                            {set.team2}
+                                          </Text>
+                                        ))}
+                                      </View>
                                     </View>
                                   </View>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
-                                      {team2Player1} / {team2Player2}
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                                      {sets.map((set, index) => (
-                                        <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
-                                          {set.team2}
-                                        </Text>
-                                      ))}
-                                    </View>
-                                  </View>
-                                </View>
+                                </>
                               );
                             })()}
                           </View>

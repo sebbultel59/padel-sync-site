@@ -854,13 +854,23 @@ const pendingHourWeek = React.useMemo(
     return pendingWeek.filter(m => {
       // Vérifier la durée (1h max)
       if (durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) > 60) return false;
+      
+      // Filtrer par semaine
+      if (m?.time_slots?.starts_at && m?.time_slots?.ends_at) {
+        const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+        if (!inRange) {
+          console.log('[pendingHourWeek] Match exclu par isInWeekRange:', m.id, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at, 'week:', currentWs.toISOString().split('T')[0], 'to', currentWe.toISOString().split('T')[0]);
+          return false;
+        }
+      }
+      
       // Ne montrer que les matchs où le joueur a un RSVP (accepted ou maybe)
       const rsvps = rsvpsByMatch[m.id] || [];
       const mine = rsvps.find((r) => String(r.user_id) === String(meId));
       return mine && (mine.status === 'accepted' || mine.status === 'maybe');
     });
   },
-  [pendingWeek, rsvpsByMatch, meId]
+  [pendingWeek, rsvpsByMatch, meId, currentWs, currentWe]
 );
   
 const pendingLongWeek = React.useMemo(
@@ -869,13 +879,23 @@ const pendingLongWeek = React.useMemo(
     return pendingWeek.filter(m => {
       // Vérifier la durée (1h30 min)
       if (durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60) return false;
+      
+      // Filtrer par semaine
+      if (m?.time_slots?.starts_at && m?.time_slots?.ends_at) {
+        const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+        if (!inRange) {
+          console.log('[pendingLongWeek] Match exclu par isInWeekRange:', m.id, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at, 'week:', currentWs.toISOString().split('T')[0], 'to', currentWe.toISOString().split('T')[0]);
+          return false;
+        }
+      }
+      
       // Ne montrer que les matchs où le joueur a un RSVP (accepted ou maybe)
       const rsvps = rsvpsByMatch[m.id] || [];
       const mine = rsvps.find((r) => String(r.user_id) === String(meId));
       return mine && (mine.status === 'accepted' || mine.status === 'maybe');
     });
   },
-  [pendingWeek, rsvpsByMatch, meId]
+  [pendingWeek, rsvpsByMatch, meId, currentWs, currentWe]
 );
 
 const confirmedHourWeek = React.useMemo(
@@ -1574,23 +1594,35 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   const rsvpTabCount = React.useMemo(() => {
     if (!meId) return 0;
     return (pendingWeek || []).filter(m => {
+      // Filtrer par semaine
+      if (m?.time_slots?.starts_at && m?.time_slots?.ends_at) {
+        const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+        if (!inRange) return false;
+      }
+      
       // Ne garder que les matchs où mon RSVP est "maybe"
       const rsvps = rsvpsByMatch[m.id] || [];
       const mine = rsvps.find((r) => String(r.user_id) === String(meId));
       return mine && String(mine.status).toLowerCase() === 'maybe';
     }).length;
-  }, [pendingWeek, rsvpsByMatch, meId]);
+  }, [pendingWeek, rsvpsByMatch, meId, currentWs, currentWe]);
   
   // Matchs "en attente" pour moi : j'ai déjà confirmé (status "accepted")
   const pendingCount = React.useMemo(() => {
     if (!meId) return 0;
     return (pendingWeek || []).filter(m => {
+      // Filtrer par semaine
+      if (m?.time_slots?.starts_at && m?.time_slots?.ends_at) {
+        const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+        if (!inRange) return false;
+      }
+      
       // Ne garder que les matchs où mon RSVP est "accepted"
       const rsvps = rsvpsByMatch[m.id] || [];
       const mine = rsvps.find((r) => String(r.user_id) === String(meId));
       return mine && String(mine.status).toLowerCase() === 'accepted';
     }).length;
-  }, [pendingWeek, rsvpsByMatch, meId]);
+  }, [pendingWeek, rsvpsByMatch, meId, currentWs, currentWe]);
   
   // Animation de clignotement pour le tab "match à confirmer"
   const rsvpBlinkAnim = useRef(new Animated.Value(1)).current;
@@ -5792,16 +5824,80 @@ const HourSlotRow = ({ item }) => {
     console.log('[MatchCardConfirmed] slotDate:', slotDate, 'slot.starts_at:', slot.starts_at, 'slot.ends_at:', slot.ends_at, 'm:', m.id, 'm.time_slot_id:', m?.time_slot_id);
     const matchDate = m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : null;
 
+    // Fonction pour ouvrir Google Calendar avec l'événement pré-rempli
+    const handleDatePress = React.useCallback(async () => {
+      if (!slot.starts_at || !slot.ends_at) {
+        return;
+      }
+
+      const startDate = new Date(slot.starts_at);
+      const endDate = new Date(slot.ends_at);
+      
+      // Vérifier que les dates sont valides
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        Alert.alert('Erreur', 'Date invalide');
+        return;
+      }
+
+      const groupName = activeGroup?.name || 'Match de padel';
+      const title = encodeURIComponent(`Match de padel - ${groupName}`);
+      const description = encodeURIComponent(`Match de padel avec ${accepted.length} joueur${accepted.length > 1 ? 's' : ''}`);
+
+      // Formater les dates pour Google Calendar (format ISO UTC: YYYYMMDDTHHMMSSZ)
+      const formatDateForGoogleCalendar = (date) => {
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+        return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+      };
+
+      const startStr = formatDateForGoogleCalendar(startDate);
+      const endStr = formatDateForGoogleCalendar(endDate);
+      
+      // URL Google Calendar qui ouvre directement le calendrier avec l'événement pré-rempli
+      // Fonctionne sur iOS, Android et Web, et propose automatiquement d'ajouter au calendrier
+      const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startStr}/${endStr}&details=${description}`;
+
+      try {
+        // Ouvrir Google Calendar qui permet d'ajouter l'événement au calendrier
+        // Sur mobile, cela ouvrira l'app Google Calendar si installée, sinon le navigateur
+        await Linking.openURL(googleCalendarUrl);
+      } catch (error) {
+        console.error('[MatchCardConfirmed] Erreur ouverture calendrier:', error);
+        Alert.alert('Erreur', 'Impossible d\'ouvrir le calendrier');
+      }
+    }, [slot.starts_at, slot.ends_at, activeGroup?.name, accepted.length]);
+
     return (
       <View style={[cardStyle, { backgroundColor: reserved ? '#dcfce7' : '#fee2e2', borderColor: '#063383' }]}>
         {slotDate ? (
-          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
-            {slotDate}
-        </Text>
+          <Pressable
+            onPress={handleDatePress}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.7 : 1,
+              marginBottom: 6,
+            })}
+          >
+            <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
+              {slotDate}
+            </Text>
+          </Pressable>
         ) : matchDate ? (
-          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
-            Match du {matchDate}
-          </Text>
+          <Pressable
+            onPress={slot.starts_at && slot.ends_at ? handleDatePress : undefined}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.7 : 1,
+              marginBottom: 6,
+            })}
+            disabled={!slot.starts_at || !slot.ends_at}
+          >
+            <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
+              Match du {matchDate}
+            </Text>
+          </Pressable>
         ) : (
           <Text style={{ fontWeight: '800', color: '#6b7280', fontSize: 14, marginBottom: 6, fontStyle: 'italic' }}>
             Date non définie
@@ -7110,22 +7206,36 @@ const HourSlotRow = ({ item }) => {
     return (
       <Pressable
         onPress={onPress}
-        style={{ position: 'absolute', top: -4, right: -4, zIndex: 10 }}
+        style={{ 
+          position: 'absolute', 
+          top: 0, 
+          right: 0, 
+          zIndex: 1000, 
+          elevation: 10,
+          width: 28,
+          height: 28,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
       >
         <Animated.View
           style={{
             transform: [{ scale: vibrateAnim }],
             backgroundColor: '#f59e0b',
-            borderRadius: 12,
-            width: 24,
-            height: 24,
+            borderRadius: 14,
+            width: 28,
+            height: 28,
             alignItems: 'center',
             justifyContent: 'center',
             borderWidth: 2,
             borderColor: '#ffffff',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.5,
+            shadowRadius: 3,
           }}
         >
-          <Ionicons name="notifications" size={14} color="#ffffff" />
+          <Ionicons name="notifications" size={16} color="#ffffff" />
         </Animated.View>
       </Pressable>
     );
@@ -7191,6 +7301,18 @@ const HourSlotRow = ({ item }) => {
         } else {
           setExtraProfiles({});
         }
+        
+        // Charger aussi les profils des joueurs en attente (maybe/no) pour avoir leur téléphone
+        const pendingUserIds = [...maybes, ...declined].map(r => String(r.user_id));
+        const missingPending = pendingUserIds.filter((id) => !profilesById[id] && !extraProfiles[id]);
+        if (missingPending.length) {
+          const { data: profsPending } = await supabase
+            .from('profiles')
+            .select('id, display_name, avatar_url, email, niveau, phone')
+            .in('id', missingPending);
+          const mapPending = Object.fromEntries((profsPending || []).map((p) => [p.id, p]));
+          setExtraProfiles(prev => ({ ...prev, ...mapPending }));
+        }
       })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [m?.id, m?.time_slots?.starts_at, m?.time_slots?.ends_at, groupId, rsvpsByMatch]);
@@ -7254,8 +7376,8 @@ const HourSlotRow = ({ item }) => {
         )}
 
         {/* Ligne 4 — En attente / Remplaçants : une SEULE ligne d'avatars (orange), non cliquables */}
-        <View style={{ marginTop: 2, marginBottom: 20 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+        <View style={{ marginTop: 2, marginBottom: 4, overflow: 'visible' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 0 }}>
             <Text style={{ fontWeight: '800', color: '#111827' }}>En attente / Remplaçants</Text>
           </View>
 
@@ -7271,58 +7393,59 @@ const HourSlotRow = ({ item }) => {
             }
 
             return (
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false} 
-                contentContainerStyle={{ 
-                  gap: 8, 
-                  paddingRight: 4, 
-                  paddingVertical: 4, // Padding vertical minimal pour voir la pastille en entier
-                  alignItems: 'center' 
-                }}
-                style={{ minHeight: 56 }} // Hauteur minimale réduite pour accommoder avatar 48px + pastille
-              >
-                {combined.map((r) => {
-                  const uid = String(r.user_id);
-                  const p = profilesById[uid] || {};
-                  const isPending = r.status === 'maybe';
-                  console.log('[MatchCardPending] Pending user:', uid, 'profile exists:', !!p?.id, 'name:', p?.display_name || p?.name);
-                  
-                  // Obtenir la date du match
-                  const matchDate = slot?.starts_at && slot?.ends_at 
-                    ? formatRange(slot.starts_at, slot.ends_at)
-                    : 'ce match';
-                  
-                  return (
-                    <View key={`pend-${uid}`} style={{ alignItems: 'center', gap: 4, position: 'relative' }}>
-                      <LevelAvatar
-                        profile={p}
-                        rsvpStatus={r.status}
-                        onLongPressProfile={openProfile}
-                        size={48} // Garder à 48px comme avant
-                      />
-                      <ReminderIcon
-                        phone={p?.phone}
-                        matchDate={matchDate}
-                        onPress={() => {
-                          if (!p?.phone) {
-                            Alert.alert('Erreur', 'Ce joueur n\'a pas de numéro de téléphone enregistré.');
-                            return;
-                          }
-                          const message = `PADEL Sync - Réponds au match du ${matchDate}. Des joueurs t'attendent`;
-                          const smsUrl = `sms:${p.phone}?body=${encodeURIComponent(message)}`;
-                          Linking.openURL(smsUrl).catch(() => {
-                            Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application SMS');
-                          });
-                        }}
-                      />
-                      {isPending && (
-                        <PendingPlayerName player={p} />
-                      )}
-                    </View>
-                  );
-                })}
-              </ScrollView>
+              <View style={{ overflow: 'visible', minHeight: 70 }}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  style={{ overflow: 'visible' }}
+                  contentContainerStyle={{ 
+                    gap: 8, 
+                    paddingRight: 4, 
+                    paddingVertical: 12,
+                    paddingTop: 12,
+                    alignItems: 'center',
+                  }}
+                >
+                  {combined.map((r) => {
+                    const uid = String(r.user_id);
+                    const p = profilesById[uid] || extraProfiles[uid] || {};
+                    const isPending = r.status === 'maybe';
+                    console.log('[MatchCardPending] Pending user:', uid, 'profile exists:', !!p?.id, 'name:', p?.display_name || p?.name, 'phone:', !!p?.phone);
+                    
+                    // Obtenir la date du match
+                    const matchDate = slot?.starts_at && slot?.ends_at 
+                      ? formatRange(slot.starts_at, slot.ends_at)
+                      : 'ce match';
+                    
+                    return (
+                      <View key={`pend-${uid}`} style={{ alignItems: 'center', gap: 4, position: 'relative', paddingTop: 4, paddingHorizontal: 4, minWidth: 56, minHeight: 56 }}>
+                        <LevelAvatar
+                          profile={p}
+                          rsvpStatus={r.status}
+                          onLongPressProfile={openProfile}
+                          size={48} // Garder à 48px comme avant
+                        />
+                        {p?.phone && (
+                          <ReminderIcon
+                            phone={p.phone}
+                            matchDate={matchDate}
+                            onPress={() => {
+                              const message = `PADEL Sync - Réponds au match du ${matchDate}. Des joueurs t'attendent`;
+                              const smsUrl = `sms:${p.phone}?body=${encodeURIComponent(message)}`;
+                              Linking.openURL(smsUrl).catch(() => {
+                                Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application SMS');
+                              });
+                            }}
+                          />
+                        )}
+                        {isPending && (
+                          <PendingPlayerName player={p} />
+                        )}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             );
           })()}
         </View>
@@ -8875,31 +8998,33 @@ const HourSlotRow = ({ item }) => {
       </Pressable>
       )}
 
-      {/* 5 — Match éclair */}
+      {/* 5 — Match éclair - Bouton flottant toujours visible sur tous les onglets */}
       <Step order={4} name="flash" text="Pressé ? Propose un match maintenant en 3 clics.">
-        <Pressable
-          onPress={() => openFlashMatchDateModal()}
-          style={{
-            position: 'absolute',
-            bottom: (tabBarHeight || 0) + 140,
-            right: 3,
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            backgroundColor: '#e0ff00',
-            alignItems: 'center',
-            justifyContent: 'center',
-            elevation: 8,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 4,
-            zIndex: 1000,
-          }}
-        >
-          <Ionicons name="flash" size={24} color="#000000" />
-        </Pressable>
+        <View style={{ position: 'absolute', bottom: (tabBarHeight || 0) + 140, right: 13, width: 48, height: 48 }} />
       </Step>
+      {/* Bouton flottant match éclair - toujours visible sur tous les onglets */}
+      <Pressable
+        onPress={() => openFlashMatchDateModal()}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0) + 140,
+          right: 13,
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          backgroundColor: '#e0ff00',
+          alignItems: 'center',
+          justifyContent: 'center',
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 4,
+          zIndex: 1000,
+        }}
+      >
+        <Ionicons name="flash" size={24} color="#000000" />
+      </Pressable>
 
       {/* Modale de choix date/heure/durée */}
       <Modal

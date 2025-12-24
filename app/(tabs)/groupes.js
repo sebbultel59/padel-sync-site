@@ -332,10 +332,11 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
   }, []);
 
   const openProfileForProfile = useCallback((p) => {
-    console.log('[openProfileForProfile] Called with profile:', p?.name, p?.email);
-    setProfileProfile(p || null);
-    setProfileVisible(true);
-  }, []);
+    if (p?.id) {
+      console.log('[openProfileForProfile] Navigation vers profil:', p.id, p?.name);
+      router.push(`/profiles/${p.id}`);
+    }
+  }, [router]);
 
   const loadGroups = useCallback(async () => {
     try {
