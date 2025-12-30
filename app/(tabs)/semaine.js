@@ -1244,6 +1244,56 @@ export default function Semaine() {
     }
   }
 
+  // Met tous les créneaux de la semaine en cours en disponible
+  async function setAllWeekAvailable() {
+    try {
+      const allSlots = [];
+      for (const day of days) {
+        for (const { hour, minute } of hoursOfDay) {
+          const startIso = keySlot(day, hour, minute);
+          // Vérifier si le créneau est dans le passé
+          const slotDateTime = dayjs(startIso);
+          const now = dayjs();
+          if (!slotDateTime.isBefore(now)) {
+            allSlots.push(startIso);
+          }
+        }
+      }
+      if (allSlots.length > 0) {
+        await setMyAvailabilityBulk(allSlots, 'available');
+        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
+      }
+    } catch (e) {
+      console.warn('[setAllWeekAvailable] error:', e);
+      safeAlert('Erreur', e?.message ?? String(e));
+    }
+  }
+
+  // Retire tous les créneaux de la semaine en cours de la disponibilité
+  async function setAllWeekUnavailable() {
+    try {
+      const allSlots = [];
+      for (const day of days) {
+        for (const { hour, minute } of hoursOfDay) {
+          const startIso = keySlot(day, hour, minute);
+          // Vérifier si le créneau est dans le passé
+          const slotDateTime = dayjs(startIso);
+          const now = dayjs();
+          if (!slotDateTime.isBefore(now)) {
+            allSlots.push(startIso);
+          }
+        }
+      }
+      if (allSlots.length > 0) {
+        await setMyNeutralBulk(allSlots);
+        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
+      }
+    } catch (e) {
+      console.warn('[setAllWeekUnavailable] error:', e);
+      safeAlert('Erreur', e?.message ?? String(e));
+    }
+  }
+
 function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithStatus, onRangeCompleted, mode = 'body' }) {
     const isToday = day.isSame(dayjs(), "day");
     const [colLayoutY, setColLayoutY] = useState(0);
@@ -1615,6 +1665,77 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 textAlign: 'center'
               }}>
                 Appliquer à tous mes groupes
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Boutons "Tout dispo" et "Aucune dispo" */}
+        {activeGroup?.name && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingLeft: Math.max(12, insets.left + 8),
+              paddingRight: Math.max(12, insets.right + 8),
+              marginTop: isPortrait ? 4 : 2,
+              marginBottom: isPortrait ? 6 : 4,
+              width: '100%',
+              gap: 8,
+            }}
+          >
+            {/* Bouton gauche : Tout dispo */}
+            <Pressable
+              onPress={setAllWeekAvailable}
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                backgroundColor: '#2fc249',
+                borderWidth: 1,
+                borderColor: '#28a745',
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+              }}
+            >
+              <Text style={{ 
+                fontWeight: '700', 
+                color: '#ffffff', 
+                fontSize: 12,
+                textAlign: 'center'
+              }}>
+                Tout dispo
+              </Text>
+            </Pressable>
+            
+            {/* Bouton droite : Aucune dispo */}
+            <Pressable
+              onPress={setAllWeekUnavailable}
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                backgroundColor: '#ef4444',
+                borderWidth: 1,
+                borderColor: '#dc2626',
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+              }}
+            >
+              <Text style={{ 
+                fontWeight: '700', 
+                color: '#ffffff', 
+                fontSize: 12,
+                textAlign: 'center'
+              }}>
+                Aucune dispo
               </Text>
             </Pressable>
           </View>

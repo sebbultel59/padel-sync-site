@@ -529,8 +529,18 @@ const longReadyWeek = React.useMemo(
         return aStart - bStart;
       });
       
+      // Filtrer pour ne garder que les créneaux où l'utilisateur authentifié est disponible
+      const sortedWithMe = meId ? sorted.filter(slot => {
+        const readyUserIds = slot.ready_user_ids || [];
+        const isUserAvailable = readyUserIds.some(uid => String(uid) === String(meId));
+        if (!isUserAvailable) {
+          console.log('[longReadyWeek] ⚠️ Créneau exclu (utilisateur non disponible):', slot.time_slot_id, slot.starts_at);
+        }
+        return isUserAvailable;
+      }) : sorted;
+      
       // Filtrer par niveau ciblé si activé
-      let finalFiltered = sorted;
+      let finalFiltered = sortedWithMe;
       if (filterByLevel) {
         const allowedLevels = new Set(
           (filterLevels || [])
@@ -538,9 +548,14 @@ const longReadyWeek = React.useMemo(
             .filter((n) => Number.isFinite(n))
         );
         if (allowedLevels.size > 0) {
-          finalFiltered = sorted.filter(slot => {
+          finalFiltered = sortedWithMe.filter(slot => {
             // Filtrer les joueurs pour ne garder que ceux avec les niveaux autorisés
             const userIds = slot.ready_user_ids || [];
+            
+            // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
+            const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+            if (!isUserAvailable) return false;
+            
             const filteredUserIds = userIds.filter(uid => {
               const profile = profilesById[String(uid)];
               if (!profile?.niveau) return false;
@@ -572,7 +587,7 @@ const longReadyWeek = React.useMemo(
               ready_user_ids: filteredUserIds,
             };
           });
-          console.log('[longReadyWeek] Après filtrage par niveau:', finalFiltered.length, 'sur', sorted.length, 'niveaux autorisés:', Array.from(allowedLevels).sort());
+          console.log('[longReadyWeek] Après filtrage par niveau:', finalFiltered.length, 'sur', sortedWithMe.length, 'niveaux autorisés:', Array.from(allowedLevels).sort());
         }
       }
       
@@ -580,6 +595,11 @@ const longReadyWeek = React.useMemo(
       if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
         finalFiltered = finalFiltered.filter(slot => {
           const userIds = slot.ready_user_ids || [];
+          
+          // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
+          const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+          if (!isUserAvailable) return false;
+          
           // Filtrer les joueurs qui sont dans le rayon sélectionné
           const filteredUserIds = userIds.filter(uid => {
             const profile = profilesById[String(uid)];
@@ -644,7 +664,7 @@ const longReadyWeek = React.useMemo(
       console.log('[longReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', longReady?.length || 0);
       return finalFiltered;
     },
-    [longReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
+    [longReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId]
   );
   
 const hourReadyWeek = React.useMemo(
@@ -683,8 +703,18 @@ const hourReadyWeek = React.useMemo(
         return aStart - bStart;
       });
       
+      // Filtrer pour ne garder que les créneaux où l'utilisateur authentifié est disponible
+      const sortedWithMe = meId ? sorted.filter(slot => {
+        const readyUserIds = slot.ready_user_ids || [];
+        const isUserAvailable = readyUserIds.some(uid => String(uid) === String(meId));
+        if (!isUserAvailable) {
+          console.log('[hourReadyWeek] ⚠️ Créneau exclu (utilisateur non disponible):', slot.time_slot_id, slot.starts_at);
+        }
+        return isUserAvailable;
+      }) : sorted;
+      
       // Filtrer par niveau ciblé si activé
-      let finalFiltered = sorted;
+      let finalFiltered = sortedWithMe;
       if (filterByLevel) {
         const allowedLevels = new Set(
           (filterLevels || [])
@@ -692,9 +722,14 @@ const hourReadyWeek = React.useMemo(
             .filter((n) => Number.isFinite(n))
         );
         if (allowedLevels.size > 0) {
-          finalFiltered = sorted.filter(slot => {
+          finalFiltered = sortedWithMe.filter(slot => {
             // Filtrer les joueurs pour ne garder que ceux avec les niveaux autorisés
             const userIds = slot.ready_user_ids || [];
+            
+            // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
+            const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+            if (!isUserAvailable) return false;
+            
             const filteredUserIds = userIds.filter(uid => {
               const profile = profilesById[String(uid)];
               if (!profile?.niveau) return false;
@@ -726,7 +761,7 @@ const hourReadyWeek = React.useMemo(
               ready_user_ids: filteredUserIds,
             };
           });
-          console.log('[hourReadyWeek] Après filtrage par niveau:', finalFiltered.length, 'sur', sorted.length, 'niveaux autorisés:', Array.from(allowedLevels).sort());
+          console.log('[hourReadyWeek] Après filtrage par niveau:', finalFiltered.length, 'sur', sortedWithMe.length, 'niveaux autorisés:', Array.from(allowedLevels).sort());
         }
       }
       
@@ -734,6 +769,11 @@ const hourReadyWeek = React.useMemo(
       if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
         finalFiltered = finalFiltered.filter(slot => {
           const userIds = slot.ready_user_ids || [];
+          
+          // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
+          const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+          if (!isUserAvailable) return false;
+          
           // Filtrer les joueurs qui sont dans le rayon sélectionné
           const filteredUserIds = userIds.filter(uid => {
             const profile = profilesById[String(uid)];
@@ -799,7 +839,7 @@ const hourReadyWeek = React.useMemo(
       // Forcer une nouvelle référence pour garantir que React détecte le changement
       return finalFiltered.map(item => ({ ...item }));
     },
-  [hourReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion]
+  [hourReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId]
 );
   
 // Fonction helper pour vérifier si un match n'est pas périmé
@@ -958,6 +998,11 @@ const hotMatches = React.useMemo(
       if (allowedLevels.size > 0) {
         finalFiltered = adjusted.filter(slot => {
           const userIds = slot.ready_user_ids || [];
+          
+          // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
+          const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+          if (!isUserAvailable) return false;
+          
           const filteredUserIds = userIds.filter(uid => {
             const profile = profilesById[String(uid)];
             if (!profile?.niveau) return false;
@@ -965,7 +1010,7 @@ const hotMatches = React.useMemo(
             if (!Number.isFinite(playerLevel)) return false;
             return allowedLevels.has(playerLevel);
           });
-          // Inclure tous les matchs avec 3 joueurs (pas seulement ceux où l'utilisateur est disponible)
+          // Le créneau doit avoir 3 joueurs disponibles ET l'utilisateur doit être disponible
           return filteredUserIds.length === 3;
         }).map(slot => {
           const userIds = slot.ready_user_ids || [];
@@ -988,6 +1033,11 @@ const hotMatches = React.useMemo(
     if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
       finalFiltered = finalFiltered.filter(slot => {
         const userIds = slot.ready_user_ids || [];
+        
+        // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
+        const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
+        if (!isUserAvailable) return false;
+        
         const filteredUserIds = userIds.filter(uid => {
           const profile = profilesById[String(uid)];
           if (!profile) return false;
@@ -1008,7 +1058,7 @@ const hotMatches = React.useMemo(
           return distanceKm <= filterGeoRadiusKm;
         });
         
-        // Inclure tous les matchs avec 3 joueurs (pas seulement ceux où l'utilisateur est disponible)
+        // Le créneau doit avoir 3 joueurs disponibles ET l'utilisateur doit être disponible
         return filteredUserIds.length === 3;
       }).map(slot => {
         const userIds = slot.ready_user_ids || [];
@@ -1038,12 +1088,15 @@ const hotMatches = React.useMemo(
       });
     }
     
-    // Filtrer les créneaux avec exactement 3 joueurs disponibles (tous, pas seulement ceux où l'utilisateur est disponible)
+    // Filtrer les créneaux avec exactement 3 joueurs disponibles ET où l'utilisateur est disponible
     // Si aucun filtre n'est activé, utiliser directement adjusted
     if (!filterByLevel && !filterByGeo) {
       finalFiltered = adjusted.filter(slot => {
         const readyUserIds = slot.ready_user_ids || [];
-        return readyUserIds.length === 3;
+        // Vérifier que l'utilisateur authentifié est disponible sur ce créneau
+        const isUserAvailable = meId && readyUserIds.some(uid => String(uid) === String(meId));
+        // Le créneau doit avoir 3 joueurs disponibles ET l'utilisateur doit être disponible
+        return readyUserIds.length === 3 && isUserAvailable;
       });
     }
     
@@ -1090,14 +1143,16 @@ const hotMatches = React.useMemo(
           return false;
         }
         
-        // Vérifier que l'utilisateur n'a pas de RSVP
+        // Vérifier les RSVPs de l'utilisateur
         const rsvps = rsvpsByMatch[m.id] || [];
         const myRsvp = rsvps.find(r => String(r.user_id) === String(meId));
-        if (myRsvp && (myRsvp.status === 'accepted' || myRsvp.status === 'maybe')) {
+        
+        // Exclure si l'utilisateur a déjà un RSVP (accepté, refusé, ou en attente)
+        if (myRsvp) {
           return false;
         }
         
-        // Vérifier qu'il y a exactement 3 joueurs acceptés
+        // Vérifier le nombre de joueurs acceptés (doit être exactement 3)
         const acceptedRsvps = rsvps.filter(r => r.status === 'accepted');
         if (acceptedRsvps.length !== 3) {
           return false;
@@ -2396,19 +2451,65 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
   // Charger l'historique des 5 derniers matchs validés
   const loadHistoryMatches = useCallback(async () => {
-    if (!groupId) {
+    if (!groupId || !meId) {
       setHistoryMatches([]);
       return;
     }
 
     try {
-      // Charger les 5 derniers matchs validés du groupe, triés par date décroissante
-      const { data: matchesData, error: matchesError } = await supabase
+      // APPROCHE EN 2 ÉTAPES : Plus fiable que la jointure
+      // 1. D'abord, vérifier TOUS les RSVPs de l'utilisateur pour voir quels statuts existent
+      const { data: allUserRsvps, error: debugRsvpsError } = await supabase
+        .from('match_rsvps')
+        .select('match_id, status')
+        .eq('user_id', meId);
+      
+      if (debugRsvpsError) {
+        console.error('[History] Erreur lors du chargement de tous les RSVPs:', debugRsvpsError);
+      } else {
+        console.log('[History] Tous les RSVPs de l\'utilisateur:', allUserRsvps?.length || 0);
+        if (allUserRsvps && allUserRsvps.length > 0) {
+          const statusCounts = {};
+          allUserRsvps.forEach(r => {
+            statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
+          });
+          console.log('[History] Répartition des statuts RSVP:', statusCounts);
+        }
+      }
+      
+      // 2. Charger les RSVPs de l'utilisateur avec status 'accepted', 'yes', ou 'maybe'
+      // (peut-être que certains matches utilisent 'maybe' pour les matches confirmés)
+      const { data: userRsvps, error: rsvpsError } = await supabase
+        .from('match_rsvps')
+        .select('match_id, status')
+        .eq('user_id', meId)
+        .in('status', ['accepted', 'yes', 'maybe']);
+
+      if (rsvpsError) {
+        console.error('[History] Error loading user RSVPs:', rsvpsError);
+        throw rsvpsError;
+      }
+
+      if (!userRsvps || userRsvps.length === 0) {
+        console.log('[History] Aucun RSVP accepted/yes/maybe trouvé pour l\'utilisateur:', meId);
+        console.log('[History] Vérification: meId =', meId, 'groupId =', groupId);
+        setHistoryMatches([]);
+        return;
+      }
+
+      console.log('[History] RSVPs trouvés:', userRsvps.length, userRsvps);
+      const userMatchIds = userRsvps.map(r => r.match_id);
+      console.log('[History] Match IDs où l\'utilisateur a un RSVP accepted/yes:', userMatchIds.length, userMatchIds);
+
+      // 2. Charger TOUS les matches correspondants (sans limite) puis prendre les 5 derniers
+      // Pas de limite de date - on charge tout puis on trie et on prend les 5 derniers
+      const { data: allMatchesData, error: matchesError } = await supabase
         .from('matches')
         .select(`
           id,
           status,
           created_at,
+          group_id,
           time_slot_id,
           time_slots (
             id,
@@ -2416,20 +2517,56 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             ends_at
           )
         `)
+        .in('id', userMatchIds)
         .eq('group_id', groupId)
         .eq('status', 'confirmed')
-        .order('created_at', { ascending: false })
-        .limit(5);
+        .order('created_at', { ascending: false });
+      
+      console.log('[History] Requête matches exécutée:', {
+        userMatchIdsCount: userMatchIds.length,
+        groupId,
+        allMatchesFound: allMatchesData?.length || 0
+      });
+      
+      // Prendre les 5 derniers matches
+      const matchesData = (allMatchesData || []).slice(0, 5);
 
-      if (matchesError) throw matchesError;
+      if (matchesError) {
+        console.error('[History] Error loading matches:', matchesError);
+        throw matchesError;
+      }
 
       if (!matchesData || matchesData.length === 0) {
+        console.log('[History] Aucun match trouvé pour les IDs:', userMatchIds);
+        console.log('[History] Vérification: groupId =', groupId, 'status = confirmed');
+        // Vérifier si les matches existent mais ne correspondent pas aux filtres
+        if (userMatchIds.length > 0) {
+          const { data: debugMatches } = await supabase
+            .from('matches')
+            .select('id, group_id, status')
+            .in('id', userMatchIds.slice(0, 5));
+          console.log('[History] Debug - matches trouvés sans filtres:', debugMatches);
+        }
         setHistoryMatches([]);
         return;
       }
 
+      const finalMatches = matchesData;
+      const finalMatchIds = finalMatches.map(m => m.id);
+      
+      console.log('[History] Matches trouvés:', finalMatches.length);
+      console.log('[History] meId utilisé:', meId);
+      console.log('[History] Match IDs finaux:', finalMatchIds);
+      
+      // Vérification de sécurité : s'assurer que l'utilisateur a bien un RSVP accepted pour chaque match
+      for (const match of finalMatches) {
+        const hasRsvp = userRsvps.some(r => String(r.match_id) === String(match.id));
+        if (!hasRsvp) {
+          console.error('[History] ERREUR: Match', match.id, 'n\'a pas de RSVP accepted pour l\'utilisateur!');
+        }
+      }
+      
       // Charger les résultats de ces matchs
-      const matchIds = matchesData.map(m => m.id);
       const { data: resultsData, error: resultsError } = await supabase
         .from('match_results')
         .select(`
@@ -2444,20 +2581,20 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           score_text,
           recorded_at
         `)
-        .in('match_id', matchIds);
+        .in('match_id', finalMatchIds);
 
       if (resultsError) {
         console.warn('[History] Error loading results:', resultsError);
       }
 
-      // Charger les RSVPs de ces matchs
-      const { data: rsvpsData, error: rsvpsError } = await supabase
+      // Charger TOUS les RSVPs des matches sélectionnés (pour l'affichage de tous les joueurs)
+      const { data: allRsvpsData, error: allRsvpsError } = await supabase
         .from('match_rsvps')
         .select('match_id, user_id, status')
-        .in('match_id', matchIds);
+        .in('match_id', finalMatchIds);
 
-      if (rsvpsError) {
-        console.warn('[History] Error loading RSVPs:', rsvpsError);
+      if (allRsvpsError) {
+        console.warn('[History] Error loading all RSVPs:', allRsvpsError);
       }
 
       // Créer une map des résultats par match_id
@@ -2466,36 +2603,39 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         resultsByMatchId.set(result.match_id, result);
       });
 
-      // Créer une map des RSVPs par match_id
-      const rsvpsByMatchId = new Map();
-      (rsvpsData || []).forEach(rsvp => {
-        if (!rsvpsByMatchId.has(rsvp.match_id)) {
-          rsvpsByMatchId.set(rsvp.match_id, []);
+      // Créer une map des RSVPs par match_id pour tous les matches sélectionnés
+      const finalRsvpsByMatchId = new Map();
+      (allRsvpsData || []).forEach(rsvp => {
+        if (!finalRsvpsByMatchId.has(rsvp.match_id)) {
+          finalRsvpsByMatchId.set(rsvp.match_id, []);
         }
-        rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
+        finalRsvpsByMatchId.get(rsvp.match_id).push(rsvp);
       });
 
       // Mettre à jour rsvpsByMatch pour inclure les RSVPs de l'historique
       setRsvpsByMatch(prev => {
         const next = { ...prev };
-        rsvpsByMatchId.forEach((rsvps, matchId) => {
+        finalRsvpsByMatchId.forEach((rsvps, matchId) => {
           next[matchId] = rsvps;
         });
         return next;
       });
 
       // Combiner les matchs avec leurs résultats
-      const matchesWithResults = matchesData.map(match => ({
+      // Pas besoin de vérifier à nouveau car on a déjà filtré via la requête RSVP
+      const matchesWithResults = finalMatches.map(match => ({
         ...match,
         result: resultsByMatchId.get(match.id) || null,
       }));
 
+      console.log('[History] Matches finaux chargés pour l\'utilisateur:', matchesWithResults.length);
+      console.log('[History] IDs des matches finaux:', matchesWithResults.map(m => m.id));
       setHistoryMatches(matchesWithResults);
     } catch (e) {
       console.error('[History] Error loading history matches:', e);
       setHistoryMatches([]);
     }
-  }, [groupId]);
+  }, [groupId, meId]);
 
   // Charger l'historique quand le groupe change ou quand on passe sur l'onglet valides
   useEffect(() => {
@@ -3013,7 +3153,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   }
 
   const onCreateIntervalMatch = useCallback(
-    async (starts_at_iso, ends_at_iso, selectedUserIds = []) => {
+    async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'pending') => {
       if (!groupId) return;
       // Preflight: prevent overlapping creation with same players
       try {
@@ -3053,9 +3193,25 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             p_ends_at: ends_at_iso,
           });
           console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
-          if (error) rpcErr = error; else newMatchId = data;
+          // Ignorer les erreurs RLS sur availability car on va créer les RSVPs manuellement
+          if (error && !error.message?.includes('row-level security policy for table "availability"')) {
+            rpcErr = error;
+          } else if (error && error.message?.includes('row-level security policy for table "availability"')) {
+            console.warn('[onCreateIntervalMatch] Erreur RLS availability ignorée (non critique):', error.message);
+            // Si on a quand même un match_id, continuer
+            if (data) {
+              newMatchId = data;
+            }
+          } else {
+            newMatchId = data;
+          }
         } catch (e) {
-          rpcErr = e;
+          // Ignorer les erreurs RLS sur availability
+          if (e?.message?.includes('row-level security policy for table "availability"')) {
+            console.warn('[onCreateIntervalMatch] Erreur RLS availability ignorée (non critique):', e.message);
+          } else {
+            rpcErr = e;
+          }
         }
 
         // 1.b) Fallback for unique-constraint on time_slots (same group + same start)
@@ -3123,7 +3279,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               // Créer le match avec le nouveau slot
               const { data: ins, error: eIns } = await supabase
                 .from('matches')
-                .insert({ group_id: groupId, time_slot_id: newSlot.id, status: 'pending' })
+                .insert({ group_id: groupId, time_slot_id: newSlot.id, status: matchStatus })
                 .select('id, status')
                 .single();
               
@@ -3140,7 +3296,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               // Pas de match existant, réutiliser le slot existant
               const { data: ins, error: eIns } = await supabase
                 .from('matches')
-                .insert({ group_id: groupId, time_slot_id: slot.id, status: 'pending' })
+                .insert({ group_id: groupId, time_slot_id: slot.id, status: matchStatus })
                 .select('id, status')
                 .single();
               if (eIns) throw eIns;
@@ -3171,7 +3327,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           return;
         }
         
-        // Vérifier et mettre à jour le statut si nécessaire pour qu'il soit 'pending'
+        // Vérifier et mettre à jour le statut si nécessaire pour qu'il soit matchStatus
         try {
           const { data: matchCheck } = await supabase
             .from('matches')
@@ -3180,11 +3336,11 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             .maybeSingle();
           console.log('[onCreateIntervalMatch] Match status after RPC:', matchCheck?.status);
           
-          if (matchCheck && matchCheck.status !== 'pending') {
-            console.log('[onCreateIntervalMatch] Updating status from', matchCheck.status, 'to pending');
+          if (matchCheck && matchCheck.status !== matchStatus) {
+            console.log('[onCreateIntervalMatch] Updating status from', matchCheck.status, 'to', matchStatus);
             await supabase
               .from('matches')
-              .update({ status: 'pending' })
+              .update({ status: matchStatus })
               .eq('id', newMatchId);
           }
         } catch (e) {
@@ -3240,37 +3396,90 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                 { onConflict: 'match_id,user_id' }
               );
             
-            // 2. Joueurs sélectionnés en "maybe" (sauf le créateur)
-            const selectedForMaybe = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
+            // 2. Joueurs sélectionnés avec le bon statut selon le type de match
+            // Si matchStatus est 'confirmed', mettre les joueurs en 'accepted' au lieu de 'maybe'
+            const rsvpStatusForSelected = matchStatus === 'confirmed' ? 'accepted' : 'maybe';
+            const selectedForRsvp = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
               ? (selectedUserIds || [])
                   .map(String)
                   .filter(id => id && id !== String(uid))
               : [];
             
-            if (selectedForMaybe.length > 0) {
-              const maybeRows = selectedForMaybe.map(userId => ({
-                match_id: newMatchId,
+            if (selectedForRsvp.length > 0) {
+              console.log('[onCreateIntervalMatch] Création RSVPs avec statut:', rsvpStatusForSelected, 'pour', selectedForRsvp.length, 'joueurs:', selectedForRsvp);
+              
+              // Préparer les RSVPs au format JSONB pour la fonction RPC
+              const rsvpsArray = selectedForRsvp.map(userId => ({
                 user_id: userId,
-                status: 'maybe'
+                status: rsvpStatusForSelected
               }));
               
-              await supabase
-                .from('match_rsvps')
-                .upsert(maybeRows, { onConflict: 'match_id,user_id' });
+              // Utiliser la fonction RPC pour créer les RSVPs en contournant RLS
+              try {
+                const { error: rpcError } = await supabase.rpc('create_match_rsvps_batch', {
+                  p_match_id: newMatchId,
+                  p_rsvps: rsvpsArray
+                });
+                
+                if (rpcError) {
+                  console.error('[onCreateIntervalMatch] Erreur RPC create_match_rsvps_batch:', rpcError);
+                  // Fallback: essayer de créer les RSVPs un par un
+                  console.log('[onCreateIntervalMatch] Fallback: création RSVPs un par un...');
+                  for (const userId of selectedForRsvp) {
+                    try {
+                      const { error: insertError } = await supabase
+                        .from('match_rsvps')
+                        .upsert(
+                          { match_id: newMatchId, user_id: userId, status: rsvpStatusForSelected },
+                          { onConflict: 'match_id,user_id' }
+                        );
+                      if (insertError) {
+                        console.warn('[onCreateIntervalMatch] Erreur création RSVP pour user', userId, ':', insertError.message);
+                      }
+                    } catch (e) {
+                      console.warn('[onCreateIntervalMatch] Exception création RSVP pour user', userId, ':', e);
+                    }
+                  }
+                } else {
+                  console.log('[onCreateIntervalMatch] RSVPs créés avec succès via RPC pour', selectedForRsvp.length, 'joueurs');
+                }
+              } catch (e) {
+                console.error('[onCreateIntervalMatch] Exception lors de l\'appel RPC:', e);
+                // Fallback: essayer de créer les RSVPs un par un
+                for (const userId of selectedForRsvp) {
+                  try {
+                    await supabase
+                      .from('match_rsvps')
+                      .upsert(
+                        { match_id: newMatchId, user_id: userId, status: rsvpStatusForSelected },
+                        { onConflict: 'match_id,user_id' }
+                      );
+                  } catch (err) {
+                    console.warn('[onCreateIntervalMatch] Erreur fallback pour user', userId, ':', err);
+                  }
+                }
+              }
             }
+            
+            // Vérifier les RSVPs créés
+            const { data: verifyRsvps } = await supabase
+              .from('match_rsvps')
+              .select('user_id, status')
+              .eq('match_id', newMatchId);
+            console.log('[onCreateIntervalMatch] RSVPs vérifiés après création:', verifyRsvps?.length || 0, 'joueurs:', verifyRsvps);
             
             // Mettre à jour l'état local avec la liste exacte
             setRsvpsByMatch((prev) => {
               const next = { ...prev };
               const finalRsvps = [
                 { user_id: String(uid), status: 'accepted' },
-                ...selectedForMaybe.map(id => ({ user_id: id, status: 'maybe' }))
+                ...selectedForRsvp.map(id => ({ user_id: id, status: rsvpStatusForSelected }))
               ];
               next[newMatchId] = finalRsvps;
               return next;
             });
             
-            console.log('[onCreateIntervalMatch] RSVPs nettoyés. Créateur +', selectedForMaybe.length, 'joueurs sélectionnés uniquement.');
+            console.log('[onCreateIntervalMatch] RSVPs nettoyés. Créateur +', selectedForRsvp.length, 'joueurs sélectionnés uniquement. Statut:', rsvpStatusForSelected);
           } catch (e) {
             console.error('[Matches] cleanup RSVPs failed:', e?.message || e);
           }
@@ -3338,7 +3547,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                   { onConflict: 'match_id,user_id' }
                 );
               
-              // 2. Joueurs sélectionnés en "maybe" (sauf le créateur)
+              // 2. Joueurs sélectionnés avec le bon statut selon le type de match
+              const finalRsvpStatusForSelected = matchStatus === 'confirmed' ? 'accepted' : 'maybe';
               const selectedForMaybe = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
                 ? (selectedUserIds || [])
                     .map(String)
@@ -3346,15 +3556,29 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                 : [];
               
               if (selectedForMaybe.length > 0) {
-                const maybeRows = selectedForMaybe.map(userId => ({
-                  match_id: newMatchId,
+                // Utiliser la fonction RPC pour créer les RSVPs en contournant RLS
+                const rsvpsArray = selectedForMaybe.map(userId => ({
                   user_id: userId,
-                  status: 'maybe'
+                  status: finalRsvpStatusForSelected
                 }));
                 
-                await supabase
-                  .from('match_rsvps')
-                  .upsert(maybeRows, { onConflict: 'match_id,user_id' });
+                const { error: rpcError } = await supabase.rpc('create_match_rsvps_batch', {
+                  p_match_id: newMatchId,
+                  p_rsvps: rsvpsArray
+                });
+                
+                if (rpcError) {
+                  console.warn('[onCreateIntervalMatch] Erreur RPC lors du nettoyage final:', rpcError);
+                  // Fallback: essayer avec upsert direct
+                  const maybeRows = selectedForMaybe.map(userId => ({
+                    match_id: newMatchId,
+                    user_id: userId,
+                    status: finalRsvpStatusForSelected
+                  }));
+                  await supabase
+                    .from('match_rsvps')
+                    .upsert(maybeRows, { onConflict: 'match_id,user_id' });
+                }
               }
               
               // Recharger les RSVPs après nettoyage
@@ -3381,6 +3605,56 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
               }
             } else {
               console.log('[onCreateIntervalMatch] Aucun nettoyage nécessaire, tous les joueurs sont autorisés');
+              
+              // Même si aucun RSVP n'est à supprimer, s'assurer que les statuts sont corrects selon matchStatus
+              const finalRsvpStatusForSelected = matchStatus === 'confirmed' ? 'accepted' : 'maybe';
+              const selectedForRsvp = Array.isArray(selectedUserIds) && selectedUserIds.length > 0
+                ? (selectedUserIds || [])
+                    .map(String)
+                    .filter(id => id && id !== String(uid))
+                : [];
+              
+              // Vérifier les RSVPs actuels et mettre à jour si nécessaire
+              const currentRsvps = (finalRsvps || []).map(r => String(r.user_id));
+              const expectedRsvps = new Set([String(uid), ...selectedForRsvp]);
+              
+              // S'assurer que tous les RSVPs attendus existent avec le bon statut
+              // 1. Créateur toujours en "accepted"
+              await supabase
+                .from('match_rsvps')
+                .upsert(
+                  { match_id: newMatchId, user_id: uid, status: 'accepted' },
+                  { onConflict: 'match_id,user_id' }
+                );
+              
+              // 2. Joueurs sélectionnés avec le bon statut
+              if (selectedForRsvp.length > 0) {
+                // Utiliser la fonction RPC pour créer les RSVPs en contournant RLS
+                const rsvpsArray = selectedForRsvp.map(userId => ({
+                  user_id: userId,
+                  status: finalRsvpStatusForSelected
+                }));
+                
+                const { error: rpcError } = await supabase.rpc('create_match_rsvps_batch', {
+                  p_match_id: newMatchId,
+                  p_rsvps: rsvpsArray
+                });
+                
+                if (rpcError) {
+                  console.warn('[onCreateIntervalMatch] Erreur RPC lors de la mise à jour des statuts:', rpcError);
+                  // Fallback: essayer avec upsert direct
+                  const rsvpRows = selectedForRsvp.map(userId => ({
+                    match_id: newMatchId,
+                    user_id: userId,
+                    status: finalRsvpStatusForSelected
+                  }));
+                  await supabase
+                    .from('match_rsvps')
+                    .upsert(rsvpRows, { onConflict: 'match_id,user_id' });
+                }
+                
+                console.log('[onCreateIntervalMatch] RSVPs mis à jour avec statut:', finalRsvpStatusForSelected, 'pour', selectedForRsvp.length, 'joueurs');
+              }
             }
           } catch (e) {
             console.error('[Matches] final cleanup after fetchData failed:', e?.message || e);
@@ -3410,7 +3684,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   }, []);
 
   // Handler pour créer le match éclair après sélection des joueurs
-  const onCreateFlashMatch = React.useCallback(async () => {
+  const onCreateFlashMatch = React.useCallback(async (requiresConfirmation = true) => {
     if (flashSelected.length !== 3) {
       Alert.alert('Match éclair', 'Sélectionne exactement 3 joueurs.');
       return;
@@ -3439,8 +3713,11 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     // Créer le match avec les joueurs sélectionnés + l'utilisateur authentifié
     const allPlayers = [...flashSelected, uid];
     
+    // Déterminer le statut du match selon le choix
+    const matchStatus = requiresConfirmation ? 'pending' : 'confirmed';
+    
     try {
-      await onCreateIntervalMatch(startIso, endIso, allPlayers);
+      await onCreateIntervalMatch(startIso, endIso, allPlayers, matchStatus);
       
       // Envoyer des notifications aux joueurs sélectionnés
       try {
@@ -3448,7 +3725,12 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           flashSelected.map((uid) => ({
             kind: 'match_flash',
             recipients: [uid],
-            payload: { title: 'Match Éclair ⚡️', message: "Un match rapide t'a été proposé !" },
+            payload: { 
+              title: 'Match Éclair ⚡️', 
+              message: requiresConfirmation 
+                ? "Un match rapide t'a été proposé !" 
+                : "Un match rapide a été créé avec toi !"
+            },
             created_at: new Date().toISOString(),
           }))
         );
@@ -3460,9 +3742,14 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       setFlashSelected([]);
       
       if (Platform.OS === "web") {
-        window.alert("Match Éclair créé 🎾");
+        window.alert(`Match Éclair créé 🎾${requiresConfirmation ? ' (en attente de confirmation)' : ' (confirmé)'}`);
       } else {
-        Alert.alert("Match Éclair créé 🎾", "Le match a été créé avec succès.");
+        Alert.alert(
+          "Match Éclair créé 🎾", 
+          requiresConfirmation 
+            ? "Le match a été créé et attend confirmation." 
+            : "Le match a été créé et confirmé."
+        );
       }
     } catch (e) {
       if (Platform.OS === "web") {
@@ -5824,80 +6111,16 @@ const HourSlotRow = ({ item }) => {
     console.log('[MatchCardConfirmed] slotDate:', slotDate, 'slot.starts_at:', slot.starts_at, 'slot.ends_at:', slot.ends_at, 'm:', m.id, 'm.time_slot_id:', m?.time_slot_id);
     const matchDate = m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : null;
 
-    // Fonction pour ouvrir Google Calendar avec l'événement pré-rempli
-    const handleDatePress = React.useCallback(async () => {
-      if (!slot.starts_at || !slot.ends_at) {
-        return;
-      }
-
-      const startDate = new Date(slot.starts_at);
-      const endDate = new Date(slot.ends_at);
-      
-      // Vérifier que les dates sont valides
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        Alert.alert('Erreur', 'Date invalide');
-        return;
-      }
-
-      const groupName = activeGroup?.name || 'Match de padel';
-      const title = encodeURIComponent(`Match de padel - ${groupName}`);
-      const description = encodeURIComponent(`Match de padel avec ${accepted.length} joueur${accepted.length > 1 ? 's' : ''}`);
-
-      // Formater les dates pour Google Calendar (format ISO UTC: YYYYMMDDTHHMMSSZ)
-      const formatDateForGoogleCalendar = (date) => {
-        const year = date.getUTCFullYear();
-        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(date.getUTCDate()).padStart(2, '0');
-        const hours = String(date.getUTCHours()).padStart(2, '0');
-        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-        return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
-      };
-
-      const startStr = formatDateForGoogleCalendar(startDate);
-      const endStr = formatDateForGoogleCalendar(endDate);
-      
-      // URL Google Calendar qui ouvre directement le calendrier avec l'événement pré-rempli
-      // Fonctionne sur iOS, Android et Web, et propose automatiquement d'ajouter au calendrier
-      const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startStr}/${endStr}&details=${description}`;
-
-      try {
-        // Ouvrir Google Calendar qui permet d'ajouter l'événement au calendrier
-        // Sur mobile, cela ouvrira l'app Google Calendar si installée, sinon le navigateur
-        await Linking.openURL(googleCalendarUrl);
-      } catch (error) {
-        console.error('[MatchCardConfirmed] Erreur ouverture calendrier:', error);
-        Alert.alert('Erreur', 'Impossible d\'ouvrir le calendrier');
-      }
-    }, [slot.starts_at, slot.ends_at, activeGroup?.name, accepted.length]);
-
     return (
       <View style={[cardStyle, { backgroundColor: reserved ? '#dcfce7' : '#fee2e2', borderColor: '#063383' }]}>
         {slotDate ? (
-          <Pressable
-            onPress={handleDatePress}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.7 : 1,
-              marginBottom: 6,
-            })}
-          >
-            <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
-              {slotDate}
-            </Text>
-          </Pressable>
+          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
+            {slotDate}
+          </Text>
         ) : matchDate ? (
-          <Pressable
-            onPress={slot.starts_at && slot.ends_at ? handleDatePress : undefined}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.7 : 1,
-              marginBottom: 6,
-            })}
-            disabled={!slot.starts_at || !slot.ends_at}
-          >
-            <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
-              Match du {matchDate}
-            </Text>
-          </Pressable>
+          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
+            Match du {matchDate}
+          </Text>
         ) : (
           <Text style={{ fontWeight: '800', color: '#6b7280', fontSize: 14, marginBottom: 6, fontStyle: 'italic' }}>
             Date non définie
@@ -8368,7 +8591,21 @@ const HourSlotRow = ({ item }) => {
                   <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 18, marginBottom: 12, paddingHorizontal: 4 }}>
                     MES 5 DERNIERS MATCHS
                   </Text>
-                  {historyMatches.map((match) => {
+                  {historyMatches
+                    .filter((match) => {
+                      // Vérification de sécurité : ne pas afficher les matches où l'utilisateur n'a pas de RSVP accepted
+                      const matchRsvps = rsvpsByMatch[match.id] || [];
+                      const hasUserAccepted = matchRsvps.some(r => 
+                        String(r.user_id) === String(meId) && 
+                        String(r.status || '').toLowerCase() === 'accepted'
+                      );
+                      if (!hasUserAccepted) {
+                        console.warn('[History] Match exclu de l\'affichage (pas de RSVP accepted):', match.id);
+                        return false;
+                      }
+                      return true;
+                    })
+                    .map((match) => {
                 const slot = match.time_slots || {};
                 const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
                 
@@ -8684,7 +8921,21 @@ const HourSlotRow = ({ item }) => {
                         <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 18, marginBottom: 12, paddingHorizontal: 4 }}>
                           MES 5 DERNIERS MATCHS
                         </Text>
-                        {historyMatches.map((match) => {
+                        {historyMatches
+                          .filter((match) => {
+                            // Vérification de sécurité : ne pas afficher les matches où l'utilisateur n'a pas de RSVP accepted
+                            const matchRsvps = rsvpsByMatch[match.id] || [];
+                            const hasUserAccepted = matchRsvps.some(r => 
+                              String(r.user_id) === String(meId) && 
+                              String(r.status || '').toLowerCase() === 'accepted'
+                            );
+                            if (!hasUserAccepted) {
+                              console.warn('[History] Match exclu de l\'affichage (pas de RSVP accepted):', match.id);
+                              return false;
+                            }
+                            return true;
+                          })
+                          .map((match) => {
                           const slot = match.time_slots || {};
                           const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
                           
@@ -9409,7 +9660,7 @@ const HourSlotRow = ({ item }) => {
         }}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' }}>
+          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 16, width: '90%', maxWidth: 400, maxHeight: '90%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <Text style={{ fontSize: 18, fontWeight: '900', color: '#0b2240' }}>Sélectionner 3 joueurs</Text>
             <Pressable
@@ -10221,7 +10472,7 @@ const HourSlotRow = ({ item }) => {
                               >
                                 <Text style={{ color: '#001831', fontWeight: '900', fontSize: 18 }}>
                                   {(() => {
-                                    const name = (member.name || 'Joueur').trim();
+                                    const name = (member.name || 'Joueur').split('@')[0].trim();
                                     const parts = name.split(/\s+/).filter(Boolean);
                                     if (parts.length >= 2) {
                                       return ((parts[0][0] || 'J') + (parts[1][0] || 'U')).toUpperCase();
@@ -10303,7 +10554,7 @@ const HourSlotRow = ({ item }) => {
                             }}>
                               <Text style={{ color: '#001831', fontWeight: '900', fontSize: 16 }}>
                                 {(() => {
-                                  const name = (member.name || 'Joueur').trim();
+                                  const name = (member.name || 'Joueur').split('@')[0].trim();
                                   const parts = name.split(/\s+/).filter(Boolean);
                                   if (parts.length >= 2) {
                                     return ((parts[0][0] || 'J') + (parts[1][0] || 'U')).toUpperCase();
@@ -10340,8 +10591,8 @@ const HourSlotRow = ({ item }) => {
                               </View>
                             )}
                           </View>
-                          <Text style={{ fontSize: 14, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#001831' : '#111827', flex: 1 }}>
-                            {member.name || 'Joueur inconnu'}
+                          <Text style={{ fontSize: 13, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#001831' : '#111827', flex: 1 }}>
+                            {(member.name || 'Joueur inconnu').split('@')[0]}
                           </Text>
                           {isSelected && (
                             <Image source={racketIcon} style={{ width: 22, height: 22, tintColor: '#001831' }} />
@@ -10360,7 +10611,47 @@ const HourSlotRow = ({ item }) => {
                 </Text>
 
                 {/* Boutons */}
-                <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ flexDirection: 'column', gap: 6 }}>
+                  {/* Bouton avec confirmation */}
+                  <Pressable
+                    onPress={() => onCreateFlashMatch(true)}
+                    disabled={flashSelected.length !== 3}
+                    style={{
+                      backgroundColor: flashSelected.length === 3 ? COLORS.accent : '#d1d5db',
+                      borderRadius: 8,
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#ffffff' }}>
+                      Créer avec confirmation
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#ffffff', marginTop: 1, opacity: 0.9 }}>
+                      Les joueurs devront confirmer
+                    </Text>
+                  </Pressable>
+                  
+                  {/* Bouton sans confirmation */}
+                  <Pressable
+                    onPress={() => onCreateFlashMatch(false)}
+                    disabled={flashSelected.length !== 3}
+                    style={{
+                      backgroundColor: flashSelected.length === 3 ? '#10b981' : '#d1d5db',
+                      borderRadius: 8,
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#ffffff' }}>
+                      Créer sans confirmation
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#ffffff', marginTop: 1, opacity: 0.9 }}>
+                      Match confirmé directement
+                    </Text>
+                  </Pressable>
+                  
                   <Pressable
                     onPress={() => {
                       // Retour à l'écran de choix date/heure sans perdre la sélection
@@ -10368,7 +10659,6 @@ const HourSlotRow = ({ item }) => {
                       setFlashDateModalOpen(true);
                     }}
                     style={{
-                      flex: 0.4,
                       backgroundColor: '#e5e7eb',
                       borderRadius: 8,
                       padding: 14,
@@ -10377,21 +10667,6 @@ const HourSlotRow = ({ item }) => {
                   >
                     <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
                       Retour
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={onCreateFlashMatch}
-                    disabled={flashSelected.length !== 3}
-                    style={{
-                      flex: 0.6,
-                      backgroundColor: flashSelected.length === 3 ? COLORS.accent : '#d1d5db',
-                      borderRadius: 8,
-                      padding: 14,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
-                      Créer un match
                     </Text>
                   </Pressable>
                 </View>
@@ -11394,7 +11669,7 @@ const HourSlotRow = ({ item }) => {
       {/* Modale des matchs en feu */}
       <Modal visible={hotMatchesModalVisible} transparent animationType="fade" onRequestClose={() => setHotMatchesModalVisible(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+          <View style={{ width: '95%', maxWidth: 600, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '90%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 24 }}>🔥</Text>
@@ -11461,20 +11736,42 @@ const HourSlotRow = ({ item }) => {
                                   justifyContent: 'center',
                                   backgroundColor: isMe ? '#fef3c7' : '#ffffff',
                                   padding: 0,
-                                  borderRadius: 20,
+                                  borderRadius: 28,
                                   borderWidth: isMe ? 1.5 : 0.5,
                                   borderColor: isMe ? '#f59e0b' : '#e5e7eb',
+                                  position: 'relative',
                                 }}
                               >
                                 {profile.avatar_url ? (
                                   <Image
                                     source={{ uri: profile.avatar_url }}
-                                    style={{ width: 32, height: 32, borderRadius: 16 }}
+                                    style={{ width: 48, height: 48, borderRadius: 24 }}
                                   />
                                 ) : (
-                                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 14 }}>
+                                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 18 }}>
                                       {(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
+                                    </Text>
+                                  </View>
+                                )}
+                                {profile.niveau != null && profile.niveau !== '' && (
+                                  <View
+                                    style={{
+                                      position: 'absolute',
+                                      right: -2,
+                                      bottom: -2,
+                                      width: 20,
+                                      height: 20,
+                                      borderRadius: 10,
+                                      backgroundColor: colorForLevel(profile.niveau),
+                                      borderWidth: 2,
+                                      borderColor: '#ffffff',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Text style={{ color: '#000000', fontWeight: '900', fontSize: 10 }}>
+                                      {String(profile.niveau)}
                                     </Text>
                                   </View>
                                 )}
@@ -11590,6 +11887,22 @@ const HourSlotRow = ({ item }) => {
                               return;
                             }
                             try {
+                              // Vérifier les conflits de créneaux avant de créer la disponibilité
+                              const conflicts = await findConflictingUsers({
+                                groupId,
+                                startsAt: slot.starts_at,
+                                endsAt: slot.ends_at,
+                                userIds: [meId]
+                              });
+                              
+                              if (conflicts.size > 0 && conflicts.has(String(meId))) {
+                                Alert.alert(
+                                  'Créneau indisponible',
+                                  'Vous avez déjà un match confirmé ou en attente qui chevauche ce créneau.'
+                                );
+                                return;
+                              }
+                              
                               // Si c'est un match existant, créer directement un RSVP 'accepted' pour l'utilisateur
                               if (m.match_id && m.is_existing_match) {
                                 console.log('[HotMatch] Match existant trouvé, création RSVP pour l\'utilisateur:', m.match_id);
@@ -11847,8 +12160,29 @@ const HourSlotRow = ({ item }) => {
                 );
               }
               
+              // Récupérer les joueurs déjà dans le match (RSVPs acceptés)
+              const matchId = selectedHotMatch?.match_id || selectedHotMatch?.id;
+              const matchRsvps = matchId ? (rsvpsByMatch[matchId] || []) : [];
+              const playersInMatch = new Set(
+                matchRsvps
+                  .filter(r => r.status === 'accepted')
+                  .map(r => String(r.user_id))
+              );
+              
               // Filtrer les membres en fonction de la recherche et du niveau
               const filteredMembers = hotMatchMembers.filter(member => {
+                const memberId = String(member.id);
+                
+                // Exclure l'utilisateur actuel
+                if (meId && memberId === String(meId)) {
+                  return false;
+                }
+                
+                // Exclure les joueurs déjà dans le match (avec RSVP accepté)
+                if (playersInMatch.has(memberId)) {
+                  return false;
+                }
+                
                 // Filtre par recherche textuelle
                 if (hotMatchSearchQuery.trim()) {
                   const query = hotMatchSearchQuery.toLowerCase().trim();

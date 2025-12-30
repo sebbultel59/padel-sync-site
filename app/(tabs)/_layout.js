@@ -39,6 +39,12 @@ export default function TabsLayout() {
     rsvp_removed: true,
     group_member_joined: true,
     group_member_left: true,
+    reminder_24h: true,
+    reminder_2h: true,
+    badge_unlocked: true,
+    match_result_recorded: true,
+    group_join_request_approved: true,
+    group_join_request_rejected: true,
   });
 
   async function loadNotifications() {
@@ -353,6 +359,12 @@ export default function TabsLayout() {
           rsvp_removed: true,
           group_member_joined: true,
           group_member_left: true,
+          reminder_24h: true,
+          reminder_2h: true,
+          badge_unlocked: true,
+          match_result_recorded: true,
+          group_join_request_approved: true,
+          group_join_request_rejected: true,
         };
         setNotificationPreferences({ ...defaults, ...profile.notification_preferences });
       }
@@ -960,6 +972,12 @@ export default function TabsLayout() {
                     { key: 'rsvp_removed', label: 'Joueur retiré', icon: 'person-outline' },
                     { key: 'group_member_joined', label: 'Nouveau membre dans le groupe', icon: 'people-outline' },
                     { key: 'group_member_left', label: 'Membre a quitté le groupe', icon: 'log-out-outline' },
+                    { key: 'reminder_24h', label: 'Rappel 24h avant le match', icon: 'time-outline' },
+                    { key: 'reminder_2h', label: 'Rappel 2h avant le match', icon: 'alarm-outline' },
+                    { key: 'badge_unlocked', label: 'Trophée débloqué', icon: 'trophy-outline' },
+                    { key: 'match_result_recorded', label: 'Résultat de match enregistré', icon: 'document-text-outline' },
+                    { key: 'group_join_request_approved', label: 'Demande de groupe acceptée', icon: 'checkmark-circle-outline' },
+                    { key: 'group_join_request_rejected', label: 'Demande de groupe refusée', icon: 'close-circle-outline' },
                   ]}
                   keyExtractor={(item) => item.key}
                   renderItem={({ item }) => {

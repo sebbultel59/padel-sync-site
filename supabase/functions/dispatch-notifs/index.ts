@@ -10,12 +10,18 @@ function renderMessage(
       case "rsvp_withdraw":   return { title: "Un joueur s'est retiré", body: `${ctx.actor_name ?? "Un joueur"} s'est retiré du match.` };
       case "match_confirmed": return { title: "Match validé", body: "Les 4 joueurs ont confirmé, c'est validé !" };
       case "match_canceled":  return { title: "Match annulé", body: "Le match a été annulé." };
+      case "match_result_recorded": return { title: "Résultat enregistré", body: ctx.payload?.message || "Le résultat du match a été enregistré." };
   
       // --- membres du groupe (NOUVEAU)
       case "group_member_join":     return { title: "Nouveau membre", body: `${ctx.actor_name ?? "Un joueur"} a rejoint le groupe.` };
       case "group_member_leave":    return { title: "Départ d'un membre", body: `${ctx.actor_name ?? "Un joueur"} a quitté le groupe.` };
       case "group_match_created":   return { title: "Nouveau match", body: "Un match a été créé dans ton groupe." };
       case "group_match_validated": return { title: "Match validé", body: "Un match du groupe est désormais validé." };
+      case "group_join_request_approved": return { title: "Demande acceptée ✅", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été acceptée." };
+      case "group_join_request_rejected": return { title: "Demande refusée", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été refusée." };
+  
+      // --- badges et trophées
+      case "badge_unlocked": return { title: "Nouveau trophée débloqué 🏆", body: ctx.payload?.message || "Tu as débloqué un nouveau badge !" };
   
       // --- seuils de dispo (NOUVEAU)
       case "group_slot_hot_3":      return { title: "Ça se chauffe à 3 🔥", body: "Un créneau atteint 3 joueurs disponibles." };
@@ -114,7 +120,7 @@ Deno.serve(async () => {
   const groupIds = Array.from(new Set(jobs.map((j: any) => j.group_id).filter(Boolean)));
 
   const [{ data: profiles }, { data: matches }, { data: groups }] = await Promise.all([
-    supabase.from("profiles").select("id, display_name, expo_push_token").in("id", userIds),
+    supabase.from("profiles").select("id, display_name, expo_push_token, notification_preferences").in("id", userIds),
     supabase.from("matches").select("id, time_slots:time_slot_id (starts_at, ends_at)").in("id", matchIds),
     supabase.from("groups").select("id, name").in("id", groupIds),
   ]);
@@ -180,6 +186,16 @@ Deno.serve(async () => {
     for (const uid of uniqueRecips) {
       const p = profById.get(uid);
       if (!p?.expo_push_token?.startsWith("ExponentPushToken")) continue;
+      
+      // Vérifier les préférences de notification de l'utilisateur
+      if (p.notification_preferences && typeof p.notification_preferences === 'object') {
+        const preferenceKey = job.kind;
+        // Si la préférence existe et est à false, ignorer cette notification
+        if (preferenceKey in p.notification_preferences && p.notification_preferences[preferenceKey] === false) {
+          console.log(`[Dispatch] ⚠️ Notification ${preferenceKey} désactivée pour user ${uid}, ignoré`);
+          continue;
+        }
+      }
       
       // Éviter d'envoyer plusieurs fois au même token
       if (sentTokens.has(p.expo_push_token)) {

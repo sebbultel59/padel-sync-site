@@ -94,10 +94,25 @@ serve(async (_req) => {
 
         const { data: profs } = await admin
           .from("profiles")
-          .select("id, email, expo_push_token")
+          .select("id, email, expo_push_token, notification_preferences")
           .in("id", userIds);
 
-        const tokens = (profs ?? [])
+        // Filtrer les utilisateurs selon leurs préférences de notifications
+        const preferenceKey = kind === "24h" ? "reminder_24h" : "reminder_2h";
+        const filteredProfs = (profs ?? []).filter((p: any) => {
+          // Si notification_preferences n'existe pas ou est null, on considère que c'est activé (par défaut)
+          if (!p.notification_preferences || typeof p.notification_preferences !== "object") {
+            return true; // Activé par défaut
+          }
+          // Si la clé n'existe pas, on considère que c'est activé (par défaut)
+          if (!(preferenceKey in p.notification_preferences)) {
+            return true; // Activé par défaut
+          }
+          // Vérifier la valeur de la préférence
+          return p.notification_preferences[preferenceKey] !== false;
+        });
+
+        const tokens = filteredProfs
           .map((p: any) => p.expo_push_token as string | null)
           .filter((t: string | null): t is string => !!t && t.startsWith("ExponentPushToken["));
         if (!tokens.length) continue;

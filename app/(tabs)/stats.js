@@ -187,7 +187,7 @@ export default function StatsScreen() {
   // Charger l'historique des 5 derniers matchs confirmés du groupe actif
   useEffect(() => {
     const loadHistory = async () => {
-      if (!activeGroup?.id) {
+      if (!activeGroup?.id || !me?.id) {
         setHistoryMatches([]);
         setHistoryProfilesById({});
         return;
@@ -198,9 +198,31 @@ export default function StatsScreen() {
         setHistoryError(null);
 
         const groupId = activeGroup.id;
+        const meId = me.id;
 
-        // 1. Charger les 5 derniers matchs confirmés du groupe
-        const { data: matchesData, error: matchesError } = await supabase
+        // APPROCHE IDENTIQUE À matches/index.js
+        // 1. Charger les RSVPs de l'utilisateur avec status 'accepted', 'yes', ou 'maybe'
+        const { data: userRsvps, error: rsvpsError } = await supabase
+          .from('match_rsvps')
+          .select('match_id, status')
+          .eq('user_id', meId)
+          .in('status', ['accepted', 'yes', 'maybe']);
+
+        if (rsvpsError) {
+          console.error('[Stats History] Error loading user RSVPs:', rsvpsError);
+          throw rsvpsError;
+        }
+
+        if (!userRsvps || userRsvps.length === 0) {
+          setHistoryMatches([]);
+          setHistoryProfilesById({});
+          return;
+        }
+
+        const userMatchIds = userRsvps.map(r => r.match_id);
+
+        // 2. Charger les matches correspondants avec les filtres de groupe et status
+        const { data: allMatchesData, error: matchesError } = await supabase
           .from('matches')
           .select(`
             id,
@@ -213,22 +235,27 @@ export default function StatsScreen() {
               ends_at
             )
           `)
+          .in('id', userMatchIds)
           .eq('group_id', groupId)
           .eq('status', 'confirmed')
-          .order('created_at', { ascending: false })
-          .limit(5);
+          .order('created_at', { ascending: false });
 
-        if (matchesError) throw matchesError;
+        if (matchesError) {
+          console.error('[Stats History] Error loading matches:', matchesError);
+          throw matchesError;
+        }
 
-        if (!matchesData || matchesData.length === 0) {
+        if (!allMatchesData || allMatchesData.length === 0) {
           setHistoryMatches([]);
           setHistoryProfilesById({});
           return;
         }
 
-        const matchIds = matchesData.map(m => m.id);
+        // Prendre les 5 derniers matches
+        const matchesData = (allMatchesData || []).slice(0, 5);
+        const finalMatchIds = matchesData.map(m => m.id);
 
-        // 2. Charger les résultats de ces matchs
+        // 3. Charger les résultats de ces matchs (optionnels)
         const { data: resultsData, error: resultsError } = await supabase
           .from('match_results')
           .select(`
@@ -243,35 +270,39 @@ export default function StatsScreen() {
             score_text,
             recorded_at
           `)
-          .in('match_id', matchIds);
+          .in('match_id', finalMatchIds);
 
-        if (resultsError) throw resultsError;
+        if (resultsError) {
+          console.warn('[Stats History] Error loading results:', resultsError);
+        }
 
-        // 3. Charger les RSVPs de ces matchs
-        const { data: rsvpsData, error: rsvpsError } = await supabase
+        // 4. Charger TOUS les RSVPs de ces matchs (pour l'affichage)
+        const { data: allRsvpsData, error: allRsvpsError } = await supabase
           .from('match_rsvps')
           .select('match_id, user_id, status')
-          .in('match_id', matchIds);
+          .in('match_id', finalMatchIds);
 
-        if (rsvpsError) throw rsvpsError;
+        if (allRsvpsError) {
+          console.warn('[Stats History] Error loading all RSVPs:', allRsvpsError);
+        }
 
-        // 4. Indexer résultats et RSVPs par match
+        // 5. Indexer résultats et RSVPs par match
         const resultsByMatchId = new Map();
         (resultsData || []).forEach(result => {
           resultsByMatchId.set(result.match_id, result);
         });
 
         const rsvpsByMatchId = new Map();
-        (rsvpsData || []).forEach(rsvp => {
+        (allRsvpsData || []).forEach(rsvp => {
           if (!rsvpsByMatchId.has(rsvp.match_id)) {
             rsvpsByMatchId.set(rsvp.match_id, []);
           }
           rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
         });
 
-        // 5. Charger les profils de tous les joueurs concernés
+        // 6. Charger les profils de tous les joueurs concernés
         const allUserIds = new Set();
-        (rsvpsData || []).forEach(r => {
+        (allRsvpsData || []).forEach(r => {
           if (r.user_id) allUserIds.add(String(r.user_id));
         });
         (resultsData || []).forEach(res => {
@@ -280,8 +311,8 @@ export default function StatsScreen() {
             res.team1_player2_id,
             res.team2_player1_id,
             res.team2_player2_id,
-          ].forEach(id => {
-            if (id) allUserIds.add(String(id));
+          ].forEach(userId => {
+            if (userId) allUserIds.add(String(userId));
           });
         });
 
@@ -300,7 +331,7 @@ export default function StatsScreen() {
           }, {});
         }
 
-        // 6. Combiner les données pour le rendu
+        // 7. Combiner les données pour le rendu
         const matchesWithDetails = matchesData.map(match => ({
           ...match,
           result: resultsByMatchId.get(match.id) || null,
@@ -310,7 +341,7 @@ export default function StatsScreen() {
         setHistoryMatches(matchesWithDetails);
         setHistoryProfilesById(profilesMap);
       } catch (e) {
-        console.error('[Stats] Error loading history matches:', e);
+        console.error('[Stats History] Erreur lors du chargement:', e);
         setHistoryMatches([]);
         setHistoryProfilesById({});
         setHistoryError(e?.message || 'Erreur lors du chargement des derniers matchs.');
@@ -319,8 +350,13 @@ export default function StatsScreen() {
       }
     };
 
-    loadHistory();
-  }, [activeGroup?.id]);
+    if (activeGroup?.id && me?.id) {
+      loadHistory();
+    } else {
+      setHistoryMatches([]);
+      setHistoryProfilesById({});
+    }
+  }, [activeGroup?.id, me?.id]);
 
   // Avatar utilisé pour l'historique des matchs (forme du moment)
   const HistoryAvatar = ({ profile = {}, size = 40 }) => {
