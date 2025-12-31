@@ -13,6 +13,7 @@ import { useActiveGroup } from "../../lib/activeGroup";
 import { useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { getBadgeImage } from "../../lib/badgeImages";
+import { formatPlayerName } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
 const AVATAR = 120;
@@ -290,7 +291,7 @@ export default function ProfileScreen() {
   if (loading) return <View style={s.center}><ActivityIndicator /></View>;
   if (!p) return <View style={s.center}><Text style={{ color: "#9ca3af" }}>Profil introuvable</Text></View>;
 
-  const title = p.display_name || p.name || p.email || "Joueur";
+  const title = formatPlayerName(p.display_name || p.name || p.email || "Joueur");
   const initial = (title?.trim?.()[0] ?? "?").toUpperCase();
 
   return (
@@ -641,13 +642,13 @@ export default function ProfileScreen() {
                             const team2Player1Profile = historyProfilesById?.[String(match.result.team2_player1_id)];
                             const team2Player2Profile = historyProfilesById?.[String(match.result.team2_player2_id)];
 
-                            const team1Player1 = team1Player1Profile?.display_name || 'Joueur 1';
+                            const team1Player1 = formatPlayerName(team1Player1Profile?.display_name || 'Joueur 1');
                             const team1Player1Level = team1Player1Profile?.niveau;
-                            const team1Player2 = team1Player2Profile?.display_name || 'Joueur 2';
+                            const team1Player2 = formatPlayerName(team1Player2Profile?.display_name || 'Joueur 2');
                             const team1Player2Level = team1Player2Profile?.niveau;
-                            const team2Player1 = team2Player1Profile?.display_name || 'Joueur 1';
+                            const team2Player1 = formatPlayerName(team2Player1Profile?.display_name || 'Joueur 1');
                             const team2Player1Level = team2Player1Profile?.niveau;
-                            const team2Player2 = team2Player2Profile?.display_name || 'Joueur 2';
+                            const team2Player2 = formatPlayerName(team2Player2Profile?.display_name || 'Joueur 2');
                             const team2Player2Level = team2Player2Profile?.niveau;
 
                             const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
@@ -903,7 +904,7 @@ function Tile({ emoji, label, value, hint, onPress }) {
 // Avatar utilisé pour l'historique des matchs (forme du moment)
 function HistoryAvatar({ profile = {}, size = 40 }) {
   const uri = profile?.avatar_url || null;
-  const fallback = profile?.display_name || profile?.name || profile?.email || 'Joueur';
+  const fallback = formatPlayerName(profile?.display_name || profile?.name || profile?.email || 'Joueur');
   const level = profile?.niveau ?? profile?.level ?? null;
 
   let initials = 'U';

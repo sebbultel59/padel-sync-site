@@ -762,6 +762,7 @@ export default function TabsLayout() {
         <Tabs.Screen 
           name="semaine" 
           options={{
+            headerTitle: 'DISPOS',
             tabBarLabel: 'Dispos',
             tabBarAccessibilityLabel: 'Disponibilités',
           }}

@@ -33,7 +33,7 @@ import { OnboardingModal } from '../../../components/OnboardingModal';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
-import { press } from "../../../lib/uiSafe";
+import { press, formatPlayerName } from "../../../lib/uiSafe";
 
 const COLORS = {
   primary: '#156bc9',   // bleu charte
@@ -2959,7 +2959,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       const members = data
         .map(r => ({
           id: r?.profiles?.id || r?.user_id,
-          name: r?.profiles?.display_name || r?.profiles?.name || 'Joueur inconnu',
+          name: formatPlayerName(r?.profiles?.display_name || r?.profiles?.name || 'Joueur inconnu'),
           niveau: r?.profiles?.niveau || null,
         }))
         .filter(x => !!x.id);
@@ -3094,7 +3094,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         .filter(p => !uid || String(p.id) !== String(uid))
         .map(p => ({
           id: p.id,
-          name: p.display_name || p.name || 'Joueur inconnu',
+          name: formatPlayerName(p.display_name || p.name || 'Joueur inconnu'),
           niveau: p.niveau || null,
           email: p.email || null,
           avatar_url: p.avatar_url || null,
@@ -5013,7 +5013,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
   // Affiche un avatar avec pastille de niveau si dispo
   const LevelAvatar = ({ profile = {}, size = 56, rsvpStatus, selected, onPress, onLongPressProfile }) => {
     const uri = profile?.avatar_url || null;
-    const fallback = profile?.display_name || profile?.email || 'Joueur';
+    const fallback = formatPlayerName(profile?.display_name || profile?.email || 'Joueur');
     const phone = profile?.phone || null;
     const level = profile?.niveau ?? profile?.level ?? null; // supporte `niveau` ou `level`
   
@@ -6425,10 +6425,10 @@ const HourSlotRow = ({ item }) => {
                 sets.push({ team1: 0, team2: 0 });
               }
               
-              const team1Player1 = profilesById?.[String(matchResult.team1_player1_id)]?.display_name || 'Joueur 1';
-              const team1Player2 = profilesById?.[String(matchResult.team1_player2_id)]?.display_name || 'Joueur 2';
-              const team2Player1 = profilesById?.[String(matchResult.team2_player1_id)]?.display_name || 'Joueur 1';
-              const team2Player2 = profilesById?.[String(matchResult.team2_player2_id)]?.display_name || 'Joueur 2';
+              const team1Player1 = formatPlayerName(profilesById?.[String(matchResult.team1_player1_id)]?.display_name || 'Joueur 1');
+              const team1Player2 = formatPlayerName(profilesById?.[String(matchResult.team1_player2_id)]?.display_name || 'Joueur 2');
+              const team2Player1 = formatPlayerName(profilesById?.[String(matchResult.team2_player1_id)]?.display_name || 'Joueur 1');
+              const team2Player2 = formatPlayerName(profilesById?.[String(matchResult.team2_player2_id)]?.display_name || 'Joueur 2');
               
               const team1Color = matchResult.winner_team === 'team1' ? '#10b981' : '#991b1b';
               const team2Color = matchResult.winner_team === 'team2' ? '#10b981' : '#991b1b';
@@ -7182,7 +7182,7 @@ const HourSlotRow = ({ item }) => {
                               />
                               <View style={{ flex: 1, marginLeft: 10 }}>
                                 <Text style={{ fontWeight: '700', color: '#111827', fontSize: 13, marginBottom: 2 }}>
-                                  {member.display_name || member.name}
+                                  {formatPlayerName(member.display_name || member.name)}
                                 </Text>
                                 {member.niveau != null && (
                                   <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 1 }}>
@@ -11347,7 +11347,7 @@ const HourSlotRow = ({ item }) => {
                               >
                                 <Text style={{ color: '#001831', fontWeight: '900', fontSize: 16 }}>
                                   {(() => {
-                                    const name = (player.display_name || player.email || 'Joueur').trim();
+                                    const name = formatPlayerName(player.display_name || player.email || 'Joueur').trim();
                                     const parts = name.split(/\s+/).filter(Boolean);
                                     if (parts.length >= 2) {
                                       return ((parts[0][0] || 'J') + (parts[1][0] || 'U')).toUpperCase();
@@ -11729,8 +11729,14 @@ const HourSlotRow = ({ item }) => {
                             const profile = profilesById[String(userId)] || {};
                             const isMe = String(userId) === String(meId);
                             return (
-                              <View
+                              <Pressable
                                 key={userId}
+                                onLongPress={() => {
+                                  if (profile?.id) {
+                                    openProfile(profile);
+                                  }
+                                }}
+                                delayLongPress={400}
                                 style={{
                                   alignItems: 'center',
                                   justifyContent: 'center',
@@ -11750,7 +11756,7 @@ const HourSlotRow = ({ item }) => {
                                 ) : (
                                   <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
                                     <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 18 }}>
-                                      {(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
+                                      {formatPlayerName(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
                                     </Text>
                                   </View>
                                 )}
@@ -11775,7 +11781,7 @@ const HourSlotRow = ({ item }) => {
                                     </Text>
                                   </View>
                                 )}
-                              </View>
+                              </Pressable>
                             );
                           })}
                         </View>

@@ -19,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
+import { formatPlayerName } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
 
@@ -228,7 +229,7 @@ export default function RolesManagementScreen() {
             onPress={() => handleEditUser(user)}
           >
             <View style={styles.userInfo}>
-              <Text style={styles.userName}>{user.display_name || user.name || user.email}</Text>
+              <Text style={styles.userName}>{formatPlayerName(user.display_name || user.name || user.email)}</Text>
               <Text style={styles.userEmail}>{user.email}</Text>
               {user.clubs && (
                 <Text style={styles.userClub}>Club: {user.clubs.name}</Text>

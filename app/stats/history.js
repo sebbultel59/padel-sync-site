@@ -5,6 +5,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from "../../context/auth";
 import { supabase } from "../../lib/supabase";
+import { formatPlayerName } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
 
@@ -22,7 +23,7 @@ const colorForLevel = (n) => (LEVELS.find(x => x.v === Number(n))?.color) || '#9
 
 const LevelAvatar = ({ profile = {}, size = 48 }) => {
   const uri = profile?.avatar_url || null;
-  const fallback = profile?.display_name || profile?.name || profile?.email || 'Joueur';
+  const fallback = formatPlayerName(profile?.display_name || profile?.name || profile?.email || 'Joueur');
   const level = profile?.niveau ?? profile?.level ?? null;
 
   let initials = 'U';
@@ -122,159 +123,183 @@ export default function StatsHistoryScreen() {
         setLoading(true);
         setError(null);
 
-        // 1) Matchs avec résultat déjà enregistré (match_results)
-        const { data: results, error: resultsError } = await supabase
-          .from('match_results')
-          .select(`
-            id,
-            match_id,
-            status,
-            score_text,
-            winner_team,
-            recorded_at,
-            team1_player1_id,
-            team1_player2_id,
-            team2_player1_id,
-            team2_player2_id,
-            matches!inner(
-              id,
-              status,
-              time_slots(
-                starts_at,
-                ends_at
-              ),
-              match_rsvps(
-                user_id,
-                status
-              )
-            )
-          `)
-          .or(
-            [
-              `team1_player1_id.eq.${meIdStr}`,
-              `team1_player2_id.eq.${meIdStr}`,
-              `team2_player1_id.eq.${meIdStr}`,
-              `team2_player2_id.eq.${meIdStr}`,
-            ].join(',')
-          )
-          .eq('status', 'completed')
-          .order('recorded_at', { ascending: false });
+        // APPROCHE IDENTIQUE À stats.js (qui fonctionne bien)
+        // 1. Charger les RSVPs de l'utilisateur avec status 'accepted', 'yes', ou 'maybe'
+        const { data: userRsvps, error: rsvpsError } = await supabase
+          .from('match_rsvps')
+          .select('match_id, status')
+          .eq('user_id', meId)
+          .in('status', ['accepted', 'yes', 'maybe']);
 
-        if (resultsError) {
-          console.error('[StatsHistory] Error loading completed matches:', resultsError);
-          setError('Impossible de charger l\'historique des matchs');
+        if (rsvpsError) {
+          console.error('[StatsHistory] Error loading user RSVPs:', rsvpsError);
+          throw rsvpsError;
+        }
+
+        if (!userRsvps || userRsvps.length === 0) {
           setAllMatches([]);
+          setAllMatchesProfiles({});
           return;
         }
 
-        const completed = (results || []).map((mr) => {
-          const slot = mr.matches?.time_slots || {};
-          const sortDate = new Date(
-            slot?.ends_at || slot?.starts_at || mr.recorded_at || 0
-          ).getTime();
-          return { 
-            ...mr, 
-            _sortDate: sortDate,
-            rsvps: mr.matches?.match_rsvps || []
-          };
-        });
+        const userMatchIds = userRsvps.map(r => r.match_id);
 
-        const completedMatchIds = new Set(completed.map((mr) => mr.match_id));
-
-        // 2) Matchs confirmés ou pending récents SANS résultat (pour pouvoir saisir un score)
-        const { data: recentConfirmed, error: recentError2 } = await supabase
+        // 2. Charger les matches correspondants avec status 'confirmed' (SANS filtre de groupe - tous les groupes)
+        const { data: allMatchesData, error: matchesError } = await supabase
           .from('matches')
           .select(`
             id,
             status,
-            time_slots(
+            created_at,
+            time_slot_id,
+            group_id,
+            time_slots (
+              id,
               starts_at,
               ends_at
-            ),
-            match_rsvps(
-              user_id,
-              status
             )
           `)
-          .in('status', ['confirmed', 'pending', 'open'])
-          .eq('match_rsvps.user_id', meIdStr)
-          .in('match_rsvps.status', ['accepted', 'yes'])
-          .order('starts_at', { ascending: false, foreignTable: 'time_slots' });
+          .in('id', userMatchIds)
+          .eq('status', 'confirmed')
+          .order('created_at', { ascending: false });
 
-        if (recentError2) {
-          console.error('[StatsHistory] Error loading recent confirmed matches:', recentError2);
+        if (matchesError) {
+          console.error('[StatsHistory] Error loading matches:', matchesError);
+          throw matchesError;
         }
 
-        const pendingResults = [];
-        (recentConfirmed || []).forEach((m) => {
-          if (completedMatchIds.has(m.id)) return;
+        if (!allMatchesData || allMatchesData.length === 0) {
+          setAllMatches([]);
+          setAllMatchesProfiles({});
+          return;
+        }
 
-          const slot = m.time_slots || {};
-          if (!slot?.starts_at || !slot?.ends_at) return;
+        const finalMatchIds = allMatchesData.map(m => m.id);
 
-          const sortDate = new Date(
-            slot.ends_at || slot.starts_at || 0
-          ).getTime();
+        // 3. Charger les informations des groupes pour ces matchs
+        const groupIds = [...new Set(allMatchesData.map(m => m.group_id).filter(Boolean))];
+        let groupsMap = {};
+        if (groupIds.length > 0) {
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('groups')
+            .select('id, name')
+            .in('id', groupIds);
 
-          pendingResults.push({
-            id: `pending-${m.id}`,
-            match_id: m.id,
-            status: m.status,
-            score_text: null,
-            winner_team: null,
-            recorded_at: null,
-            team1_player1_id: null,
-            team1_player2_id: null,
-            team2_player1_id: null,
-            team2_player2_id: null,
-            matches: {
-              id: m.id,
-              status: m.status,
-              time_slots: slot,
-            },
-            rsvps: m.match_rsvps,
-            _sortDate: sortDate,
+          if (!groupsError && groupsData) {
+            groupsMap = (groupsData || []).reduce((acc, g) => {
+              acc[g.id] = g;
+              return acc;
+            }, {});
+          }
+        }
+
+        // 4. Charger les résultats de ces matchs (optionnels)
+        const { data: resultsData, error: resultsError } = await supabase
+          .from('match_results')
+          .select(`
+            match_id,
+            team1_score,
+            team2_score,
+            winner_team,
+            team1_player1_id,
+            team1_player2_id,
+            team2_player1_id,
+            team2_player2_id,
+            score_text,
+            recorded_at
+          `)
+          .in('match_id', finalMatchIds);
+
+        if (resultsError) {
+          console.warn('[StatsHistory] Error loading results:', resultsError);
+        }
+
+        // 5. Charger TOUS les RSVPs de ces matchs (pour l'affichage)
+        const { data: allRsvpsData, error: allRsvpsError } = await supabase
+          .from('match_rsvps')
+          .select('match_id, user_id, status')
+          .in('match_id', finalMatchIds);
+
+        if (allRsvpsError) {
+          console.warn('[StatsHistory] Error loading all RSVPs:', allRsvpsError);
+        }
+
+        // 6. Indexer résultats et RSVPs par match
+        const resultsByMatchId = new Map();
+        (resultsData || []).forEach(result => {
+          resultsByMatchId.set(result.match_id, result);
+        });
+
+        const rsvpsByMatchId = new Map();
+        (allRsvpsData || []).forEach(rsvp => {
+          if (!rsvpsByMatchId.has(rsvp.match_id)) {
+            rsvpsByMatchId.set(rsvp.match_id, []);
+          }
+          rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
+        });
+
+        // 7. Charger les profils de tous les joueurs concernés
+        const allUserIds = new Set();
+        (allRsvpsData || []).forEach(r => {
+          if (r.user_id) allUserIds.add(String(r.user_id));
+        });
+        (resultsData || []).forEach(res => {
+          [
+            res.team1_player1_id,
+            res.team1_player2_id,
+            res.team2_player1_id,
+            res.team2_player2_id,
+          ].forEach(userId => {
+            if (userId) allUserIds.add(String(userId));
           });
         });
 
-        // 3) Fusionner et trier par date décroissante
-        const all = [...completed, ...pendingResults].sort(
-          (a, b) => (b._sortDate || 0) - (a._sortDate || 0)
-        );
-
-        setAllMatches(all);
-
-        // 4) Charger les profils des joueurs pour tous les matchs
-        const playerIds = new Set();
-        all.forEach((mr) => {
-          if (mr.team1_player1_id) playerIds.add(String(mr.team1_player1_id));
-          if (mr.team1_player2_id) playerIds.add(String(mr.team1_player2_id));
-          if (mr.team2_player1_id) playerIds.add(String(mr.team2_player1_id));
-          if (mr.team2_player2_id) playerIds.add(String(mr.team2_player2_id));
-          if (mr.rsvps && Array.isArray(mr.rsvps)) {
-            mr.rsvps.forEach(rsvp => playerIds.add(String(rsvp.user_id)));
-          }
-        });
-
-        if (playerIds.size > 0) {
+        let profilesMap = {};
+        if (allUserIds.size > 0) {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
             .select('id, display_name, name, avatar_url, niveau')
-            .in('id', Array.from(playerIds));
+            .in('id', Array.from(allUserIds));
 
-          if (!profilesError && profilesData) {
-            const profilesMap = {};
-            profilesData.forEach((p) => {
-              profilesMap[String(p.id)] = p;
-            });
-            setAllMatchesProfiles(profilesMap);
-          } else {
-            console.warn('[StatsHistory] Error loading profiles for all matches:', profilesError);
-            setAllMatchesProfiles({});
-          }
-        } else {
-          setAllMatchesProfiles({});
+          if (profilesError) throw profilesError;
+
+          profilesMap = (profilesData || []).reduce((acc, p) => {
+            acc[String(p.id)] = p;
+            return acc;
+          }, {});
         }
+
+        // 8. Combiner les données pour le rendu et trier par date
+        const matchesWithDetails = allMatchesData.map(match => {
+          const slot = match.time_slots || {};
+          const sortDate = new Date(
+            slot?.ends_at || slot?.starts_at || match.created_at || 0
+          ).getTime();
+          
+          return {
+            id: match.id,
+            match_id: match.id,
+            status: match.status,
+            score_text: resultsByMatchId.get(match.id)?.score_text || null,
+            winner_team: resultsByMatchId.get(match.id)?.winner_team || null,
+            recorded_at: resultsByMatchId.get(match.id)?.recorded_at || null,
+            team1_player1_id: resultsByMatchId.get(match.id)?.team1_player1_id || null,
+            team1_player2_id: resultsByMatchId.get(match.id)?.team1_player2_id || null,
+            team2_player1_id: resultsByMatchId.get(match.id)?.team2_player1_id || null,
+            team2_player2_id: resultsByMatchId.get(match.id)?.team2_player2_id || null,
+            matches: {
+              id: match.id,
+              status: match.status,
+              time_slots: slot,
+            },
+            rsvps: rsvpsByMatchId.get(match.id) || [],
+            group: groupsMap[match.group_id] || null,
+            _sortDate: sortDate,
+          };
+        }).sort((a, b) => (b._sortDate || 0) - (a._sortDate || 0));
+
+        setAllMatches(matchesWithDetails);
+        setAllMatchesProfiles(profilesMap);
       } catch (e) {
         console.error('[StatsHistory] Exception loading all matches:', e);
         setError('Impossible de charger l\'historique complet des matchs');
@@ -425,19 +450,26 @@ export default function StatsHistoryScreen() {
                 }}
               >
                 {/* Ligne 1 : date / statut */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <Text style={{ fontSize: 12, color: isPastMatch ? '#9ca3af' : '#9ca3af' }}>
-                    {hasSlot ? formatShortRange(slot.starts_at, slot.ends_at) : 'Date à définir'}
-                  </Text>
-                  {isWinner !== null && (
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '700',
-                        color: isWinner ? '#34d399' : '#f87171',
-                      }}
-                    >
-                      {isWinner ? 'Victoire' : 'Défaite'}
+                <View style={{ marginBottom: 4 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <Text style={{ fontSize: 12, color: isPastMatch ? '#9ca3af' : '#9ca3af' }}>
+                      {hasSlot ? formatShortRange(slot.starts_at, slot.ends_at) : 'Date à définir'}
+                    </Text>
+                    {isWinner !== null && (
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '700',
+                          color: isWinner ? '#34d399' : '#f87171',
+                        }}
+                      >
+                        {isWinner ? 'Victoire' : 'Défaite'}
+                      </Text>
+                    )}
+                  </View>
+                  {mr.group?.name && (
+                    <Text style={{ fontSize: 11, color: '#6b7280', fontWeight: '600' }}>
+                      {mr.group.name}
                     </Text>
                   )}
                 </View>
@@ -497,10 +529,10 @@ export default function StatsHistoryScreen() {
                       const team2Player1Profile = getProfile(mr.team2_player1_id);
                       const team2Player2Profile = getProfile(mr.team2_player2_id);
 
-                      const team1Player1 = team1Player1Profile?.display_name || team1Player1Profile?.name || 'Joueur 1';
-                      const team1Player2 = team1Player2Profile?.display_name || team1Player2Profile?.name || 'Joueur 2';
-                      const team2Player1 = team2Player1Profile?.display_name || team2Player1Profile?.name || 'Joueur 1';
-                      const team2Player2 = team2Player2Profile?.display_name || team2Player2Profile?.name || 'Joueur 2';
+                      const team1Player1 = formatPlayerName(team1Player1Profile?.display_name || team1Player1Profile?.name || 'Joueur 1');
+                      const team1Player2 = formatPlayerName(team1Player2Profile?.display_name || team1Player2Profile?.name || 'Joueur 2');
+                      const team2Player1 = formatPlayerName(team2Player1Profile?.display_name || team2Player1Profile?.name || 'Joueur 1');
+                      const team2Player2 = formatPlayerName(team2Player2Profile?.display_name || team2Player2Profile?.name || 'Joueur 2');
 
                       const team1Color = calculatedWinnerTeam === 'team1' ? '#34d399' : '#f87171';
                       const team2Color = calculatedWinnerTeam === 'team2' ? '#34d399' : '#f87171';

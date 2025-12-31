@@ -21,6 +21,7 @@ import { usePlayerStats } from "../../hooks/usePlayerStats";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { getBadgeImage } from "../../lib/badgeImages";
 import { supabase } from "../../lib/supabase";
+import { formatPlayerName } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
 
@@ -229,6 +230,7 @@ export default function StatsScreen() {
             status,
             created_at,
             time_slot_id,
+            group_id,
             time_slots (
               id,
               starts_at,
@@ -255,7 +257,24 @@ export default function StatsScreen() {
         const matchesData = (allMatchesData || []).slice(0, 5);
         const finalMatchIds = matchesData.map(m => m.id);
 
-        // 3. Charger les résultats de ces matchs (optionnels)
+        // 3. Charger les informations des groupes pour ces matchs
+        const groupIds = [...new Set(matchesData.map(m => m.group_id).filter(Boolean))];
+        let groupsMap = {};
+        if (groupIds.length > 0) {
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('groups')
+            .select('id, name')
+            .in('id', groupIds);
+
+          if (!groupsError && groupsData) {
+            groupsMap = (groupsData || []).reduce((acc, g) => {
+              acc[g.id] = g;
+              return acc;
+            }, {});
+          }
+        }
+
+        // 4. Charger les résultats de ces matchs (optionnels)
         const { data: resultsData, error: resultsError } = await supabase
           .from('match_results')
           .select(`
@@ -276,7 +295,7 @@ export default function StatsScreen() {
           console.warn('[Stats History] Error loading results:', resultsError);
         }
 
-        // 4. Charger TOUS les RSVPs de ces matchs (pour l'affichage)
+        // 5. Charger TOUS les RSVPs de ces matchs (pour l'affichage)
         const { data: allRsvpsData, error: allRsvpsError } = await supabase
           .from('match_rsvps')
           .select('match_id, user_id, status')
@@ -286,7 +305,7 @@ export default function StatsScreen() {
           console.warn('[Stats History] Error loading all RSVPs:', allRsvpsError);
         }
 
-        // 5. Indexer résultats et RSVPs par match
+        // 6. Indexer résultats et RSVPs par match
         const resultsByMatchId = new Map();
         (resultsData || []).forEach(result => {
           resultsByMatchId.set(result.match_id, result);
@@ -300,7 +319,7 @@ export default function StatsScreen() {
           rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
         });
 
-        // 6. Charger les profils de tous les joueurs concernés
+        // 7. Charger les profils de tous les joueurs concernés
         const allUserIds = new Set();
         (allRsvpsData || []).forEach(r => {
           if (r.user_id) allUserIds.add(String(r.user_id));
@@ -331,11 +350,12 @@ export default function StatsScreen() {
           }, {});
         }
 
-        // 7. Combiner les données pour le rendu
+        // 8. Combiner les données pour le rendu
         const matchesWithDetails = matchesData.map(match => ({
           ...match,
           result: resultsByMatchId.get(match.id) || null,
           rsvps: rsvpsByMatchId.get(match.id) || [],
+          group: groupsMap[match.group_id] || null,
         }));
 
         setHistoryMatches(matchesWithDetails);
@@ -361,7 +381,7 @@ export default function StatsScreen() {
   // Avatar utilisé pour l'historique des matchs (forme du moment)
   const HistoryAvatar = ({ profile = {}, size = 40 }) => {
     const uri = profile?.avatar_url || null;
-    const fallback = profile?.display_name || profile?.name || profile?.email || 'Joueur';
+    const fallback = formatPlayerName(profile?.display_name || profile?.name || profile?.email || 'Joueur');
     const level = profile?.niveau ?? profile?.level ?? null;
 
     let initials = 'U';
@@ -1033,9 +1053,14 @@ export default function StatsScreen() {
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
+                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 4 }}>
                             {dateTimeStr}
                           </Text>
+                          {match.group?.name && (
+                            <Text style={{ color: '#9ca3af', fontWeight: '600', fontSize: 12, marginBottom: 8 }}>
+                              {match.group.name}
+                            </Text>
+                          )}
                           {acceptedPlayers.length > 0 && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
                               {(() => {
@@ -1169,10 +1194,10 @@ export default function StatsScreen() {
                               const isUserLoser = (isUserInTeam1 && actualWinnerTeam === 'team2') || 
                                                   (isUserInTeam2 && actualWinnerTeam === 'team1');
 
-                              const team1Player1 = historyProfilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
-                              const team1Player2 = historyProfilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
-                              const team2Player1 = historyProfilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1';
-                              const team2Player2 = historyProfilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2';
+                              const team1Player1 = formatPlayerName(historyProfilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1');
+                              const team1Player2 = formatPlayerName(historyProfilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2');
+                              const team2Player1 = formatPlayerName(historyProfilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1');
+                              const team2Player2 = formatPlayerName(historyProfilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2');
 
                               const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
                               const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';

@@ -19,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SUPABASE_URL } from '../../config/env';
 import { supabase } from '../../lib/supabase';
+import { formatPlayerName } from '../../lib/uiSafe';
 
 const BRAND = '#1a4b97';
 
@@ -142,7 +143,7 @@ export default function MatchResultFormScreen() {
 
   const getPlayerName = (playerId: string): string => {
     const player = players.find(p => p.id === playerId);
-    return player?.display_name || 'Joueur';
+    return formatPlayerName(player?.display_name || 'Joueur');
   };
 
   const handleSubmit = async () => {
@@ -611,7 +612,7 @@ export default function MatchResultFormScreen() {
                       ) : (
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
                           <Text style={{ color: '#6b7280', fontSize: 14, fontWeight: '700' }}>
-                            {(player.display_name || player.name || 'J')[0].toUpperCase()}
+                            {formatPlayerName(player.display_name || player.name || 'J')[0].toUpperCase()}
                           </Text>
                         </View>
                       )}
@@ -623,7 +624,7 @@ export default function MatchResultFormScreen() {
                           { flex: 1 },
                         ]}
                       >
-                        {player.display_name}
+                        {formatPlayerName(player.display_name)}
                       </Text>
                     </View>
                     {isSelected && <Text style={styles.modalCheck}>✓</Text>}
@@ -680,7 +681,7 @@ export default function MatchResultFormScreen() {
                       ) : (
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
                           <Text style={{ color: '#6b7280', fontSize: 14, fontWeight: '700' }}>
-                            {(player.display_name || player.name || 'J')[0].toUpperCase()}
+                            {formatPlayerName(player.display_name || player.name || 'J')[0].toUpperCase()}
                           </Text>
                         </View>
                       )}
@@ -692,7 +693,7 @@ export default function MatchResultFormScreen() {
                           { flex: 1 },
                         ]}
                       >
-                        {player.display_name}
+                        {formatPlayerName(player.display_name)}
                       </Text>
                     </View>
                     {isSelected && <Text style={styles.modalCheck}>✓</Text>}

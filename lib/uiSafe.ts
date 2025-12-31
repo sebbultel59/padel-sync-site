@@ -46,6 +46,18 @@ export function computeInitials(name?: string): string {
   return out;
 }
 
+/** Format a name/email: if it's an email, return only the part before @ */
+export function formatPlayerName(name: string | null | undefined): string {
+  if (!name || typeof name !== 'string') return 'Joueur';
+  const trimmed = name.trim();
+  if (!trimmed) return 'Joueur';
+  // Si c'est un email, retourner uniquement la partie avant le @
+  if (trimmed.includes('@')) {
+    return trimmed.split('@')[0];
+  }
+  return trimmed;
+}
+
 /** Best-effort display name extraction from various shapes */
 export function bestDisplayName(input: any): string | null {
   try {
@@ -64,7 +76,7 @@ export function bestDisplayName(input: any): string | null {
       input.username ??
       emailPrefix;
 
-    if (typeof name === "string" && name.trim()) return name.trim();
+    if (typeof name === "string" && name.trim()) return formatPlayerName(name.trim());
     return null;
   } catch {
     return null;
