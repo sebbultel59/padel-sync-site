@@ -68,19 +68,93 @@ export default function SigninScreen() {
     setLoading(true);
     try {
       if (authMode === "signup") {
+        // Vérifier d'abord si l'email existe déjà dans Supabase
+        const { data: emailExists, error: checkError } = await supabase.rpc('check_email_exists', {
+          email_to_check: email
+        });
+        
+        // Si l'email existe déjà, afficher le message approprié
+        if (emailExists === true) {
+          Alert.alert(
+            "Email déjà utilisé",
+            "Cet email est déjà utilisé. Veuillez utiliser la procédure de mot de passe oublié sur l'onglet \"Se connecter\".",
+            [
+              {
+                text: "Aller à Se connecter",
+                onPress: () => {
+                  setPassword("");
+                  setPasswordConfirm("");
+                  setPasswordMismatch(false);
+                  setAuthMode("login");
+                }
+              },
+              {
+                text: "OK",
+                style: "cancel"
+              }
+            ]
+          );
+          return;
+        }
+        
         // SignUp avec email de vérification obligatoire
         // Note: L'email de vérification est envoyé automatiquement par Supabase
         // si la configuration est activée dans le dashboard Supabase
+        // Utiliser une URL explicite (comme pour password recovery) pour éviter les problèmes de délivrabilité Gmail
+        const emailRedirectTo = Platform.OS === 'web' && typeof window !== 'undefined'
+          ? `${window.location.origin}/`
+          : 'https://syncpadel.app/';  // URL explicite au lieu de undefined pour mobile
+        
         const { data, error } = await supabase.auth.signUp({ 
           email, 
           password,
           options: {
-            emailRedirectTo: Platform.OS === 'web' && typeof window !== 'undefined'
-              ? `${window.location.origin}/` 
-              : undefined,
+            emailRedirectTo,
           }
         });
-        if (error) throw error;
+        
+        // Gérer les erreurs spécifiques
+        if (error) {
+          // Si l'erreur concerne les exigences du mot de passe, traduire en français
+          if (error.message?.includes('Password should contain') || error.message?.includes('password') && error.message?.includes('contain')) {
+            const specialChars = "!@#$%^&*()_+-=[]{};':\"|<>?,./`~";
+            Alert.alert(
+              "Mot de passe invalide",
+              "Le mot de passe doit contenir obligatoirement :\n\n" +
+              "• Une majuscule (A-Z)\n" +
+              "• Une minuscule (a-z)\n" +
+              "• Un chiffre (0-9)\n" +
+              "• Un caractère spécial\n\n" +
+              "Caractères spéciaux acceptés :\n" + specialChars.split('').join(' ')
+            );
+            return;
+          }
+          
+          // Si l'utilisateur existe déjà, indiquer qu'il faut utiliser la procédure de mot de passe oublié
+          if (error.message?.includes('already registered') || error.message?.includes('already exists') || error.message?.includes('User already registered')) {
+            Alert.alert(
+              "Email déjà utilisé",
+              "Cet email est déjà utilisé. Veuillez utiliser la procédure de mot de passe oublié sur l'onglet \"Se connecter\".",
+              [
+                {
+                  text: "Aller à Se connecter",
+                  onPress: () => {
+                    setPassword("");
+                    setPasswordConfirm("");
+                    setPasswordMismatch(false);
+                    setAuthMode("login");
+                  }
+                },
+                {
+                  text: "OK",
+                  style: "cancel"
+                }
+              ]
+            );
+            return;
+          }
+          throw error;
+        }
         
         // Vérifier si l'utilisateur a été créé
         if (!data?.user) {
@@ -127,13 +201,15 @@ export default function SigninScreen() {
                 text: "Demander un nouvel email",
                 onPress: async () => {
                   try {
+                    const emailRedirectToResend = Platform.OS === 'web' && typeof window !== 'undefined'
+                      ? `${window.location.origin}/`
+                      : 'https://syncpadel.app/';  // URL explicite au lieu de undefined
+                    
                     const { error: resendError } = await supabase.auth.resend({
                       type: 'signup',
                       email: email,
                       options: {
-                        emailRedirectTo: Platform.OS === 'web' && typeof window !== 'undefined'
-                          ? `${window.location.origin}/` 
-                          : undefined,
+                        emailRedirectTo: emailRedirectToResend,
                       }
                     });
                     if (resendError) throw resendError;
@@ -162,7 +238,22 @@ export default function SigninScreen() {
         router.replace("/");
       }
     } catch (e) {
-      Alert.alert("Auth", e?.message ?? String(e));
+      // Traduire les erreurs de validation de mot de passe
+      const errorMsg = e?.message ?? String(e);
+      if (errorMsg.includes('Password should contain') || (errorMsg.includes('password') && errorMsg.includes('contain'))) {
+        const specialChars = "!@#$%^&*()_+-=[]{};':\"|<>?,./`~";
+        Alert.alert(
+          "Mot de passe invalide",
+          "Le mot de passe doit contenir obligatoirement :\n\n" +
+          "• Une majuscule (A-Z)\n" +
+          "• Une minuscule (a-z)\n" +
+          "• Un chiffre (0-9)\n" +
+          "• Un caractère spécial\n\n" +
+          "Caractères spéciaux acceptés :\n" + specialChars.split('').join(' ')
+        );
+      } else {
+        Alert.alert("Auth", errorMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -271,7 +362,23 @@ export default function SigninScreen() {
         redirectTo,
       });
 
-      if (error) throw error;
+      if (error) {
+        const errorMsg = error.message ?? String(error);
+        const isRateLimit = errorMsg.includes('rate limit') || errorMsg.includes('rate_limit') || errorMsg.includes('rate limit exceeded');
+        
+        if (isRateLimit) {
+          throw new Error("⏱️ Limite de taux d'email atteinte.\n\n" +
+            "🔍 Causes possibles :\n" +
+            "• Limite Supabase (plan gratuit : ~3 emails/heure)\n" +
+            "• Quota SMTP personnalisé dépassé (Brevo, SendGrid, etc.)\n\n" +
+            "💡 Solutions :\n" +
+            "1. Vérifiez votre quota Brevo/SMTP dans votre compte fournisseur\n" +
+            "2. Vérifiez les logs Supabase > Authentication > Logs\n" +
+            "3. Vérifiez votre boîte mail (y compris le dossier spam) - l'email a peut-être déjà été envoyé\n" +
+            "4. Attendez 1 heure puis réessayez");
+        }
+        throw error;
+      }
 
       setResetEmailSent(true);
       Alert.alert(
@@ -279,7 +386,13 @@ export default function SigninScreen() {
         "Un email de réinitialisation de mot de passe a été envoyé à " + email + ". Vérifiez votre boîte mail et suivez les instructions.\n\nNote: Cliquez sur le lien dans l'email pour ouvrir l'application."
       );
     } catch (e) {
-      Alert.alert("Erreur", e?.message ?? String(e));
+      const errorMsg = e?.message ?? String(e);
+      // Si c'est déjà un message formaté (avec emojis), l'afficher tel quel
+      if (errorMsg.includes('⏱️') || errorMsg.includes('Limite de taux')) {
+        Alert.alert("Erreur", errorMsg);
+      } else {
+        Alert.alert("Erreur", "Impossible d'envoyer l'email de réinitialisation.\n\n" + errorMsg);
+      }
     } finally {
       setLoading(false);
     }
