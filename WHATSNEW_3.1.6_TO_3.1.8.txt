@@ -1,0 +1,28 @@
+Padel Sync 3.1.8 - What's New
+
+NOUVELLES FONCTIONNALITÉS DEPUIS LA VERSION 3.1.6
+
+Sécurité renforcée
+• Protection des données améliorée avec mise à jour des politiques de sécurité
+• Vues de base de données sécurisées pour un accès sécurisé aux statistiques et au classement
+• Row Level Security (RLS) activée sur les tables sensibles
+• Architecture de données modernisée avec meilleure séparation des données publiques et privées
+
+Performances optimisées
+• Requêtes de base de données optimisées pour un chargement plus rapide
+• Leaderboard se charge maintenant plus rapidement et de manière plus fiable
+• Statistiques de joueurs calculées plus efficacement avec accès plus rapide
+• Calcul des statistiques amélioré directement depuis les résultats de matchs pour une précision maximale
+
+Améliorations techniques
+• Refonte complète des vues player_stats_view et leaderboard_view
+• Système de permissions renforcé avec politiques RLS améliorées
+• Top partenaires calculés automatiquement avec taux de victoire
+• Code optimisé pour de meilleures performances globales
+
+Corrections de bugs
+• Résolution des problèmes de sécurité détectés par les outils d'analyse
+• Corrections de stabilité pour une expérience plus fluide
+• Optimisations spécifiques iOS pour une meilleure performance
+
+Cette mise à jour se concentre sur la sécurité et les performances pour garantir que votre expérience Padel Sync reste sûre, rapide et agréable. Mettez à jour maintenant pour bénéficier des dernières améliorations !

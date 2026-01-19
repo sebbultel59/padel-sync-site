@@ -1125,36 +1125,29 @@ export default function Semaine() {
 
       try { Haptics.selectionAsync(); } catch {}
 
-      // 2) Persistance : utiliser les fonctions RPC pour chaque créneau
-      // Cela garantit une gestion correcte des disponibilités globales vs exceptions
+      // 2) Persistance : un seul RPC bulk pour éviter N allers-retours
       const normalizedStartIsos = startIsos.map(s => normalizeSlotTime(s));
-      
-      for (const normalizedStart of normalizedStartIsos) {
-        const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString());
-        
-        if (applyToAllGroups) {
-          const { error } = await supabase.rpc("set_availability_global", {
-            p_user: user.id,
-            p_start: normalizedStart,
-            p_end: normalizedEnd,
-            p_status: status,
-          });
-          if (error) {
-            console.error('[setMyAvailabilityBulk] Error via set_availability_global:', error);
-            throw error;
-          }
-        } else {
-          const { error } = await supabase.rpc("set_availability_group", {
-            p_user: user.id,
-            p_group: gid,
-            p_start: normalizedStart,
-            p_end: normalizedEnd,
-            p_status: status,
-          });
-          if (error) {
-            console.error('[setMyAvailabilityBulk] Error via set_availability_group:', error);
-            throw error;
-          }
+
+      if (applyToAllGroups) {
+        const { error } = await supabase.rpc("set_availability_global_bulk", {
+          p_user: user.id,
+          p_starts: normalizedStartIsos,
+          p_status: status,
+        });
+        if (error) {
+          console.error('[setMyAvailabilityBulk] Error via set_availability_global_bulk:', error);
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.rpc("set_availability_group_bulk", {
+          p_user: user.id,
+          p_group: gid,
+          p_starts: normalizedStartIsos,
+          p_status: status,
+        });
+        if (error) {
+          console.error('[setMyAvailabilityBulk] Error via set_availability_group_bulk:', error);
+          throw error;
         }
       }
 
@@ -1184,50 +1177,48 @@ export default function Semaine() {
         groupId: gid,
       });
 
-      // Optimistic: enlever localement toutes mes lignes correspondantes (avec normalisation)
+      // Optimistic: enlever localement toutes mes lignes correspondantes (avec normalisation ou brute)
       setSlots((prev) => {
-        const normalizedStartIsos = new Set(startIsos.map(s => normalizeSlotTime(s)));
+        const normalizedStartIsos = new Set(startIsos.map((s) => normalizeSlotTime(s)));
+        const rawStartIsos = new Set(startIsos.map((s) => String(s)));
         return prev.filter((s) => {
+          if (s.user_id !== user.id || s.group_id !== gid) return true;
           const sNormalized = normalizeSlotTime(s.start);
-          // Filtrer uniquement les slots de cet utilisateur, ce groupe, et ces créneaux normalisés
-          return !(s.user_id === user.id && s.group_id === gid && normalizedStartIsos.has(sNormalized));
+          const sRaw = String(s.start);
+          return !(normalizedStartIsos.has(sNormalized) || rawStartIsos.has(sRaw));
         });
       });
       try { Haptics.selectionAsync(); } catch {}
 
-      // Supprimer en utilisant les fonctions RPC pour chaque créneau
-      // Plus fiable que SELECT puis DELETE
+      // Supprimer en masse via RPC bulk (bien plus rapide)
       const normalizedStartIsos = startIsos.map(s => normalizeSlotTime(s));
-      
-      // Traiter chaque créneau individuellement avec les fonctions RPC
-      for (const normalizedStart of normalizedStartIsos) {
-        const normalizedEnd = normalizeSlotTime(dayjs(normalizedStart).add(SLOT_MIN, 'minute').toISOString());
-        
-        if (applyToAllGroups) {
-          console.log('[setMyNeutralBulk] Appel set_availability_global pour:', normalizedStart);
-          const { error } = await supabase.rpc("set_availability_global", {
-            p_user: user.id,
-            p_start: normalizedStart,
-            p_end: normalizedEnd,
-            p_status: 'neutral', // La RPC supprimera maintenant correctement
-          });
-          if (error) {
-            console.error('[setMyNeutralBulk] Error deleting via set_availability_global:', error);
-            throw error;
-          }
-        } else {
-          console.log('[setMyNeutralBulk] Appel set_availability_group pour:', normalizedStart);
-          const { error } = await supabase.rpc("set_availability_group", {
-            p_user: user.id,
-            p_group: gid,
-            p_start: normalizedStart,
-            p_end: normalizedEnd,
-            p_status: 'neutral', // La RPC créera une exception 'neutral' si nécessaire
-          });
-          if (error) {
-            console.error('[setMyNeutralBulk] Error deleting via set_availability_group:', error);
-            throw error;
-          }
+      const rawStartIsos = Array.from(new Set(startIsos.map((s) => String(s))));
+
+      // Meilleure compat: on envoie aussi les starts normalisés + bruts
+      const allStartIsos = Array.from(new Set([...rawStartIsos, ...normalizedStartIsos]));
+
+      if (applyToAllGroups) {
+        console.log('[setMyNeutralBulk] Appel set_availability_global_bulk:', allStartIsos.length);
+        const { error } = await supabase.rpc("set_availability_global_bulk", {
+          p_user: user.id,
+          p_starts: allStartIsos,
+          p_status: 'neutral',
+        });
+        if (error) {
+          console.error('[setMyNeutralBulk] Error via set_availability_global_bulk:', error);
+          throw error;
+        }
+      } else {
+        console.log('[setMyNeutralBulk] Appel set_availability_group_bulk:', allStartIsos.length);
+        const { error } = await supabase.rpc("set_availability_group_bulk", {
+          p_user: user.id,
+          p_group: gid,
+          p_starts: allStartIsos,
+          p_status: 'neutral',
+        });
+        if (error) {
+          console.error('[setMyNeutralBulk] Error via set_availability_group_bulk:', error);
+          throw error;
         }
       }
       
@@ -1251,12 +1242,7 @@ export default function Semaine() {
       for (const day of days) {
         for (const { hour, minute } of hoursOfDay) {
           const startIso = keySlot(day, hour, minute);
-          // Vérifier si le créneau est dans le passé
-          const slotDateTime = dayjs(startIso);
-          const now = dayjs();
-          if (!slotDateTime.isBefore(now)) {
-            allSlots.push(startIso);
-          }
+          allSlots.push(startIso);
         }
       }
       if (allSlots.length > 0) {
@@ -1276,16 +1262,22 @@ export default function Semaine() {
       for (const day of days) {
         for (const { hour, minute } of hoursOfDay) {
           const startIso = keySlot(day, hour, minute);
-          // Vérifier si le créneau est dans le passé
-          const slotDateTime = dayjs(startIso);
-          const now = dayjs();
-          if (!slotDateTime.isBefore(now)) {
-            allSlots.push(startIso);
-          }
+          allSlots.push(startIso);
         }
       }
+      // Ajouter les créneaux existants de l'utilisateur (mêmes si non normalisés)
+      const wsMs = weekStart.valueOf();
+      const weMs = weekStart.add(7, 'day').valueOf();
+      const existingStarts = (slots || [])
+        .filter((s) => String(s.user_id) === String(meId) && String(s.group_id) === String(groupId))
+        .filter((s) => {
+          const ms = dayjs(s.start).valueOf();
+          return ms >= wsMs && ms < weMs;
+        })
+        .map((s) => s.start);
+      const merged = Array.from(new Set([...allSlots, ...existingStarts]));
       if (allSlots.length > 0) {
-        await setMyNeutralBulk(allSlots);
+        await setMyNeutralBulk(merged);
         try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch {}
       }
     } catch (e) {
@@ -1898,19 +1890,18 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           let cellBorder = '#1f2937';
           let textColor = '#0b2240';
           
-          // Si le créneau est passé, appliquer un style grisé
-          if (isPast) {
+          // Couleurs selon la disponibilité du joueur
+          // On garde le rouge clair pour "non dispo" même si le créneau est passé
+          if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
+            cellBg = '#fee2e2';
+            cellBorder = '#fee2e2';
+          } else if (isPast) {
             cellBg = '#f3f4f6'; // gris clair
             cellBorder = '#d1d5db'; // gris
             textColor = '#9ca3af'; // gris foncé
           } else if (myStatus === 'available') {
-            // Cellule vert foncé si le joueur est disponible
             cellBg = '#105b23';
             cellBorder = '#105b23';
-          } else if (myStatus === 'neutral' || myStatus === null || myStatus === undefined) {
-            // Cellule rouge clair si le joueur n'est pas disponible (style similaire aux autres cellules)
-            cellBg = '#fee2e2';
-            cellBorder = '#fee2e2';
           }
 
           // Surbrillance de la plage en cours (prévisualisation) - uniquement si le créneau n'est pas passé

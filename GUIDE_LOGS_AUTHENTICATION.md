@@ -11,7 +11,7 @@
 
 ### Méthode 2 : Navigation directe
 
-1. Allez directement sur : `https://app.supabase.com/project/[VOTRE_PROJECT_ID]/auth/logs`
+1. Allez directement sur : `https://app.supabase.com/project/iieiggyqcncbkjwsdcxl/auth/logs`
    - Remplacez `[VOTRE_PROJECT_ID]` par l'ID de votre projet (ex: `iieiggyqcncbkjwsdcxl`)
 
 ## 🔍 Ce que vous verrez dans les logs

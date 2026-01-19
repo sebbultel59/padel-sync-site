@@ -8,15 +8,15 @@ function renderMessage(
       case "rsvp_accepted":   return { title: "Un joueur a confirmé", body: `${ctx.actor_name ?? "Un joueur"} a confirmé sa participation.` };
       case "rsvp_declined":   return { title: "Un joueur a refusé", body: `${ctx.actor_name ?? "Un joueur"} a refusé le match.` };
       case "rsvp_withdraw":   return { title: "Un joueur s'est retiré", body: `${ctx.actor_name ?? "Un joueur"} s'est retiré du match.` };
-      case "match_confirmed": return { title: "Match validé", body: "Les 4 joueurs ont confirmé, c'est validé !" };
+      case "match_confirmed": return { title: "🎾 Tu as été sélectionné.e pour un match 🎾", body: "Consulte tes matchs validés" };
       case "match_canceled":  return { title: "Match annulé", body: "Le match a été annulé." };
       case "match_result_recorded": return { title: "Résultat enregistré", body: ctx.payload?.message || "Le résultat du match a été enregistré." };
   
       // --- membres du groupe (NOUVEAU)
       case "group_member_join":     return { title: "Nouveau membre", body: `${ctx.actor_name ?? "Un joueur"} a rejoint le groupe.` };
       case "group_member_leave":    return { title: "Départ d'un membre", body: `${ctx.actor_name ?? "Un joueur"} a quitté le groupe.` };
-      case "group_match_created":   return { title: "Nouveau match", body: "Un match a été créé dans ton groupe." };
-      case "group_match_validated": return { title: "Match validé", body: "Un match du groupe est désormais validé." };
+      case "group_match_created":   return { title: "Un match a été créé dans ton groupe", body: "Un match a été créé dans ton groupe" };
+      case "group_match_validated": return { title: "🎾 Tu as été sélectionné.e pour un match 🎾", body: "Consulte tes matchs validés" };
       case "group_join_request_approved": return { title: "Demande acceptée ✅", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été acceptée." };
       case "group_join_request_rejected": return { title: "Demande refusée", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été refusée." };
   
@@ -212,6 +212,7 @@ Deno.serve(async () => {
         title,
         body,
         data: { kind: job.kind, match_id: job.match_id, group_id: job.group_id },
+        job_id: job.id,
       });
     }
     
@@ -250,14 +251,24 @@ Deno.serve(async () => {
     if (updatedCount < jobIdsToMark.length) {
       console.log(`[Dispatch] ⚠️ ${jobIdsToMark.length - updatedCount} job(s) déjà envoyé(s), ignoré(s)`);
     }
-    
-    processedJobIds.push(...(updatedJobs || []).map((j: any) => j.id));
-    
+
+    const updatedIdSet = new Set((updatedJobs || []).map((j: any) => j.id));
+    if (updatedIdSet.size === 0) {
+      return new Response("no new jobs to send", { status: 200 });
+    }
+
+    processedJobIds.push(...updatedIdSet);
+
+    const messagesToSend = messages.filter((m: any) => updatedIdSet.has(m.job_id));
+    if (!messagesToSend.length) {
+      return new Response("no messages to send", { status: 200 });
+    }
+
     // Envoyer les notifications
     let sendSuccess = true;
     try {
-      console.log(`[Dispatch] Préparation envoi de ${messages.length} message(s) à ${allSentTokens.size} token(s) unique(s)`);
-      for (const batch of chunk(messages, 99)) {
+      console.log(`[Dispatch] Préparation envoi de ${messagesToSend.length} message(s)`);
+      for (const batch of chunk(messagesToSend, 99)) {
         console.log(`[Dispatch] Envoi batch de ${batch.length} message(s)...`);
         const result = await sendExpoPush(batch);
         if (!result) {

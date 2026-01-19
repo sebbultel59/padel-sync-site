@@ -6,24 +6,24 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  ActionSheetIOS,
-  ActivityIndicator,
-  Alert,
-  Animated,
-  DeviceEventEmitter,
-  FlatList,
-  Image,
-  InteractionManager,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  SectionList,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View
+    ActionSheetIOS,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    DeviceEventEmitter,
+    FlatList,
+    Image,
+    InteractionManager,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    SectionList,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
@@ -33,7 +33,7 @@ import { OnboardingModal } from '../../../components/OnboardingModal';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { supabase } from "../../../lib/supabase";
-import { press, formatPlayerName } from "../../../lib/uiSafe";
+import { formatPlayerName, press } from "../../../lib/uiSafe";
 
 const COLORS = {
   primary: '#156bc9',   // bleu charte
@@ -156,6 +156,22 @@ export default function MatchesScreen() {
   const { width, height } = useWindowDimensions();
   const { start } = useCopilot();
   const startRef = useRef(null);
+  const [freezeVersion, setFreezeVersion] = useState(0);
+  const isFetchingRef = useRef(false);
+  const pendingFetchRef = useRef(false);
+  const lastFetchAtRef = useRef(0);
+  const hasDataRef = useRef(false);
+  const availabilityRefreshTimerRef = useRef(null);
+  const isCreatingMatchRef = useRef(false);
+  const weekLoadingUntilRef = useRef(0);
+  const weekLoadingTimerRef = useRef(null);
+  const freezeDisplayUntilRef = useRef(0);
+
+  const freezeDisplay = useCallback((ms = 700) => {
+    freezeDisplayUntilRef.current = Date.now() + ms;
+    setFreezeVersion((v) => v + 1);
+    setTimeout(() => setFreezeVersion((v) => v + 1), ms);
+  }, []);
   
   // Stocker start dans une ref
   if (start) {
@@ -164,8 +180,8 @@ export default function MatchesScreen() {
   
   // Calculer l'espacement dynamique entre header et boutons selon la taille d'écran (Android uniquement)
   const dynamicHeaderSpacing = Platform.OS === 'android' 
-    ? (height < 700 ? -20 : height < 900 ? -16 : height < 1100 ? -12 : -8)
-    : -8;
+    ? (height < 700 ? -24 : height < 900 ? -20 : height < 1100 ? -16 : -12)
+    : -12;
   
   // Debug: vérifier les valeurs sur Android
   useEffect(() => {
@@ -198,6 +214,7 @@ export default function MatchesScreen() {
     if (profile?.id) {
       console.log('[HotMatch] Ouverture modale profil pour:', profile.id, profile.display_name);
       // Charger les données complètes du profil depuis la base de données
+      let createdMatchId = null;
       try {
         const { data, error } = await supabase
           .from('profiles')
@@ -274,6 +291,125 @@ export default function MatchesScreen() {
     setFlashAvailableMemberIds(new Set());
   }, []);
 
+  const MATCH_CREATED_UNDO_SECONDS = 10;
+  const clearMatchCreatedUndoState = useCallback(() => {
+    if (matchCreatedUndoIntervalRef.current) {
+      clearInterval(matchCreatedUndoIntervalRef.current);
+      matchCreatedUndoIntervalRef.current = null;
+    }
+    matchCreatedUndoOnExpireRef.current = null;
+    matchCreatedUndoOnConfirmRef.current = null;
+  }, []);
+
+  const notifyMatchCreated = useCallback(async (matchId, playerIds = []) => {
+    const ids = Array.from(new Set((playerIds || []).map(String).filter(Boolean)));
+    if (!matchId || ids.length === 0 || !groupId) return;
+    const key = `match_confirmed:${matchId}`;
+    if (notifiedMatchesRef.current.has(key)) return;
+    notifiedMatchesRef.current.add(key);
+    try {
+      const { error } = await supabase.rpc('create_notification_job', {
+        p_kind: 'match_confirmed',
+        p_match_id: matchId,
+        p_group_id: groupId,
+        p_recipients: ids,
+        p_payload: { allow_after_countdown: true },
+      });
+      if (error) throw error;
+    } catch (e) {
+      console.warn('[notifyMatchCreated] failed:', e?.message || e);
+    }
+  }, [groupId]);
+
+  const notifyGroupMatchCreated = useCallback(async (matchId, excludeUserIds = []) => {
+    if (!matchId || !groupId) return;
+    const key = `group_match_created:${matchId}`;
+    if (notifiedMatchesRef.current.has(key)) return;
+    notifiedMatchesRef.current.add(key);
+    try {
+      const { data: members, error } = await supabase
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', groupId);
+      if (error) throw error;
+      const exclude = new Set((excludeUserIds || []).map(String));
+      const recipients = Array.from(
+        new Set((members || []).map((m) => String(m.user_id)).filter((id) => id && !exclude.has(id)))
+      );
+      if (recipients.length === 0) return;
+      const { error: rpcError } = await supabase.rpc('create_notification_job', {
+        p_kind: 'group_match_created',
+        p_match_id: matchId,
+        p_group_id: groupId,
+        p_recipients: recipients,
+        p_payload: { allow_after_countdown: true },
+      });
+      if (rpcError) throw rpcError;
+    } catch (e) {
+      console.warn('[notifyGroupMatchCreated] failed:', e?.message || e);
+    }
+  }, [groupId]);
+
+  const showMatchCreatedUndo = useCallback((matchId, { seconds = MATCH_CREATED_UNDO_SECONDS, onExpire, onConfirm } = {}) => {
+    if (!matchId) return;
+    clearMatchCreatedUndoState();
+    matchCreatedUndoOnExpireRef.current = onExpire || null;
+    matchCreatedUndoOnConfirmRef.current = onConfirm || onExpire || null;
+    const duration = Math.max(1, Number(seconds) || MATCH_CREATED_UNDO_SECONDS);
+    matchCreatedUndoEndRef.current = Date.now() + duration * 1000;
+    setMatchCreatedUndoMatchId(matchId);
+    setMatchCreatedUndoSeconds(duration);
+    setMatchCreatedUndoVisible(true);
+    matchCreatedUndoIntervalRef.current = setInterval(() => {
+      const left = Math.max(0, Math.ceil((matchCreatedUndoEndRef.current - Date.now()) / 1000));
+      setMatchCreatedUndoSeconds(left);
+      if (left <= 0) {
+        const cb = matchCreatedUndoOnExpireRef.current;
+        matchCreatedUndoOnExpireRef.current = null;
+        matchCreatedUndoOnConfirmRef.current = null;
+        clearMatchCreatedUndoState();
+        setMatchCreatedUndoVisible(false);
+        cb && cb();
+      }
+    }, 250);
+  }, [clearMatchCreatedUndoState]);
+
+  useEffect(() => {
+    return () => {
+      clearMatchCreatedUndoState();
+    };
+  }, [clearMatchCreatedUndoState]);
+
+  useEffect(() => {
+    matchCreatedUndoVisibleRef.current = matchCreatedUndoVisible;
+    if (matchCreatedUndoVisible && !popupSnapshotActiveRef.current) {
+      popupSnapshotActiveRef.current = true;
+      proposesTabSnapshotRef.current = proposesTab;
+      setPopupSnapshotLongSections(displayLongSectionsStable);
+      setPopupSnapshotHourReady(displayHourReadyStable);
+      const nextCount =
+        (displayHourReadyStable || []).filter((it) => new Date(it.ends_at) > new Date()).length +
+        (displayLongSectionsStable || []).reduce((sum, section) => {
+          return (
+            sum +
+            (section.data || []).filter((it) => new Date(it.ends_at) > new Date()).length
+          );
+        }, 0);
+      setPopupSnapshotProposedCount(nextCount);
+    }
+    if (!matchCreatedUndoVisible && popupSnapshotActiveRef.current) {
+      popupSnapshotActiveRef.current = false;
+      proposesTabSnapshotRef.current = null;
+      setPopupSnapshotLongSections(null);
+      setPopupSnapshotHourReady(null);
+      setPopupSnapshotProposedCount(null);
+    }
+    if (!matchCreatedUndoVisible && pendingFetchRef.current) {
+      pendingFetchRef.current = false;
+      fetchData(true);
+    }
+  }, [matchCreatedUndoVisible, proposesTab, fetchData, displayLongSectionsStable, displayHourReadyStable]);
+
   const tabBarHeight = useBottomTabBarHeight();
   const safeBottomInset = Math.max(insets.bottom || 0, 0);
   const BUTTON_BAR_HEIGHT = 12;
@@ -308,6 +444,11 @@ export default function MatchesScreen() {
     const urlTab = params?.tab;
     return (urlTab === 'valides' ? 'valides' : 'proposes');
   });
+  React.useEffect(() => {
+    if (tab === 'rsvp') {
+      setTab('proposes');
+    }
+  }, [tab]);
   const [mode, setMode] = useState('long');
   const [rsvpMode, setRsvpMode] = useState('long');
   const [confirmedMode, setConfirmedMode] = useState('long');
@@ -327,6 +468,16 @@ export default function MatchesScreen() {
   // États pour les données affichées (mis à jour explicitement)
   const [displayLongSections, setDisplayLongSections] = useState([]);
   const [displayHourReady, setDisplayHourReady] = useState([]);
+  const [displayLongSectionsStable, setDisplayLongSectionsStable] = useState([]);
+  const [displayHourReadyStable, setDisplayHourReadyStable] = useState([]);
+  const [displaySyncTick, setDisplaySyncTick] = useState(0);
+  const [proposedTabCountStable, setProposedTabCountStable] = useState(0);
+  const [popupSnapshotLongSections, setPopupSnapshotLongSections] = useState(null);
+  const [popupSnapshotHourReady, setPopupSnapshotHourReady] = useState(null);
+  const [popupSnapshotProposedCount, setPopupSnapshotProposedCount] = useState(null);
+  const popupSnapshotActiveRef = useRef(false);
+  const proposesTabSnapshotRef = useRef(null);
+  const displayUpdateTimerRef = useRef(null);
   // État pour la popup "choisis un groupe"
   const [noGroupModalVisible, setNoGroupModalVisible] = useState(false);
   // Bandeau réseau
@@ -334,6 +485,15 @@ export default function MatchesScreen() {
   const retryRef = React.useRef(0);
   const previousGroupIdRef = React.useRef(null); // Pour détecter les changements de groupe vs semaine
   const previousWeekOffsetRef = React.useRef(0); // Pour détecter les changements de semaine
+  const [matchCreatedUndoVisible, setMatchCreatedUndoVisible] = useState(false);
+  const [matchCreatedUndoSeconds, setMatchCreatedUndoSeconds] = useState(0);
+  const [matchCreatedUndoMatchId, setMatchCreatedUndoMatchId] = useState(null);
+  const matchCreatedUndoEndRef = useRef(0);
+  const matchCreatedUndoIntervalRef = useRef(null);
+  const matchCreatedUndoOnExpireRef = useRef(null);
+  const matchCreatedUndoOnConfirmRef = useRef(null);
+  const matchCreatedUndoVisibleRef = useRef(false);
+  const notifiedMatchesRef = useRef(new Set());
   
   // Group selector states
   const [myGroups, setMyGroups] = useState([]);
@@ -1633,17 +1793,36 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 };
 
   // Compteurs pour les onglets (filtrer par semaine aussi)
+  const isDisplayFrozen = Date.now() < freezeDisplayUntilRef.current || isCreatingMatchRef.current || matchCreatedUndoVisibleRef.current;
+  const frozenHourReady = isDisplayFrozen ? displayHourReadyStable : displayHourReady;
+  const frozenLongSections = isDisplayFrozen ? displayLongSectionsStable : displayLongSections;
+  const renderHourReady =
+    matchCreatedUndoVisible && Array.isArray(popupSnapshotHourReady)
+      ? popupSnapshotHourReady
+      : frozenHourReady;
+  const renderLongSections =
+    matchCreatedUndoVisible && Array.isArray(popupSnapshotLongSections)
+      ? popupSnapshotLongSections
+      : frozenLongSections;
+  const listKeySeed = matchCreatedUndoVisible ? 'popup' : String(dataVersion);
+  const longListExtraData = React.useMemo(() => ({ profilesById, dataVersion }), [profilesById, dataVersion]);
+  const hourListExtraData = React.useMemo(() => ({ profilesById, dataVersion }), [profilesById, dataVersion]);
+
   const proposedTabCount = React.useMemo(() => 
-    (displayHourReady || []).filter(it => {
+    (frozenHourReady || []).filter(it => {
       const endTime = new Date(it.ends_at);
       return endTime > new Date();
-    }).length + (displayLongSections || []).reduce((sum, section) => {
+    }).length + (frozenLongSections || []).reduce((sum, section) => {
       return sum + (section.data || []).filter(it => {
       const endTime = new Date(it.ends_at);
       return endTime > new Date();
       }).length;
     }, 0)
-  , [displayHourReady, displayLongSections]);
+  , [frozenHourReady, frozenLongSections, freezeVersion]);
+  const proposedTabCountDisplay =
+    matchCreatedUndoVisible && typeof popupSnapshotProposedCount === 'number'
+      ? popupSnapshotProposedCount
+      : proposedTabCountStable;
   
   // Matchs à confirmer pour moi : ceux où mon RSVP est "maybe" (je n'ai pas encore confirmé)
   const rsvpTabCount = React.useMemo(() => {
@@ -1749,10 +1928,36 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   // Fonction pour charger les données (avec option pour ne pas masquer l'UI)
   const fetchData = useCallback(async (skipLoadingState = false) => {
     if (!groupId) return;
-    if (!skipLoadingState) {
+    if (matchCreatedUndoVisibleRef.current) {
+      pendingFetchRef.current = true;
+      return;
+    }
+    if (isCreatingMatchRef.current && hasDataRef.current && skipLoadingState) {
+      return;
+    }
+    const now = Date.now();
+    if (isFetchingRef.current) {
+      pendingFetchRef.current = true;
+      return;
+    }
+    if (now - lastFetchAtRef.current < 400) {
+      pendingFetchRef.current = true;
+      return;
+    }
+    isFetchingRef.current = true;
+    lastFetchAtRef.current = now;
+    if (!skipLoadingState && !hasDataRef.current) {
       setLoading(true);
+    } else if (skipLoadingState) {
+      if (hasDataRef.current) {
+        // Ne pas afficher l'overlay si on a déjà des données
     } else {
+      const nowWeek = Date.now();
+      if (!loadingWeek) {
       setLoadingWeek(true);
+      }
+      weekLoadingUntilRef.current = Math.max(weekLoadingUntilRef.current, nowWeek + 600);
+      }
     }
     try {
       setNetworkNotice(null);
@@ -2046,18 +2251,28 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         setMatchesConfirmed(confirmed);
       }
 
-      // Charger les RSVPs via les matchs du groupe
+      // Charger les RSVPs via une RPC (bypass RLS) pour récupérer tous les joueurs
       let rsvpsData = [];
       if (matchesData && matchesData.length > 0) {
         const matchIds = matchesData.map(m => m.id).filter(Boolean);
         if (matchIds.length > 0) {
-          const { data: rsvps, error: rsvpsError } = await supabase
+          const { data: rsvps, error: rsvpsError } = await supabase.rpc(
+            'get_match_rsvps_for_matches',
+            { p_match_ids: matchIds }
+          );
+
+          if (rsvpsError) {
+            console.error('[Matches] Error loading RSVPs via RPC:', rsvpsError);
+            // Fallback: direct select (peut être filtré par RLS)
+            const { data: rsvpsFallback, error: fallbackError } = await supabase
           .from('match_rsvps')
             .select('*')
           .in('match_id', matchIds);
-
-          if (rsvpsError) {
-            console.error('[Matches] Error loading RSVPs:', rsvpsError);
+            if (fallbackError) {
+              console.error('[Matches] Error loading RSVPs fallback:', fallbackError);
+            } else if (rsvpsFallback) {
+              rsvpsData = rsvpsFallback;
+            }
           } else if (rsvps) {
             rsvpsData = rsvps;
           }
@@ -2266,7 +2481,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         setReady(adjusted);
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
-        setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
+        if (!matchCreatedUndoVisibleRef.current) {
+          setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
+        }
         
         // Sur mobile, recalculer et mettre à jour immédiatement les états display
         if (Platform.OS !== 'web') {
@@ -2309,6 +2526,12 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           
           // Mettre à jour immédiatement les états display
           InteractionManager.runAfterInteractions(() => {
+            if (isFetchingRef.current) {
+              return;
+            }
+            if (Date.now() < freezeDisplayUntilRef.current || isCreatingMatchRef.current || matchCreatedUndoVisibleRef.current) {
+              return;
+            }
             console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile, sections:', sections.length, 'hour:', hourFiltered.length);
             setDisplayLongSections(sections.map(section => ({
               ...section,
@@ -2324,7 +2547,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         setReady(tempReady || []);
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
-        setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
+        if (!matchCreatedUndoVisibleRef.current) {
+          setDataVersion(prev => prev + 1); // Incrémenter pour forcer le re-render
+        }
         
         // Sur mobile, recalculer et mettre à jour immédiatement les états display
         if (Platform.OS !== 'web') {
@@ -2364,6 +2589,12 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           });
           
           InteractionManager.runAfterInteractions(() => {
+            if (isFetchingRef.current) {
+              return;
+            }
+            if (Date.now() < freezeDisplayUntilRef.current || isCreatingMatchRef.current || matchCreatedUndoVisibleRef.current) {
+              return;
+            }
             console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile (fallback), sections:', sections.length, 'hour:', hourFiltered.length);
             setDisplayLongSections(sections.map(section => ({
               ...section,
@@ -2374,6 +2605,10 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         }
       }
       
+      hasDataRef.current = Boolean(
+        (matchesData && matchesData.length) ||
+        (ready && ready.length)
+      );
       console.log('[Matches] fetchData completed');
     } catch (e) {
       console.error('[Matches] fetchData error:', e);
@@ -2391,7 +2626,25 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       if (!skipLoadingState) {
         setLoading(false);
       } else {
+        if (hasDataRef.current) {
+          // Pas d'overlay à gérer si on a déjà des données
+        } else {
+          if (weekLoadingTimerRef.current) {
+            clearTimeout(weekLoadingTimerRef.current);
+          }
+          const waitMs = Math.max(0, weekLoadingUntilRef.current - Date.now());
+          weekLoadingTimerRef.current = setTimeout(() => {
         setLoadingWeek(false);
+          }, waitMs);
+        }
+      }
+      isFetchingRef.current = false;
+      if (!matchCreatedUndoVisibleRef.current) {
+        setDisplaySyncTick((v) => v + 1);
+      }
+      if (pendingFetchRef.current) {
+        pendingFetchRef.current = false;
+        setTimeout(() => fetchData(true), 50);
       }
     }
   }, [groupId, weekOffset]);
@@ -2420,6 +2673,12 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   // Mettre à jour explicitement les données affichées quand les données calculées changent
   // Utiliser useLayoutEffect pour une mise à jour synchrone avant le rendu
   useLayoutEffect(() => {
+    if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current) {
+      return;
+    }
+    if (isFetchingRef.current) {
+      return;
+    }
     console.log('[Matches] useLayoutEffect: Mise à jour des données affichées, dataVersion:', dataVersion, 'longSectionsWeek:', longSectionsWeek.length, 'hourReadyWeek:', hourReadyWeek.length);
     // Créer de nouvelles copies profondes pour forcer React à détecter le changement
     const newLongSections = longSectionsWeek.map(section => ({
@@ -2429,17 +2688,28 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     const newHourReady = hourReadyWeek.map(item => ({ ...item }));
     console.log('[Matches] useLayoutEffect: Mise à jour effective des états display, newLongSections:', newLongSections.length, 'newHourReady:', newHourReady.length);
     
-    // Sur mobile, utiliser setTimeout pour différer légèrement et laisser React Native terminer les mises à jour
-    if (Platform.OS !== 'web') {
-      setTimeout(() => {
-        setDisplayLongSections(newLongSections);
-        setDisplayHourReady(newHourReady);
-      }, 0); // Utiliser setTimeout(0) pour différer après le rendu actuel
-    } else {
+    if (displayUpdateTimerRef.current) {
+      clearTimeout(displayUpdateTimerRef.current);
+    }
+    displayUpdateTimerRef.current = setTimeout(() => {
+      if (matchCreatedUndoVisibleRef.current) {
+        return;
+      }
       setDisplayLongSections(newLongSections);
       setDisplayHourReady(newHourReady);
-    }
-  }, [longSectionsWeek, hourReadyWeek, dataVersion]);
+      setDisplayLongSectionsStable(newLongSections);
+      setDisplayHourReadyStable(newHourReady);
+      const nextCount =
+        (newHourReady || []).filter((it) => new Date(it.ends_at) > new Date()).length +
+        (newLongSections || []).reduce((sum, section) => {
+          return (
+            sum +
+            (section.data || []).filter((it) => new Date(it.ends_at) > new Date()).length
+          );
+        }, 0);
+      setProposedTabCountStable(nextCount);
+    }, 250);
+  }, [longSectionsWeek, hourReadyWeek, dataVersion, displaySyncTick]);
 
   // Mettre à jour le tab si le paramètre d'URL change
   useEffect(() => {
@@ -2759,6 +3029,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           };
 
           (async () => {
+            if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current) {
+              return;
+            }
             if (ev === 'DELETE') {
               removeFrom(setMatchesPending, matchId);
               removeFrom(setMatchesConfirmed, matchId);
@@ -2821,6 +3094,9 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             // Debug log for RSVP event
             console.log('[Realtime RSVP]', ev, { matchId, userId, new: rowNew, old: rowOld });
 
+            if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current) {
+              return;
+            }
             setRsvpsByMatch((prev) => {
               const next = { ...prev };
               const arr = Array.isArray(next[matchId]) ? [...next[matchId]] : [];
@@ -2835,7 +3111,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                 if (i >= 0) arr[i] = { ...arr[i], ...item };
                 else arr.push(item);
                 next[matchId] = arr;
-                fetchData(); // ✅ ici : relance recalcul des créneaux possibles
+                setTimeout(() => fetchData(true), 600); // ✅ différer pour éviter les sauts lors de la création
                 return next;
               }
 
@@ -2872,10 +3148,16 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       console.log('[Matches] AVAILABILITY_CHANGED event received:', data);
       if (data?.groupId && String(data.groupId) === String(groupId)) {
         console.log('[Matches] ✅ Availability changed for current group, reloading fetchData...');
-        // Délai court pour laisser le temps à la base de données de se mettre à jour
-        setTimeout(() => {
-          fetchData();
-        }, 100);
+        if (isCreatingMatchRef.current) {
+          return;
+        }
+        // Débounce pour éviter les rafales de rechargement
+        if (availabilityRefreshTimerRef.current) {
+          clearTimeout(availabilityRefreshTimerRef.current);
+        }
+        availabilityRefreshTimerRef.current = setTimeout(() => {
+          fetchData(true);
+        }, 300);
       } else {
         console.log('[Matches] ⏭️ Availability changed for different group, skipping');
       }
@@ -2883,6 +3165,10 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
     return () => {
       subscription.remove();
+      if (availabilityRefreshTimerRef.current) {
+        clearTimeout(availabilityRefreshTimerRef.current);
+        availabilityRefreshTimerRef.current = null;
+      }
     };
   }, [groupId, fetchData]);
 
@@ -3153,7 +3439,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   }
 
   const onCreateIntervalMatch = useCallback(
-    async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'pending') => {
+    async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'confirmed') => {
       if (!groupId) return;
       // Preflight: prevent overlapping creation with same players
       try {
@@ -3352,6 +3638,20 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         if (!uid) {
           const { data: u } = await supabase.auth.getUser();
           uid = u?.user?.id ?? null;
+        }
+
+        if (newMatchId) {
+          const notifyIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
+          showMatchCreatedUndo(newMatchId, {
+            onExpire: () => {
+              notifyMatchCreated(newMatchId, notifyIds);
+              notifyGroupMatchCreated(newMatchId, notifyIds);
+            },
+            onConfirm: () => {
+              notifyMatchCreated(newMatchId, notifyIds);
+              notifyGroupMatchCreated(newMatchId, notifyIds);
+            },
+          });
         }
         
         if (newMatchId && uid) {
@@ -3661,11 +3961,6 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           }
         }
         
-        if (Platform.OS === 'web') {
-          window.alert('Match créé 🎾\nLe créneau a été transformé en match.');
-        } else {
-          Alert.alert('Match créé 🎾', 'Le créneau a été transformé en match.');
-        }
       } catch (e) {
         if (Platform.OS === 'web') {
           window.alert('Erreur\n' + (e.message ?? String(e)));
@@ -3674,7 +3969,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         }
       }
     },
-    [groupId, fetchData]
+    [groupId, fetchData, showMatchCreatedUndo]
   );
 
   // Handler pour valider date/heure/durée et passer à la sélection des joueurs
@@ -4431,11 +4726,16 @@ async function acceptPlayers(matchId, userIds = []) {
   const ids = Array.from(new Set((userIds || []).map(String)));
   if (!matchId || ids.length === 0) return;
 
-  // Tentative via RPC (respect RLS)
+  // Tentative via RPC SECURITY DEFINER (respect RLS) — met le statut en "accepted"
   try {
     await Promise.all(
       ids.map((uid) =>
-        supabase.rpc('admin_accept_player', { p_match: matchId, p_user: uid })
+        supabase.rpc('update_match_rsvp_status', {
+          p_match_id: matchId,
+          p_user_id: uid,
+          p_status: 'accepted',
+          p_skip_notification: true,
+        })
       )
     );
     return;
@@ -4540,12 +4840,23 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         }
       } catch {}
       try {
-        const { error } = await supabase.rpc("create_match_from_slot", {
+        const playerIds = Array.from(
+          new Set((selectedUserIds || []).concat(meId).filter(Boolean).map(String))
+        );
+        const { error } = await supabase.rpc("create_match_with_players", {
           p_group: groupId,
           p_time_slot: time_slot_id,
+          p_user_ids: playerIds,
         });
-        if (error) throw error;
-        // Auto-RSVP: inscrire automatiquement le créateur comme 'accepted'
+        if (error) {
+          // Fallback: old RPC
+          const { error: fallbackError } = await supabase.rpc("create_match_from_slot", {
+            p_group: groupId,
+            p_time_slot: time_slot_id,
+          });
+          if (fallbackError) throw error;
+        }
+        // Auto-confirm: inscrire automatiquement tous les joueurs sélectionnés en 'accepted'
         try {
           // récupérer l'ID du match fraîchement créé (par group_id + time_slot_id)
           const { data: createdMatch } = await supabase
@@ -4564,66 +4875,50 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             uid = u?.user?.id ?? null;
           }
 
-          if (createdMatch?.id && uid) {
-            await supabase
-              .from('match_rsvps')
-              .upsert(
-                { match_id: createdMatch.id, user_id: uid, status: 'accepted' },
-                { onConflict: 'match_id,user_id' }
-              );
-            // mettre à jour l'UI localement (optimiste)
+          if (createdMatch?.id) {
+            createdMatchId = createdMatch.id;
+            const notifyIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
+            showMatchCreatedUndo(createdMatchId, {
+              onExpire: () => {
+                notifyMatchCreated(createdMatchId, notifyIds);
+                notifyGroupMatchCreated(createdMatchId, notifyIds);
+              },
+              onConfirm: () => {
+                notifyMatchCreated(createdMatchId, notifyIds);
+                notifyGroupMatchCreated(createdMatchId, notifyIds);
+              },
+            });
+            // Confirmer le match côté backend
+            await supabase.from('matches').update({ status: 'confirmed' }).eq('id', createdMatch.id);
+            // Accepter tous les joueurs sélectionnés
+            const toAccept = (selectedUserIds || []).map(String).filter(Boolean);
+            await acceptPlayers(createdMatch.id, toAccept);
+            // Optimisme UI: marquer tout le monde en 'accepted'
             setRsvpsByMatch((prev) => {
               const next = { ...prev };
               const arr = Array.isArray(next[createdMatch.id]) ? [...next[createdMatch.id]] : [];
-              const i = arr.findIndex((r) => r.user_id === uid);
-              if (i >= 0) arr[i] = { ...arr[i], status: 'accepted' };
-              else arr.push({ user_id: uid, status: 'accepted' });
-              next[createdMatch.id] = arr;
-              return next;
-            });
-          }
-
-          // Mettre les joueurs sélectionnés en attente (remplaçants)
-          try {
-            const toMaybe = (selectedUserIds || [])
-              .map(String)
-              .filter((id) => id && id !== String(uid));
-            if (createdMatch?.id && toMaybe.length) {
-              await setPlayersMaybe(createdMatch.id, toMaybe, uid);
-              // Optimisme UI: marquer en 'maybe' localement
-              setRsvpsByMatch((prev) => {
-                const next = { ...prev };
-                const arr = Array.isArray(next[createdMatch.id]) ? [...next[createdMatch.id]] : [];
-                for (const id of toMaybe) {
-                  const i = arr.findIndex((r) => String(r.user_id) === String(id));
-                  if (i >= 0) arr[i] = { ...arr[i], status: 'maybe' };
-                  else arr.push({ user_id: id, status: 'maybe' });
+              const acceptedSet = new Set(toAccept);
+              const updated = arr.map((r) =>
+                acceptedSet.has(String(r.user_id)) ? { ...r, status: 'accepted' } : r
+              );
+              for (const id of toAccept) {
+                if (!updated.find((r) => String(r.user_id) === String(id))) {
+                  updated.push({ user_id: id, status: 'accepted' });
                 }
-                next[createdMatch.id] = arr;
+              }
+              next[createdMatch.id] = updated;
                 return next;
               });
-            }
-          } catch (e) {
-            console.warn('[Matches] set selected users to maybe (slot) failed:', e?.message || e);
           }
-
-          // Sécurité : si le backend a pré-accepté d'autres joueurs, on les remet en attente
-          try {
-            if (createdMatch?.id && uid) {
-              await demoteNonCreatorAcceptedToMaybe(createdMatch.id, uid);
-            }
-          } catch {}
 
         } catch (autoErr) {
           // on ne bloque pas la création si l'auto-RSVP échoue
           console.warn('[Matches] auto-RSVP failed:', autoErr?.message || autoErr);
         }
+        isCreatingMatchRef.current = true;
+        freezeDisplay(2200);
         await fetchData();
-        if (Platform.OS === "web") {
-          window.alert("Match créé 🎾\nLe créneau a été transformé en match.");
-        } else {
-          Alert.alert("Match créé 🎾", "Le créneau a été transformé en match.");
-        }
+        setTimeout(() => { isCreatingMatchRef.current = false; }, 2500);
       } catch (e) {
         if (Platform.OS === "web") {
           window.alert("Impossible de créer le match\n" + (e.message ?? String(e)));
@@ -4632,7 +4927,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         }
       }
     },
-    [groupId, fetchData]
+    [groupId, fetchData, showMatchCreatedUndo]
   );
 
   const onRsvpAccept = useCallback(async (match_id) => {
@@ -4793,6 +5088,38 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         return next;
       });
 
+      // Notifier le créateur du match si disponible
+      try {
+        const { data: matchInfo } = await supabase
+          .from('matches')
+          .select('group_id, created_by, time_slots(starts_at, ends_at)')
+          .eq('id', match_id)
+          .maybeSingle();
+        const creatorId = matchInfo?.created_by;
+        if (creatorId && String(creatorId) !== String(uid)) {
+          const actorProfile = profilesById?.[String(uid)];
+          const actorName =
+            actorProfile?.display_name ||
+            actorProfile?.name ||
+            actorProfile?.email ||
+            'Un joueur';
+          await supabase.from('notification_jobs').insert({
+            kind: 'rsvp_declined',
+            recipients: [creatorId],
+            group_id: matchInfo?.group_id,
+            match_id,
+            actor_id: uid,
+            payload: {
+              actor_name: actorName,
+              starts_at: matchInfo?.time_slots?.starts_at ?? null,
+              ends_at: matchInfo?.time_slots?.ends_at ?? null,
+            },
+          });
+        }
+      } catch (notifyErr) {
+        console.warn('[onRsvpDecline] notification creator failed:', notifyErr?.message || notifyErr);
+      }
+
       await fetchData();
       if (Platform.OS === 'web') {
         window.alert('Participation refusée');
@@ -4887,6 +5214,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       }
 
       // Recharger les données après suppression réussie
+      freezeDisplay(1800);
       await fetchData();
       if (Platform.OS === 'web') window.alert('Match annulé — le créneau revient dans les propositions.');
       else Alert.alert('Match annulé', 'Le créneau revient dans les propositions.');
@@ -4974,6 +5302,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       }
     }
   }, [groupId]);
+
 
   const formatDate = (iso) => {
     if (!iso) return '';
@@ -5494,6 +5823,8 @@ const HourSlotRow = ({ item }) => {
     
     // États pour le modal de remplacement
     const [replacementModalOpen, setReplacementModalOpen] = React.useState(false);
+    const [replacementTargetUserId, setReplacementTargetUserId] = React.useState(null);
+    const [replacementTargetUserName, setReplacementTargetUserName] = React.useState(null);
     const [replacementMembers, setReplacementMembers] = React.useState([]);
     const [replacementLoading, setReplacementLoading] = React.useState(false);
     const [replacementQuery, setReplacementQuery] = React.useState('');
@@ -5645,7 +5976,10 @@ const HourSlotRow = ({ item }) => {
     
     const rsvps = rsvpsByMatch[m.id] || [];
     const accepted = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'accepted'));
+    const declined = rsvps.filter(r => (String(r.status || '').toLowerCase() === 'no'));
     const acceptedCount = accepted.length;
+    const creatorUserId = m?.created_by || null;
+    const isCreator = creatorUserId && meId ? String(creatorUserId) === String(meId) : false;
     
     // Mémoriser le texte du bouton "Appeler" pour éviter les changements de formatage
     // Utiliser uniquement la référence pour éviter les changements
@@ -6042,6 +6376,8 @@ const HourSlotRow = ({ item }) => {
         setReplacementModalOpen(false);
         setReplacementConfirmVisible(false);
         setPendingReplacement(null);
+        setReplacementTargetUserId(null);
+        setReplacementTargetUserName(null);
         
         // Message de succès
         Alert.alert('Succès', `${newUserName || 'Le remplaçant'} a été ajouté au match.`);
@@ -6284,14 +6620,77 @@ const HourSlotRow = ({ item }) => {
           </Pressable>
         </View>
 
-        {/* Bouton "Discuter avec les joueurs" - visible uniquement si l'utilisateur est dans les 4 confirmés */}
+        {/* Ligne 1 : remplacer + désister */}
+        {isUserInAccepted && (
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <Pressable
+              onPress={() => {
+                const meProfile = profilesById?.[String(meId)];
+                setReplacementTargetUserId(meId);
+                setReplacementTargetUserName(meProfile?.display_name || meProfile?.name || meProfile?.email || 'Moi');
+                setReplacementModalOpen(true);
+                loadReplacementMembers();
+              }}
+              style={{
+                width: '50%',
+                backgroundColor: '#ff8c00',
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name="person-remove-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text
+                style={{
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: 14,
+                  textAlign: 'center',
+                }}
+              >
+                Me faire remplacer
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onRsvpDecline(m.id)}
+              style={{
+                width: '50%',
+                backgroundColor: '#b91c1c',
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name="exit-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text
+                style={{
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: 14,
+                  textAlign: 'center',
+                }}
+              >
+                Me désister
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Ligne 2 : discuter + supprimer */}
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
         {isUserInAccepted && (
           <Pressable
             onPress={() => {
               router.push(`/matches/${m.id}/chat`);
             }}
             style={{
-              marginTop: 8,
+                width: '50%',
               backgroundColor: '#7c3aed',
               paddingVertical: 10,
               paddingHorizontal: 12,
@@ -6310,21 +6709,31 @@ const HourSlotRow = ({ item }) => {
                 textAlign: 'center',
               }}
             >
-              Discuter avec les joueurs
+                Discuter
             </Text>
           </Pressable>
         )}
-
-        {/* Bouton "Me faire remplacer" - visible uniquement si l'utilisateur est dans les 4 confirmés */}
-        {isUserInAccepted && (
           <Pressable
             onPress={() => {
-              setReplacementModalOpen(true);
-              loadReplacementMembers();
+              Alert.alert(
+                'Supprimer le match',
+                'Êtes-vous sûr de vouloir supprimer ce match ? Cette action est irréversible.',
+                [
+                  {
+                    text: 'Annuler',
+                    style: 'cancel',
+                  },
+                  {
+                    text: 'Supprimer',
+                    style: 'destructive',
+                    onPress: () => onCancelMatch(m.id),
+                  },
+                ]
+              );
             }}
             style={{
-              marginTop: 8,
-              backgroundColor: '#ff8c00',
+              width: '50%',
+              backgroundColor: '#991b1b',
               paddingVertical: 10,
               paddingHorizontal: 12,
               borderRadius: 8,
@@ -6333,7 +6742,7 @@ const HourSlotRow = ({ item }) => {
               justifyContent: 'center',
             }}
           >
-            <Ionicons name="person-remove-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+            <Ionicons name="trash-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
             <Text
               style={{
                 color: '#ffffff',
@@ -6342,9 +6751,87 @@ const HourSlotRow = ({ item }) => {
                 textAlign: 'center',
               }}
             >
-              Me faire remplacer
+              Supprimer
             </Text>
           </Pressable>
+        </View>
+
+        {/* Actions créateur en cas de désistement */}
+        {isCreator && declined.length > 0 && (
+          <View
+            style={{
+              marginTop: 8,
+              padding: 12,
+              borderRadius: 8,
+              backgroundColor: '#fff7ed',
+              borderWidth: 1,
+              borderColor: '#fed7aa',
+            }}
+          >
+            <Text style={{ fontWeight: '800', color: '#9a3412', marginBottom: 8 }}>
+              Un joueur s'est désisté. Vous pouvez le remplacer ou annuler le match.
+            </Text>
+            <View style={{ gap: 8 }}>
+              {declined.map((r) => {
+                const p = profilesById?.[String(r.user_id)] || {};
+                const name = p.display_name || p.name || p.email || 'Joueur';
+                return (
+                  <Pressable
+                    key={`replace-${r.user_id}`}
+                    onPress={() => {
+                      setReplacementTargetUserId(r.user_id);
+                      setReplacementTargetUserName(name);
+                      setReplacementModalOpen(true);
+                      loadReplacementMembers();
+                    }}
+                    style={{
+                      backgroundColor: '#2fc249',
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Ionicons name="person-add" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#ffffff', fontWeight: '800' }}>
+                      Remplacer {name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    const ok = window.confirm('Voulez-vous vraiment annuler ce match ?');
+                    if (ok) onCancelMatch(m.id);
+                  } else {
+                    Alert.alert('Voulez-vous vraiment annuler ce match ?', '', [
+                      { text: 'Annuler', style: 'cancel' },
+                      {
+                        text: "Confirmer l'annulation",
+                        style: 'destructive',
+                        onPress: () => onCancelMatch(m.id),
+                      },
+                    ]);
+                  }
+                }}
+                style={{
+                  backgroundColor: '#b91c1c',
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="close-circle-outline" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#ffffff', fontWeight: '800' }}>Annuler le match</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
 
         {/* Bouton "Enregistrer le résultat" - visible uniquement si l'utilisateur est dans les 4 confirmés, qu'aucun résultat n'existe et que l'horaire du match a commencé */}
@@ -6500,49 +6987,6 @@ const HourSlotRow = ({ item }) => {
           </View>
         )}
 
-        {/* Bouton supprimer le match */}
-        <Pressable
-          onPress={() => {
-            Alert.alert(
-              'Supprimer le match',
-              'Êtes-vous sûr de vouloir supprimer ce match ? Cette action est irréversible.',
-              [
-                {
-                  text: 'Annuler',
-                  style: 'cancel',
-                },
-                {
-                  text: 'Supprimer',
-                  style: 'destructive',
-                  onPress: () => onCancelMatch(m.id),
-                },
-              ]
-            );
-          }}
-          style={{
-            marginTop: 8,
-            backgroundColor: '#991b1b',
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            borderRadius: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Ionicons name="trash-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text
-            style={{
-              color: '#ffffff',
-              fontWeight: '800',
-              fontSize: 14,
-              textAlign: 'center',
-            }}
-          >
-            Supprimer le match
-          </Text>
-        </Pressable>
-
         {/* Modal de sélection de clubs */}
         <Modal visible={clubModalOpen} transparent animationType="fade" onRequestClose={() => setClubModalOpen(false)}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -6687,6 +7131,8 @@ const HourSlotRow = ({ item }) => {
           transparent={true}
           onRequestClose={() => {
             setReplacementModalOpen(false);
+            setReplacementTargetUserId(null);
+            setReplacementTargetUserName(null);
             setReplacementQuery('');
             setReplacementLevelFilter([]);
             setReplacementLevelFilterVisible(false);
@@ -6705,6 +7151,8 @@ const HourSlotRow = ({ item }) => {
                 <Pressable
                   onPress={() => {
                     setReplacementModalOpen(false);
+                    setReplacementTargetUserId(null);
+                    setReplacementTargetUserName(null);
                     setReplacementQuery('');
                     setReplacementLevelFilter([]);
                     setReplacementLevelFilterVisible(false);
@@ -7230,7 +7678,8 @@ const HourSlotRow = ({ item }) => {
                                     // Ouvrir la popup de confirmation
                                     setPendingReplacement({
                                       matchId: m.id,
-                                      currentUserId: meId,
+                                      currentUserId: replacementTargetUserId || meId,
+                                      currentUserName: replacementTargetUserName || 'le joueur',
                                       newUserId: member.id,
                                       newUserName: member.display_name || member.name,
                                     });
@@ -7268,6 +7717,8 @@ const HourSlotRow = ({ item }) => {
           onRequestClose={() => {
             setReplacementConfirmVisible(false);
             setPendingReplacement(null);
+            setReplacementTargetUserId(null);
+            setReplacementTargetUserName(null);
           }}
         >
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -7284,7 +7735,7 @@ const HourSlotRow = ({ item }) => {
                 textAlign: 'center',
                 lineHeight: 20,
               }}>
-                Attention tu vas être remplacé sur ce match. Assure toi de la disponibilité de ton remplaçant avant de poursuivre
+                Attention, {pendingReplacement?.currentUserName || 'le joueur'} va être remplacé sur ce match. Assure-toi de la disponibilité du remplaçant avant de poursuivre.
               </Text>
               
               {pendingReplacement?.newUserName && (
@@ -7304,6 +7755,8 @@ const HourSlotRow = ({ item }) => {
                   onPress={() => {
                     setReplacementConfirmVisible(false);
                     setPendingReplacement(null);
+                    setReplacementTargetUserId(null);
+                    setReplacementTargetUserName(null);
                   }}
                   style={{
                     flex: 0.33,
@@ -7483,11 +7936,11 @@ const HourSlotRow = ({ item }) => {
     const mine = rsvps.find((r) => String(r.user_id) === String(meId));
     const isAccepted = ((mine?.status || '').toString().trim().toLowerCase() === 'accepted');
     const isMaybe = ((mine?.status || '').toString().trim().toLowerCase() === 'maybe');
-    // Seul un joueur avec RSVP "maybe" (sélectionné) peut confirmer sa participation
-    const canConfirm = !isAccepted && isMaybe;
+    // Plus de confirmation manuelle: un match passe directement confirmé
+    const canConfirm = false;
 
     // Creator heuristic: first accepted, else earliest RSVP row
-    const creatorUserId = (() => {
+    const creatorUserId = m?.created_by || (() => {
       if (!Array.isArray(rsvps) || rsvps.length === 0) return null;
       const src = accepted.length ? accepted : rsvps;
       const sorted = [...src].sort((a,b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
@@ -7676,62 +8129,15 @@ const HourSlotRow = ({ item }) => {
         {/* Wrap Ligne 4 and Ligne 5 in a single Fragment */}
         <>
         {/* Ligne 5 — Boutons d'action */}
-        {canConfirm ? (
-          <View
-            style={{
-              flexDirection: 'row',
-              gap: 8,
-              flexWrap: 'wrap',
-              marginBottom: 12,
-            }}
-          >
-            <Pressable
-              onPress={press('Confirmer ma participation', () => onRsvpAccept(m.id))}
-              accessibilityRole="button"
-              accessibilityLabel="Confirmer ma participation à ce match"
-              style={({ pressed }) => [
-                {
-                  backgroundColor: '#1a4b97',
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                  borderRadius: 8,
-                },
-                Platform.OS === 'web' ? { cursor: 'pointer' } : null,
-                pressed ? { opacity: 0.8 } : null,
-              ]}
-            >
-              <Text style={{ color: 'white', fontWeight: '800' }}>
-                Confirmer ma participation
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={press('Refuser', () => onRsvpDecline(m.id))}
-              accessibilityRole="button"
-              accessibilityLabel="Refuser ce match"
-              style={({ pressed }) => [
-                {
-                  backgroundColor: '#b91c1c',
-                  paddingVertical: 10,
-                  paddingHorizontal: 14,
-                  borderRadius: 8,
-                },
-                Platform.OS === 'web' ? { cursor: 'pointer' } : null,
-                pressed ? { opacity: 0.85 } : null,
-              ]}
-            >
-              <Text style={{ color: 'white', fontWeight: '800' }}>Refuser</Text>
-            </Pressable>
-          </View>
-        ) : isAccepted ? (
+        {(isAccepted || isMaybe) ? (
           <View style={{ gap: 8, marginBottom: 12 }}>
             {/* Ligne actions: vertical column of full-width buttons */}
             <View style={{ gap: 8 }}>
-              {/* Annuler ma participation (rouge clair) */}
+              {/* Me désister (rouge clair) */}
               <Pressable
-                onPress={press('Annuler ma participation', () => onRsvpCancel(m.id))}
+                onPress={press('Me désister', () => onRsvpDecline(m.id))}
                 accessibilityRole="button"
-                accessibilityLabel="Annuler ma participation"
+                accessibilityLabel="Me désister du match"
                 style={({ pressed }) => [
                   {
                     flex: 1,
@@ -7750,7 +8156,7 @@ const HourSlotRow = ({ item }) => {
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                   <Ionicons name="exit-outline" size={22} color="#7f1d1d" />
                   <Text style={{ color: '#7f1d1d', fontWeight: '800' }}>
-                    Annuler ma participation
+                    Me désister
                   </Text>
                 </View>
               </Pressable>
@@ -7801,6 +8207,129 @@ const HourSlotRow = ({ item }) => {
       </View>
     );
   };
+
+  const proposesTab = React.useMemo(
+    () => (
+      <>
+        {/* Indicateur de chargement pour le changement de semaine */}
+        {loadingWeek && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 24, 49, 0.7)',
+              zIndex: 9999,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 12,
+            }}
+          >
+            <ActivityIndicator size="large" color="#e0ff00" />
+            <Text style={{ color: '#e0ff00', marginTop: 12, fontWeight: '700' }}>
+              Chargement de la semaine...
+            </Text>
+          </View>
+        )}
+        {/* Sélecteur 1h / 1h30 */}
+        <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable
+              onPress={() => setMode('long')}
+              style={{
+                flex: 1,
+                backgroundColor: mode === 'long' ? '#FF751F' : '#aaaaaa',
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                alignItems: 'center',
+                borderWidth: mode === 'long' ? 2 : 0,
+                borderColor: mode === 'long' ? '#ffffff' : 'transparent',
+              }}
+            >
+              <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
+                1H30 ({(renderLongSections || []).reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setMode('hour')}
+              style={{
+                flex: 1,
+                backgroundColor: mode === 'hour' ? '#FF751F' : '#aaaaaa',
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                alignItems: 'center',
+                borderWidth: mode === 'hour' ? 2 : 0,
+                borderColor: mode === 'hour' ? '#ffffff' : 'transparent',
+              }}
+            >
+              <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
+                1H ({(renderHourReady || []).length || 0})
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {mode === 'long' ? (
+          <>
+            {(renderLongSections || []).length === 0 ? (
+              <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
+            ) : (
+              <SectionList
+                key={`long-list-${listKeySeed}-${(renderLongSections || []).length}-${(renderLongSections || []).map((s) => s.data?.length || 0).join(',')}`}
+                sections={renderLongSections}
+                keyExtractor={(item) => item.key}
+                renderSectionHeader={({ section }) => (
+                  <View style={{ paddingHorizontal: 0, paddingVertical: 0, height: 0 }}>
+                    <Text style={{ fontWeight: '900', color: '#111827', display: 'none' }}>{section.title}</Text>
+                  </View>
+                )}
+                ItemSeparatorComponent={() => null}
+                SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
+                renderItem={({ item }) => <LongSlotRow item={item} />}
+                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+                extraData={longListExtraData}
+                removeClippedSubviews={false}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {(renderHourReady || []).length === 0 ? (
+              <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
+            ) : (
+              <FlatList
+                key={`hour-list-${listKeySeed}-${(renderHourReady || []).length}-${(renderHourReady || []).map((x) => x.time_slot_id).slice(0, 3).join(',')}`}
+                data={renderHourReady}
+                keyExtractor={(x) => x.time_slot_id + '-hour'}
+                renderItem={({ item }) => <HourSlotRow item={item} />}
+                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+                extraData={hourListExtraData}
+                removeClippedSubviews={false}
+              />
+            )}
+          </>
+        )}
+      </>
+    ),
+    [
+      mode,
+      loadingWeek,
+      renderLongSections,
+      renderHourReady,
+      bottomPad,
+      listKeySeed,
+      longListExtraData,
+      hourListExtraData,
+    ]
+  );
 
   if (!groupId) {
     return (
@@ -8183,8 +8712,8 @@ const HourSlotRow = ({ item }) => {
 {/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
 <View style={[
   { backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, zIndex: 1002, elevation: 12 },
-  Platform.OS === 'android' && { marginTop: dynamicHeaderSpacing },
-  Platform.OS !== 'android' && { marginTop: -8 }
+  Platform.OS === 'android' && { marginTop: dynamicHeaderSpacing - 4 },
+  Platform.OS !== 'android' && { marginTop: -12 }
 ]}>
   {/* 3 — Matchs (zone liste/onglets) */}
   <Step order={3} name="matchs" text="En appuyant ici, retrouve les matchs possibles selon les dispos du groupe.">
@@ -8216,76 +8745,27 @@ const HourSlotRow = ({ item }) => {
   >
     {({ pressed }) => (
       <>
-        <Text style={{ fontSize: 22 }}>{'🤝'}</Text>
-        <View style={{ marginTop: 4, alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ fontSize: 18 }}>{'🤝'}</Text>
+          <Text style={{ fontSize: 50, fontWeight: '900', color: tab === 'proposes' ? '#ffffff' : '#001831', lineHeight: 52 }}>
+            {proposedTabCountDisplay}
+          </Text>
+          <Text style={{ fontSize: 18 }}>{'🤝'}</Text>
+        </View>
+        <View style={{ marginTop: -6, alignItems: 'center' }}>
           <Text
             style={{
+              fontSize: 12,
               fontWeight: '900',
               color: tab === 'proposes' ? '#ffffff' : '#001831',
               textAlign: 'center',
             }}
           >
-            {`${proposedTabCount} ${matchWord(proposedTabCount)} ${possibleWord(proposedTabCount)}`}
+            {`${matchWord(proposedTabCountDisplay)} ${possibleWord(proposedTabCountDisplay)}`}
           </Text>
         </View>
       </>
     )}
-  </Pressable>
-
-    {/* Matchs à confirmer */}
-    <Pressable
-      onPress={() => setTab('rsvp')}
-      accessibilityRole="button"
-      accessibilityLabel="Voir les matchs à confirmer"
-      style={({ pressed }) => [
-        {
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: 6,
-          borderRadius: 12,
-          backgroundColor: tab === 'rsvp' ? '#FF751F' : '#ffffff',          
-          borderWidth: (tab === 'rsvp' || pressed) ? 2 : 0,
-          borderColor: (tab === 'rsvp' || pressed) ? '#ffffff' : 'transparent',
-        },
-        Platform.OS === 'web' ? { cursor: 'pointer' } : null,
-      ]}
-    >
-      <Text style={{ fontSize: 22 }}>{'⏳'}</Text>
-      <View style={{ marginTop: 4, alignItems: 'center' }}>
-        {tab !== 'rsvp' && rsvpTabCount > 0 ? (
-          <Animated.Text 
-            style={{ 
-              fontWeight: '900', 
-              color: '#ef4444', 
-              textAlign: 'center',
-              opacity: rsvpBlinkAnim,
-            }}
-          >
-            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
-            {pendingCount > 0 && (
-              <>
-                {"\n"}
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#ef4444' }}>
-                  {`(${pendingCount} en attente)`}
-                </Text>
-              </>
-            )}
-          </Animated.Text>
-        ) : (
-          <Text style={{ fontWeight: '900', color: tab === 'rsvp' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-            {`${rsvpTabCount} ${matchWord(rsvpTabCount)} à confirmer`}
-            {pendingCount > 0 && (
-              <>
-                {"\n"}
-                <Text style={{ fontSize: 11, fontWeight: '600', color: tab === 'rsvp' ? '#ffffff' : '#001831' }}>
-                  {`(${pendingCount} en attente)`}
-                </Text>
-              </>
-            )}
-          </Text>
-        )}
-      </View>
     </Pressable>
 
     {/* Matchs validés */}
@@ -8308,16 +8788,19 @@ const HourSlotRow = ({ item }) => {
         pressed ? { opacity: 0.92 } : null,
       ]}
     >
-      <Text style={{ fontSize: 22 }}>{'🎾'}</Text>
-      <View style={{ marginTop: 4, alignItems: 'center' }}>
-        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {`${confirmedTabCount} ${matchWord(confirmedTabCount)}`}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 18 }}>{'🎾'}</Text>
+        <Text style={{ fontSize: 50, fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', lineHeight: 52 }}>
+          {confirmedTabCount}
         </Text>
-        <Text style={{ fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {valideWord(confirmedTabCount)}
+        <Text style={{ fontSize: 18 }}>{'🎾'}</Text>
+      </View>
+      <View style={{ marginTop: -6, alignItems: 'center' }}>
+        <Text style={{ fontSize: 12, fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
+          {`${matchWord(confirmedTabCount)} ${valideWord(confirmedTabCount)}`}
         </Text>
         {confirmedWithoutReservationCount > 0 && (
-          <Text style={{ fontSize: 11, fontWeight: '600', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', marginTop: 2 }}>
+          <Text style={{ fontSize: 10, fontWeight: '600', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', marginTop: 2 }}>
             {`${confirmedWithoutReservationCount} sans résa`}
           </Text>
         )}
@@ -8327,191 +8810,12 @@ const HourSlotRow = ({ item }) => {
   </Step>
   </View>
 
-  {tab === 'proposes' && (
-  <>
-    {console.log('[Matches] Rendering proposes tab, longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length)}
-    {/* Indicateur de chargement pour le changement de semaine */}
-    {loadingWeek && (
-      <View style={{ 
-        position: 'absolute', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        bottom: 0, 
-        backgroundColor: 'rgba(0, 24, 49, 0.7)', 
-        zIndex: 9999, 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        borderRadius: 12,
-      }}>
-        <ActivityIndicator size="large" color="#e0ff00" />
-        <Text style={{ color: '#e0ff00', marginTop: 12, fontWeight: '700' }}>Chargement de la semaine...</Text>
-      </View>
-    )}
-    {/* Sélecteur 1h / 1h30 */}
-    <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-      <Pressable
-        onPress={() => setMode('long')}
-          style={{
-            flex: 1,
-            backgroundColor: mode === 'long' ? '#FF751F' : '#aaaaaa',
-            paddingVertical: 12,
-            paddingHorizontal: 12,
-            borderRadius: 8,
-            alignItems: 'center',
-            borderWidth: mode === 'long' ? 2 : 0,
-            borderColor: mode === 'long' ? '#ffffff' : 'transparent',
-          }}
-        >
-          <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-            1H30 ({displayLongSections.reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})
-          </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => setMode('hour')}
-          style={{
-            flex: 1,
-            backgroundColor: mode === 'hour' ? '#FF751F' : '#aaaaaa',
-            paddingVertical: 12,
-            paddingHorizontal: 12,
-            borderRadius: 8,
-            alignItems: 'center',
-            borderWidth: mode === 'hour' ? 2 : 0,
-            borderColor: mode === 'hour' ? '#ffffff' : 'transparent',
-          }}
-        >
-          <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-            1H ({displayHourReady?.length || 0})
-          </Text>
-      </Pressable>
-    </View>
-    </View>
+  {tab === 'proposes' &&
+    (matchCreatedUndoVisible && proposesTabSnapshotRef.current
+      ? proposesTabSnapshotRef.current
+      : proposesTab)}
 
-            {mode === 'long' ? (
-              <>
-                {displayLongSections.length === 0 ? (
-                  <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
-                ) : (
-                  <SectionList
-                    key={`long-list-${dataVersion}-${displayLongSections.length}-${displayLongSections.map(s => s.data?.length || 0).join(',')}`}
-                    sections={displayLongSections}
-                    keyExtractor={(item) => item.key}
-                    renderSectionHeader={({ section }) => (
-                      <View style={{ paddingHorizontal: 0, paddingVertical: 0, height: 0 }}>
-                        <Text style={{ fontWeight: '900', color: '#111827', display: 'none' }}>{section.title}</Text>
-                      </View>
-                    )}
-                    ItemSeparatorComponent={() => null}
-                    SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
-                    renderItem={({ item }) => <LongSlotRow item={item} />}
-                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
-                    extraData={{ profilesById, displayLongSections, dataVersion }}
-                    removeClippedSubviews={false}
-                  />
-                )}
-              </>
-            ) : (
-              <>
-                {displayHourReady.length === 0 ? (
-                  <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
-                ) : (
-                  <FlatList
-                    key={`hour-list-${dataVersion}-${displayHourReady.length}-${displayHourReady.map(x => x.time_slot_id).slice(0, 3).join(',')}`}
-                    data={displayHourReady}
-                    keyExtractor={(x) => x.time_slot_id + '-hour'}
-                    renderItem={({ item }) => <HourSlotRow item={item} />}
-                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
-                    extraData={{ profilesById, displayHourReady, dataVersion }}
-                    removeClippedSubviews={false}
-                  />
-                )}
-              </>
-            )}
-          </>
-        )}
-
-      {tab === 'rsvp' && (
-        <>
-          {/* Sélecteur 1h / 1h30 pour RSVP */}
-          <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Pressable
-                onPress={() => setRsvpMode('long')}
-                style={{
-                  flex: 1,
-                  backgroundColor: rsvpMode === 'long' ? '#FF751F' : '#aaaaaa',
-                  paddingVertical: 12,
-                  paddingHorizontal: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  borderWidth: rsvpMode === 'long' ? 2 : 0,
-                  borderColor: rsvpMode === 'long' ? '#ffffff' : 'transparent',
-                }}
-              >
-                <Text style={{ color: rsvpMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-                  1H30 ({pendingLongWeek?.length || 0})
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setRsvpMode('hour')}
-                style={{
-                  flex: 1,
-                  backgroundColor: rsvpMode === 'hour' ? '#FF751F' : '#aaaaaa',
-                  paddingVertical: 12,
-                  paddingHorizontal: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  borderWidth: rsvpMode === 'hour' ? 2 : 0,
-                  borderColor: rsvpMode === 'hour' ? '#ffffff' : 'transparent',
-                }}
-              >
-                <Text style={{ color: rsvpMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-                  1H ({pendingHourWeek?.length || 0})
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {rsvpMode === 'hour' ? (
-            (pendingHourWeek?.length || 0) === 0 ? (
-              <Text style={{ color: '#6b7280' }}>Aucun match 1h en attente.</Text>
-            ) : (
-                <FlatList
-                  data={pendingHourWeek}
-          keyExtractor={(m) => `${m.id}-pHour-${(rsvpsByMatch[m.id] || []).length}`}
-                  renderItem={({ item }) => (
-            <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
-                  )}
-          extraData={rsvpsVersion}
-                    contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                    scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                    ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
-                  />
-              )
-            ) : (
-              (pendingLongWeek?.length || 0) === 0 ? (
-                <Text style={{ color: '#6b7280' }}>Aucun match 1h30 en attente.</Text>
-              ) : (
-                <FlatList
-                  data={pendingLongWeek}
-          keyExtractor={(m) => `${m.id}-pLong-${(rsvpsByMatch[m.id] || []).length}`}
-                  renderItem={({ item }) => (
-            <MatchCardPending m={item} rsvps={rsvpsByMatch[item.id] || []} />
-                  )}
-          extraData={rsvpsVersion}
-                  contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                  scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-          ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
-        />
-              )
-            )}
-        </>
-      )}
+      {tab === 'rsvp' && null}
 
       {tab === 'valides' && (
         <>
@@ -12039,7 +12343,7 @@ const HourSlotRow = ({ item }) => {
                                     .insert({
                                       group_id: groupId,
                                       time_slot_id: timeSlotId,
-                                      status: 'pending',
+                                      status: 'confirmed',
                                       created_by: meId,
                                     })
                                     .select('id')
@@ -12050,43 +12354,10 @@ const HourSlotRow = ({ item }) => {
                                     throw matchError;
                                   }
                                   
-                                  // Créer les RSVPs pour tous les joueurs disponibles
+                                  // Créer les RSVPs confirmés pour tous les joueurs disponibles
                                   if (newMatch?.id) {
-                                    // RSVP 'accepted' pour l'utilisateur qui crée le match
-                                    if (meId) {
-                                      await supabase
-                                        .from('match_rsvps')
-                                        .upsert(
-                                          { match_id: newMatch.id, user_id: meId, status: 'accepted' },
-                                          { onConflict: 'match_id,user_id' }
-                                        );
-                                    }
-                                    
-                                    // RSVP 'maybe' pour les autres joueurs disponibles (en attente de confirmation)
-                                    if (otherAvailableUserIds.length > 0) {
-                                      const rsvpsToInsert = otherAvailableUserIds.map(userId => ({
-                                        match_id: newMatch.id,
-                                        user_id: userId,
-                                        status: 'maybe',
-                                      }));
-                                      
-                                      console.log('[HotMatch] Création de RSVPs pour les autres joueurs:', rsvpsToInsert);
-                                      
-                                      const { data: rsvpsData, error: rsvpsError } = await supabase
-                                        .from('match_rsvps')
-                                        .upsert(rsvpsToInsert, { onConflict: 'match_id,user_id' })
-                                        .select();
-                                      
-                                      if (rsvpsError) {
-                                        console.error('[HotMatch] Erreur création RSVPs pour autres joueurs:', rsvpsError);
-                                        // Ne pas faire échouer toute l'opération si les RSVPs échouent
-                                      } else {
-                                        console.log('[HotMatch] RSVPs créés avec succès:', rsvpsData);
-                                        console.log('[HotMatch] RSVPs créés pour', otherAvailableUserIds.length, 'joueurs');
-                                      }
-                                    } else {
-                                      console.log('[HotMatch] Aucun autre joueur à ajouter au match');
-                                    }
+                                    const toAccept = (availableUserIdsForMatch || []).map(String).filter(Boolean);
+                                    await acceptPlayers(newMatch.id, toAccept);
                                   }
                                 }
                               }
@@ -13012,7 +13283,7 @@ const HourSlotRow = ({ item }) => {
                                 .insert({
                                   group_id: groupId,
                                   time_slot_id: timeSlotId,
-                                  status: 'pending',
+                                  status: 'confirmed',
                                   created_by: meId,
                                 })
                                 .select('id')
@@ -13021,18 +13292,10 @@ const HourSlotRow = ({ item }) => {
                               if (matchError) {
                                 console.error('[HotMatch] Erreur création match:', matchError);
                               } else if (newMatch?.id) {
-                                // Créer les RSVPs pour tous les joueurs disponibles
-                                const rsvpsToInsert = newAvailableUserIds.map(userId => ({
-                                  match_id: newMatch.id,
-                                  user_id: userId,
-                                  status: userId === meId ? 'accepted' : 'maybe',
-                                }));
-                                
-                                await supabase
-                                  .from('match_rsvps')
-                                  .upsert(rsvpsToInsert, { onConflict: 'match_id,user_id' });
-                                
-                                console.log('[HotMatch] Match créé avec', newAvailableUserIds.length, 'joueurs');
+                                // Créer les RSVPs confirmés pour tous les joueurs disponibles
+                                const toAccept = (newAvailableUserIds || []).map(String).filter(Boolean);
+                                await acceptPlayers(newMatch.id, toAccept);
+                                console.log('[HotMatch] Match créé et confirmé avec', toAccept.length, 'joueurs');
                               }
                             }
                           }
@@ -13196,6 +13459,83 @@ const HourSlotRow = ({ item }) => {
                 </ScrollView>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Popup "Match créé" avec annulation */}
+      <Modal
+        visible={matchCreatedUndoVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          matchCreatedUndoOnExpireRef.current = null;
+          matchCreatedUndoOnConfirmRef.current = null;
+          clearMatchCreatedUndoState();
+          setMatchCreatedUndoVisible(false);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 420, backgroundColor: '#ffffff', borderRadius: 16, padding: 20 }}>
+            <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240', marginBottom: 8 }}>
+              Match créé 🎾
+            </Text>
+            <Text style={{ color: '#6b7280', marginBottom: 16 }}>
+              Annulation possible pendant {matchCreatedUndoSeconds}s
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                onPress={() => {
+                  const cb = matchCreatedUndoOnConfirmRef.current;
+                  matchCreatedUndoOnExpireRef.current = null;
+                  matchCreatedUndoOnConfirmRef.current = null;
+                  clearMatchCreatedUndoState();
+                  setMatchCreatedUndoVisible(false);
+                  cb && cb();
+                }}
+                style={{
+                  width: '50%',
+                  backgroundColor: '#10b981',
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="checkmark-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                  Confirmer
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (matchCreatedUndoMatchId) {
+                    onCancelMatch(matchCreatedUndoMatchId);
+                  }
+                  matchCreatedUndoOnExpireRef.current = null;
+                  matchCreatedUndoOnConfirmRef.current = null;
+                  clearMatchCreatedUndoState();
+                  setMatchCreatedUndoVisible(false);
+                }}
+                style={{
+                  width: '50%',
+                  backgroundColor: '#b91c1c',
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="close-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                  Annuler ({matchCreatedUndoSeconds}s)
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -13390,7 +13730,7 @@ const HourSlotRow = ({ item }) => {
           bottom: buttonBarBottom - 8,
           left: 0,
           right: 0,
-          paddingTop: 10,
+          paddingTop: 4,
           paddingBottom: safeBottomInset > 0 ? safeBottomInset : 0,
           paddingHorizontal: 6,
           backgroundColor: '#001831',
@@ -13416,7 +13756,7 @@ const HourSlotRow = ({ item }) => {
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              paddingVertical: 0,
+              paddingVertical: 2,
               paddingHorizontal: 4,
               borderRadius: 10,
               borderWidth: 0,
@@ -13425,7 +13765,11 @@ const HourSlotRow = ({ item }) => {
             }}
           >
             <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
-            <Text style={{ fontWeight: '700', color: '#e0ff00', fontSize: 16, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false }}>
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={{ fontWeight: '700', color: '#e0ff00', fontSize: 14, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false, maxWidth: 180 }}
+            >
               {activeGroup?.name || 'Sélectionner un groupe'}
             </Text>
             <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />

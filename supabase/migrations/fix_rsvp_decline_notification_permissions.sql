@@ -5,10 +5,12 @@
 -- Solution: Create a function with SECURITY DEFINER to handle RSVP updates and create notifications
 
 -- Function to update RSVP status with proper permissions for notifications
+DROP FUNCTION IF EXISTS update_match_rsvp_status(UUID, UUID, TEXT);
 CREATE OR REPLACE FUNCTION update_match_rsvp_status(
   p_match_id UUID,
   p_user_id UUID,
-  p_status TEXT
+  p_status TEXT,
+  p_skip_notification BOOLEAN DEFAULT FALSE
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -44,15 +46,19 @@ BEGIN
   FROM profiles
   WHERE id = p_user_id;
   
-  -- Determine notification kind based on normalized status
-  IF v_normalized_status = 'no' THEN
-    v_notification_kind := 'rsvp_declined';
-  ELSIF v_normalized_status = 'accepted' THEN
-    v_notification_kind := 'rsvp_accepted';
-  ELSIF v_normalized_status = 'maybe' THEN
-    v_notification_kind := 'rsvp_maybe';
+  -- Determine notification kind based on normalized status (unless skipped)
+  IF p_skip_notification THEN
+    v_notification_kind := NULL;
   ELSE
-    v_notification_kind := NULL; -- No notification for other statuses
+    IF v_normalized_status = 'no' THEN
+      v_notification_kind := 'rsvp_declined';
+    ELSIF v_normalized_status = 'accepted' THEN
+      v_notification_kind := 'rsvp_accepted';
+    ELSIF v_normalized_status = 'maybe' THEN
+      v_notification_kind := 'rsvp_maybe';
+    ELSE
+      v_notification_kind := NULL; -- No notification for other statuses
+    END IF;
   END IF;
   
   -- Update the RSVP status (cast to rsvp_status enum)
@@ -101,7 +107,7 @@ END;
 $$;
 
 -- Grant execute permission to authenticated users
-GRANT EXECUTE ON FUNCTION update_match_rsvp_status(UUID, UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION update_match_rsvp_status(UUID, UUID, TEXT, BOOLEAN) TO authenticated;
 
 -- Comment
 COMMENT ON FUNCTION update_match_rsvp_status IS 

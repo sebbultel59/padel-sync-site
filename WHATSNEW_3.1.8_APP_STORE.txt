@@ -1,0 +1,40 @@
+VERSION COURTE (170 caractères max) - RECOMMANDÉE POUR APP STORE:
+
+Enhanced security and performance. Improved data protection, optimized queries, faster loading, and better stability.
+
+---
+
+VERSION COMPLÈTE (pour référence):
+
+Padel Sync 3.1.8 - What's New
+
+SECURITY IMPROVEMENTS
+
+Enhanced Data Protection
+• Improved security policies to better protect your personal information
+• Database views secured and optimized for safe access to statistics and leaderboard
+• Row Level Security (RLS) enabled on sensitive tables
+• Your statistics and personal data are now better protected
+
+PERFORMANCE OPTIMIZATIONS
+
+Faster Loading
+• Optimized database queries for faster loading times
+• Leaderboard now loads more quickly and reliably
+• Player statistics access improved for better performance
+• Overall stability improvements for a more responsive app
+
+TECHNICAL IMPROVEMENTS
+
+• Modernized data architecture with better separation of public and private data
+• Enhanced permission system for improved security
+• Code optimization for better performance
+• All existing features remain fully functional
+
+BUG FIXES
+
+• Security fixes: Resolved security issues detected by analysis tools
+• Stability improvements: Fixed several minor issues for a smoother experience
+• iOS optimizations: Specific improvements for better iOS performance
+
+This update focuses on security and performance to ensure your Padel Sync experience remains safe, fast, and enjoyable. Update now to benefit from the latest improvements!

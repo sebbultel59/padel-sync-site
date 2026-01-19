@@ -1,0 +1,40 @@
+VERSION COURTE (170 caractères max) - RECOMMANDÉE POUR APP STORE:
+
+Sécurité renforcée et performances optimisées. Protection des données améliorée, requêtes optimisées, chargement plus rapide.
+
+---
+
+VERSION COMPLÈTE (pour référence):
+
+🎾 Padel Sync 3.1.8 - Nouveautés et améliorations
+
+✨ AMÉLIORATIONS DE SÉCURITÉ
+
+Protection des données renforcée
+• Politiques de sécurité améliorées pour mieux protéger vos informations personnelles
+• Vues de base de données sécurisées et optimisées pour un accès sécurisé aux statistiques et au classement
+• Row Level Security (RLS) activée sur les tables sensibles
+• Vos statistiques et données personnelles sont maintenant mieux protégées
+
+⚡ OPTIMISATIONS DE PERFORMANCE
+
+Chargement plus rapide
+• Requêtes de base de données optimisées pour des temps de chargement plus rapides
+• Le leaderboard se charge maintenant plus rapidement et de manière plus fiable
+• Accès aux statistiques de joueurs amélioré pour de meilleures performances
+• Améliorations générales de stabilité pour une application plus réactive
+
+🔧 AMÉLIORATIONS TECHNIQUES
+
+• Architecture de données modernisée avec une meilleure séparation des données publiques et privées
+• Système de permissions amélioré pour une sécurité renforcée
+• Optimisation du code pour de meilleures performances
+• Toutes les fonctionnalités existantes restent entièrement fonctionnelles
+
+🐛 CORRECTIONS DE BUGS
+
+• Corrections de sécurité : Résolution des problèmes de sécurité détectés par les outils d'analyse
+• Améliorations de stabilité : Correction de plusieurs problèmes mineurs pour une expérience plus fluide
+• Optimisations iOS : Améliorations spécifiques pour de meilleures performances iOS
+
+Cette mise à jour se concentre sur la sécurité et les performances pour garantir que votre expérience Padel Sync reste sûre, rapide et agréable. Mettez à jour maintenant pour bénéficier des dernières améliorations !
