@@ -1,24 +1,24 @@
 VERSIONS FRANÇAISES (170 caractères max)
 
 Version 1 (130 caractères):
-Sécurité renforcée et performances optimisées. Protection des données améliorée, chargement plus rapide et application plus stable.
+Sécurité renforcée et performances optimisées. Protection des données améliorée, fin des confirmations, chargement plus rapide.
 
 Version 2 (118 caractères):
-Améliorations de sécurité et de performance. Vos données mieux protégées, leaderboard et statistiques plus rapides.
+Améliorations de sécurité et de performance. Fin des confirmations, données mieux protégées, leaderboard plus rapide.
 
 Version 3 (139 caractères):
-Sécurité renforcée : protection des données améliorée. Performances optimisées : chargement plus rapide, application plus stable.
+Sécurité renforcée : protection des données améliorée. Fin des confirmations. Performances optimisées : chargement plus rapide.
 
 Version 4 (140 caractères):
-Sécurité renforcée et performances optimisées. Protection des données améliorée, requêtes optimisées, chargement plus rapide.
+Sécurité renforcée et performances optimisées. Protection des données améliorée, fin des confirmations, requêtes optimisées.
 
 VERSIONS ANGLAISES (170 caractères max)
 
 Version 1 (100 caractères):
-Enhanced security and performance. Improved data protection, faster loading, and a more stable app.
+Enhanced security and performance. Improved data protection, end of confirmations, faster loading.
 
 Version 2 (120 caractères):
-Security improvements and performance optimizations. Better data protection, faster leaderboard, improved stability.
+Security improvements and performance optimizations. End of confirmations, better data protection, faster leaderboard.
 
 Version 3 (135 caractères):
-Enhanced security and performance. Improved data protection, optimized queries, faster loading, and better stability.
+Enhanced security and performance. Improved data protection, end of confirmations, optimized queries, faster loading.
