@@ -4,7 +4,7 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     ActionSheetIOS,
     ActivityIndicator,
@@ -20,9 +20,11 @@ import {
     Pressable,
     ScrollView,
     SectionList,
+    StyleSheet,
     Text,
     TextInput,
     useWindowDimensions,
+    Vibration,
     View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,17 +37,29 @@ import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../
 import { supabase } from "../../../lib/supabase";
 import { formatPlayerName, press } from "../../../lib/uiSafe";
 
+const THEME = {
+  bg: '#061A2B',
+  card: 'rgba(10, 32, 56, 0.6)',
+  cardAlt: 'rgba(10, 32, 56, 0.45)',
+  cardBorder: 'rgba(255, 255, 255, 0.08)',
+  text: '#EAF0FF',
+  muted: '#8FA3BF',
+  accent: '#E5FF00',
+  accentSoft: 'rgba(229, 255, 0, 0.16)',
+  ink: '#0B1526',
+};
+
 const COLORS = {
-  primary: '#156bc9',   // bleu charte
-  accent:  '#ff751f',   // orange charte
-  ink:     '#111827',
-  gray:    '#e5e7eb',
-  grayBg:  '#aaaaaa',
+  primary: '#1B3B6F',
+  accent: THEME.accent,
+  ink: THEME.ink,
+  gray: '#2B3E57',
+  grayBg: '#12263F',
 };
 
 const TINTS = {
-  primaryBg: '#eaf4ff',
-  accentBg:  '#fff3e9',
+  primaryBg: '#0E2238',
+  accentBg: 'rgba(229, 255, 0, 0.12)',
 };
 
 // Helper pour pluralisation
@@ -162,7 +176,9 @@ export default function MatchesScreen() {
   const lastFetchAtRef = useRef(0);
   const hasDataRef = useRef(false);
   const availabilityRefreshTimerRef = useRef(null);
+  const rsvpRefreshTimerRef = useRef(null);
   const isCreatingMatchRef = useRef(false);
+  const isConfirmingRsvpRef = useRef(false);
   const weekLoadingUntilRef = useRef(0);
   const weekLoadingTimerRef = useRef(null);
   const freezeDisplayUntilRef = useRef(0);
@@ -299,6 +315,7 @@ export default function MatchesScreen() {
     }
     matchCreatedUndoOnExpireRef.current = null;
     matchCreatedUndoOnConfirmRef.current = null;
+    matchCreatedUndoVisibleRef.current = false;
   }, []);
 
   const notifyMatchCreated = useCallback(async (matchId, playerIds = []) => {
@@ -353,25 +370,14 @@ export default function MatchesScreen() {
   const showMatchCreatedUndo = useCallback((matchId, { seconds = MATCH_CREATED_UNDO_SECONDS, onExpire, onConfirm } = {}) => {
     if (!matchId) return;
     clearMatchCreatedUndoState();
+    matchCreatedUndoVisibleRef.current = true;
     matchCreatedUndoOnExpireRef.current = onExpire || null;
     matchCreatedUndoOnConfirmRef.current = onConfirm || onExpire || null;
     const duration = Math.max(1, Number(seconds) || MATCH_CREATED_UNDO_SECONDS);
     matchCreatedUndoEndRef.current = Date.now() + duration * 1000;
     setMatchCreatedUndoMatchId(matchId);
-    setMatchCreatedUndoSeconds(duration);
     setMatchCreatedUndoVisible(true);
-    matchCreatedUndoIntervalRef.current = setInterval(() => {
-      const left = Math.max(0, Math.ceil((matchCreatedUndoEndRef.current - Date.now()) / 1000));
-      setMatchCreatedUndoSeconds(left);
-      if (left <= 0) {
-        const cb = matchCreatedUndoOnExpireRef.current;
-        matchCreatedUndoOnExpireRef.current = null;
-        matchCreatedUndoOnConfirmRef.current = null;
-        clearMatchCreatedUndoState();
-        setMatchCreatedUndoVisible(false);
-        cb && cb();
-      }
-    }, 250);
+    // L'expiration est gérée dans le composant de modal
   }, [clearMatchCreatedUndoState]);
 
   useEffect(() => {
@@ -453,6 +459,7 @@ export default function MatchesScreen() {
   const [rsvpMode, setRsvpMode] = useState('long');
   const [confirmedMode, setConfirmedMode] = useState('long');
   const [weekOffset, setWeekOffset] = useState(0);
+  const [matchTabsHeight, setMatchTabsHeight] = useState(0);
   const [ready, setReady] = useState([]);
   const [readyAll, setReadyAll] = useState([]); // Tous les créneaux (y compris 3 joueurs) avant filtrage
   const [hot, setHot] = useState([]);
@@ -486,7 +493,7 @@ export default function MatchesScreen() {
   const previousGroupIdRef = React.useRef(null); // Pour détecter les changements de groupe vs semaine
   const previousWeekOffsetRef = React.useRef(0); // Pour détecter les changements de semaine
   const [matchCreatedUndoVisible, setMatchCreatedUndoVisible] = useState(false);
-  const [matchCreatedUndoSeconds, setMatchCreatedUndoSeconds] = useState(0);
+  
   const [matchCreatedUndoMatchId, setMatchCreatedUndoMatchId] = useState(null);
   const matchCreatedUndoEndRef = useRef(0);
   const matchCreatedUndoIntervalRef = useRef(null);
@@ -573,6 +580,10 @@ export default function MatchesScreen() {
   const [locationPermission, setLocationPermission] = useState(null);
   const [availablePlayers, setAvailablePlayers] = useState([]);
   const [availablePlayersLoading, setAvailablePlayersLoading] = useState(false);
+  const [clubFallbackModalOpen, setClubFallbackModalOpen] = useState(false);
+  const [clubFallbackLoading, setClubFallbackLoading] = useState(false);
+  const [clubFallbackSearchQuery, setClubFallbackSearchQuery] = useState('');
+  const [clubFallbacks, setClubFallbacks] = useState([]);
   
   // Filtre par niveau ciblé
   const [filterLevels, setFilterLevels] = useState([]); // Liste de niveaux individuels sélectionnés
@@ -1534,6 +1545,335 @@ async function findConflictingUsers({ groupId, startsAt, endsAt, userIds = [] })
   });
   return blocked;
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: THEME.bg,
+    overflow: 'visible',
+  },
+  networkNotice: {
+    backgroundColor: 'rgba(229, 255, 0, 0.14)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(229, 255, 0, 0.22)',
+  },
+  networkNoticeText: {
+    color: THEME.accent,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  headerTitle: {
+    color: THEME.text,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  headerActions: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroCard: {
+    backgroundColor: THEME.card,
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    elevation: 8,
+    marginBottom: 12,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroNumber: {
+    color: THEME.accent,
+    fontSize: 28,
+    fontWeight: '900',
+  },
+  heroLabel: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  heroDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 12,
+  },
+  segmentWrap: {
+    marginBottom: 12,
+  },
+  segmentWrapFloating: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    zIndex: 20,
+    elevation: 12,
+  },
+  segment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderRadius: 999,
+    padding: 0,
+    gap: 8,
+  },
+  segmentBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  segmentBtnActive: {
+    backgroundColor: THEME.accent,
+    borderColor: THEME.accent,
+  },
+  segmentBtnActiveProposes: {
+    backgroundColor: '#ff8c00',
+    borderColor: '#ff8c00',
+  },
+  segmentText: {
+    color: THEME.muted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  segmentTextActive: {
+    color: THEME.ink,
+    fontWeight: '900',
+  },
+  segmentContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  segmentCount: {
+    fontSize: 60,
+    fontWeight: '900',
+    color: THEME.muted,
+    lineHeight: 62,
+  },
+  segmentCountActive: {
+    color: '#001833',
+    fontSize: 60,
+    lineHeight: 62,
+  },
+  segmentLabelStack: {
+    flexDirection: 'column',
+  },
+  segmentLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.muted,
+    lineHeight: 14,
+  },
+  segmentLabelActive: {
+    color: '#001833',
+  },
+  segmentLabelStrong: {
+    fontWeight: '900',
+  },
+  matchCard: {
+    backgroundColor: THEME.card,
+    padding: 16,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    overflow: 'visible',
+  },
+  matchCardGlow: {
+    marginBottom: 14,
+    borderRadius: 28,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+  },
+  matchCardReserved: {
+    borderColor: 'rgba(229,255,0,0.9)',
+    borderWidth: 1,
+  },
+  matchCardGlowReserved: {
+    borderWidth: 1,
+    borderColor: 'rgba(229,255,0,0.9)',
+    backgroundColor: 'rgba(229,255,0,0.22)',
+  },
+  matchDate: {
+    fontWeight: '800',
+    color: THEME.text,
+    fontSize: 16,
+    marginBottom: 10,
+  },
+  matchDateCentered: {
+    textAlign: 'center',
+  },
+  ctaButton: {
+    backgroundColor: THEME.accent,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  ctaRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+  ctaPrimary: {
+    backgroundColor: THEME.accent,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  ctaPrimaryText: {
+    color: THEME.ink,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  ctaSecondary: {
+    backgroundColor: '#480c3d',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  ctaSecondaryText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  ctaButtonDisabled: {
+    backgroundColor: 'rgba(229,255,0,0.25)',
+  },
+  ctaButtonPressed: {
+    opacity: 0.92,
+  },
+  ctaText: {
+    color: THEME.ink,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  ctaTextDisabled: {
+    color: THEME.ink,
+    opacity: 0.8,
+  },
+  ctaSubText: {
+    color: THEME.ink,
+    fontSize: 11,
+    fontWeight: '700',
+    opacity: 0.7,
+    marginTop: 2,
+  },
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 8,
+    overflow: 'visible',
+    flexWrap: 'wrap',
+    rowGap: 8,
+  },
+  avatarItem: {
+    marginRight: 10,
+    paddingBottom: 6,
+  },
+  avatarPlus: {
+    color: THEME.text,
+    fontSize: 22,
+    fontWeight: '900',
+    marginRight: 10,
+    marginTop: 6,
+  },
+  avatarOverflow: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    marginBottom: 6,
+  },
+  avatarOverflowText: {
+    color: THEME.text,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  filtersBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    backgroundColor: 'transparent',
+    zIndex: 1000,
+    elevation: 8,
+  },
+  fabWrap: {
+    position: 'absolute',
+    right: 13,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    zIndex: 1000,
+  },
+  fabButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: THEME.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+});
 function normalizeRsvp(s) {
   const t = String(s || '').trim().toLowerCase();
   if (t === 'accepté' || t === 'accepted') return 'accepted';
@@ -1694,45 +2034,147 @@ async function seedMaybeRsvps({ matchId, groupId, startsAt, endsAt, excludeUserI
 }
 
 const cardStyle = {
-  backgroundColor: '#ffffff',
-  padding: 10,
-  borderRadius: 12,
-  marginBottom: 12,
+  backgroundColor: THEME.card,
+  padding: 14,
+  borderRadius: 20,
+  marginBottom: 14,
+  borderWidth: 1,
+  borderColor: THEME.cardBorder,
   shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.1,
-  shadowRadius: 4,
-  elevation: 3,
+  shadowOffset: { width: 0, height: 10 },
+  shadowOpacity: 0.25,
+  shadowRadius: 16,
+  elevation: 8,
 };
 
 // Composants utilitaires simples
 const MetaLine = ({ m }) => (
   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-    <Text style={{ color: '#6b7280', fontSize: 14 }}>
+    <Text style={{ color: THEME.muted, fontSize: 13 }}>
       Créé le {new Date(m.created_at).toLocaleDateString('fr-FR')}
     </Text>
-    </View>
-  );
+  </View>
+);
 
 const Divider = ({ m = 8 }) => (
-  <View style={{ height: 1, backgroundColor: '#e5e7eb', marginVertical: m }} />
+  <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginVertical: m }} />
 );
 
 const Badge = ({ tone = 'blue', text }) => (
   <View
     style={{
-      backgroundColor: tone === 'amber' ? '#f59e0b' : '#3b82f6',
+      backgroundColor: tone === 'amber' ? 'rgba(229,255,0,0.18)' : 'rgba(255,255,255,0.12)',
       paddingHorizontal: 8,
       paddingVertical: 4,
-      borderRadius: 12,
+      borderRadius: 999,
       alignSelf: 'flex-start',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
     }}
   >
-    <Text style={{ color: 'white', fontWeight: '700', fontSize: 12 }}>
+    <Text style={{ color: THEME.text, fontWeight: '700', fontSize: 12 }}>
       {text}
     </Text>
   </View>
 );
+
+const MatchCreatedUndoModal = React.memo(
+  ({ visible, endAtRef, onRequestClose, onConfirm, onCancel, onExpire }) => {
+    const [seconds, setSeconds] = React.useState(0);
+    const expireHandledRef = React.useRef(false);
+
+    React.useEffect(() => {
+      if (!visible) {
+        expireHandledRef.current = false;
+        return;
+      }
+      const update = () => {
+        const left = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
+        setSeconds(left);
+        if (left <= 0 && !expireHandledRef.current) {
+          expireHandledRef.current = true;
+          onExpire && onExpire();
+        }
+      };
+      update();
+      const id = setInterval(update, 1000);
+      return () => clearInterval(id);
+    }, [visible, endAtRef, onExpire]);
+
+    if (!visible) return null;
+
+    return (
+      <Modal transparent animationType="fade" visible={visible} onRequestClose={onRequestClose}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 420, backgroundColor: '#ffffff', borderRadius: 16, padding: 20 }}>
+            <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240', marginBottom: 8 }}>
+              Match créé 🎾
+            </Text>
+            <Text style={{ color: '#6b7280', marginBottom: 16 }}>
+              Annulation possible pendant {seconds}s
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                onPress={onConfirm}
+                style={{
+                  width: '50%',
+                  backgroundColor: '#10b981',
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="checkmark-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                  Confirmer
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onCancel}
+                style={{
+                  width: '50%',
+                  backgroundColor: '#b91c1c',
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="close-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                  Annuler ({seconds}s)
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+);
+
+const useEnterAnim = (enabled = true) => {
+  const enter = React.useRef(new Animated.Value(enabled ? 0 : 1)).current;
+  React.useEffect(() => {
+    if (!enabled) {
+      enter.setValue(1);
+      return;
+    }
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: 320,
+      useNativeDriver: true,
+    }).start();
+  }, [enter, enabled]);
+  const opacity = enter;
+  const translateY = enter.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
+  return { style: { opacity, transform: [{ translateY }] } };
+};
 
 const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected, onLongPress }) => {
   // Extraire les initiales (2 lettres)
@@ -1860,6 +2302,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   
   // Animation de clignotement pour le tab "match à confirmer"
   const rsvpBlinkAnim = useRef(new Animated.Value(1)).current;
+  const fabScale = useRef(new Animated.Value(1)).current;
   
   useEffect(() => {
     // Clignoter seulement si le tab n'est pas sélectionné et qu'il y a des matchs à confirmer
@@ -1932,7 +2375,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
       pendingFetchRef.current = true;
       return;
     }
-    if (isCreatingMatchRef.current && hasDataRef.current && skipLoadingState) {
+    if ((isCreatingMatchRef.current || isConfirmingRsvpRef.current) && hasDataRef.current && skipLoadingState) {
       return;
     }
     const now = Date.now();
@@ -3029,7 +3472,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
           };
 
           (async () => {
-            if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current) {
+            if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current || isCreatingMatchRef.current || isConfirmingRsvpRef.current) {
               return;
             }
             if (ev === 'DELETE') {
@@ -3094,7 +3537,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
             // Debug log for RSVP event
             console.log('[Realtime RSVP]', ev, { matchId, userId, new: rowNew, old: rowOld });
 
-            if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current) {
+            if (Date.now() < freezeDisplayUntilRef.current || matchCreatedUndoVisibleRef.current || isConfirmingRsvpRef.current) {
               return;
             }
             setRsvpsByMatch((prev) => {
@@ -3111,7 +3554,13 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                 if (i >= 0) arr[i] = { ...arr[i], ...item };
                 else arr.push(item);
                 next[matchId] = arr;
-                setTimeout(() => fetchData(true), 600); // ✅ différer pour éviter les sauts lors de la création
+                if (rsvpRefreshTimerRef.current) {
+                  clearTimeout(rsvpRefreshTimerRef.current);
+                }
+                rsvpRefreshTimerRef.current = setTimeout(() => {
+                  rsvpRefreshTimerRef.current = null;
+                  fetchData(true);
+                }, 800); // ✅ debounce pour éviter les scintillements
                 return next;
               }
 
@@ -3121,7 +3570,13 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
                   arr.splice(i, 1);
                   next[matchId] = arr;
                 }
-                fetchData(); // ✅ ici aussi
+                if (rsvpRefreshTimerRef.current) {
+                  clearTimeout(rsvpRefreshTimerRef.current);
+                }
+                rsvpRefreshTimerRef.current = setTimeout(() => {
+                  rsvpRefreshTimerRef.current = null;
+                  fetchData(true);
+                }, 800); // ✅ debounce pour éviter les scintillements
                 return next;
               }
 
@@ -3139,6 +3594,10 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
     return () => {
       supabase.removeChannel(ch);
+      if (rsvpRefreshTimerRef.current) {
+        clearTimeout(rsvpRefreshTimerRef.current);
+        rsvpRefreshTimerRef.current = null;
+      }
     };
   }, [groupId, fetchData]);
 
@@ -3797,7 +4256,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
         }
         
         // 5) Refresh lists and notify UX
-        await fetchData();
+        await fetchData(true);
         
         // 6) Nettoyage final APRÈS fetchData avec délai pour garantir que seuls les joueurs sélectionnés sont présents
         // (au cas où fetchData, la RPC ou des triggers SQL auraient ré-ajouté des joueurs)
@@ -4932,6 +5391,9 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 
   const onRsvpAccept = useCallback(async (match_id) => {
     try {
+      isConfirmingRsvpRef.current = true;
+      freezeDisplay(1200);
+      setTimeout(() => { isConfirmingRsvpRef.current = false; }, 1600);
       // Resolve my user id reliably (avoid accessing .getUser() without await)
       let uid = meId;
       if (!uid) {
@@ -4964,7 +5426,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         return next;
       });
 
-      await fetchData();
+      await fetchData(true);
       if (Platform.OS === 'web') {
         window.alert('Participation confirmée ✅');
       } else {
@@ -5135,6 +5597,23 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     }
   }, [meId, fetchData]);
 
+  const confirmRsvpDecline = useCallback((match_id) => {
+    const message = "Si vous confirmez, le match sera annulé.";
+    if (Platform.OS === 'web') {
+      const ok = window.confirm(message);
+      if (ok) onRsvpDecline(match_id);
+      return;
+    }
+    Alert.alert(
+      'Confirmation',
+      message,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Confirmer', style: 'destructive', onPress: () => onRsvpDecline(match_id) },
+      ]
+    );
+  }, [onRsvpDecline]);
+
   const setCourtReservedLocal = React.useCallback((matchId, nextVal, when = null, who = null) => {    const apply = (arr) => arr.map((x) =>
       String(x.id) === String(matchId)
       ? { ...x, is_court_reserved: !!nextVal, court_reserved_at: when, court_reserved_by: who }
@@ -5159,7 +5638,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 
       // 3) Optimistic UI update (can safely reference userId now)
       setCourtReservedLocal(matchId, nextVal, when, nextVal ? userId : null);
-
       // 4) Persist to DB
       const { error } = await supabase
         .from('matches')
@@ -5272,7 +5750,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     }
   }, [fetchData]);
 
-  const onContactClub = useCallback(async () => {
   // Open player profile (tap) – falls back to showing name if route not available
   const openPlayerProfile = React.useCallback((uid, displayName) => {
     try {
@@ -5281,6 +5758,8 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       const RouterConsumer = () => null;
     } catch {}
   }, []);
+
+  const onContactClub = useCallback(async () => {
     if (!groupId) return;
     try {
       const { data } = await supabase.from("groups").select("phone").eq("id", groupId).maybeSingle();
@@ -5288,11 +5767,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       if (phone) {
         await Linking.openURL(`tel:${phone}`);
       } else {
-        if (Platform.OS === "web") {
-          window.alert("Pas de téléphone\nAucun numéro de club renseigné pour ce groupe.");
-        } else {
-          Alert.alert("Pas de téléphone", "Aucun numéro de club renseigné pour ce groupe.");
-        }
+        setClubFallbackModalOpen(true);
       }
     } catch (e) {
       if (Platform.OS === "web") {
@@ -5302,6 +5777,86 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       }
     }
   }, [groupId]);
+
+  const loadClubFallbacks = useCallback(async () => {
+    setClubFallbackLoading(true);
+    try {
+      let ref = refPoint;
+      if (!ref || !ref.lat || !ref.lng) {
+        if (locationPermission === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          ref = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        } else {
+          ref = { lat: 48.8566, lng: 2.3522 };
+        }
+      }
+
+      const pageSize = 1000;
+      let from = 0;
+      let to = pageSize - 1;
+      let allClubs = [];
+      /* eslint-disable no-constant-condition */
+      while (true) {
+        const { data: page, error } = await supabase
+          .from('clubs')
+          .select('*')
+          .order('id', { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        const batch = Array.isArray(page) ? page : [];
+        allClubs = allClubs.concat(batch);
+        if (batch.length < pageSize) break;
+        from += pageSize;
+        to += pageSize;
+      }
+
+      const withDistance = (allClubs || [])
+        .map((club) => {
+          const hasCoords = club?.lat != null && club?.lng != null;
+          return {
+            ...club,
+            distanceKm: hasCoords ? haversineKm(ref, { lat: club.lat, lng: club.lng }) : Infinity,
+            phoneNumber: club.phone || null,
+          };
+        })
+        .sort((a, b) => (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+
+      setClubFallbacks(withDistance);
+    } catch (e) {
+      if (Platform.OS === "web") {
+        window.alert("Erreur\n" + (e?.message ?? String(e)));
+      } else {
+        Alert.alert("Erreur", `Impossible de charger la liste des clubs: ${e?.message || String(e)}`);
+      }
+      setClubFallbacks([]);
+    } finally {
+      setClubFallbackLoading(false);
+    }
+  }, [refPoint, locationPermission]);
+
+  useEffect(() => {
+    if (clubFallbackModalOpen) {
+      setClubFallbackSearchQuery('');
+      loadClubFallbacks();
+    }
+  }, [clubFallbackModalOpen, loadClubFallbacks]);
+
+  const visibleClubFallbacks = useMemo(() => {
+    const base = clubFallbacks || [];
+    const q = (clubFallbackSearchQuery || '').trim().toLowerCase();
+    let filtered = base;
+    if (q) {
+      filtered = filtered.filter((c) => {
+        const name = (c.name || '').toLowerCase();
+        const address = (c.address || '').toLowerCase();
+        const phone = (c.phoneNumber || '').toLowerCase();
+        return name.includes(q) || address.includes(q) || phone.includes(q);
+      });
+    }
+    return filtered
+      .slice()
+      .sort((a, b) => (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+  }, [clubFallbacks, clubFallbackSearchQuery]);
 
 
   const formatDate = (iso) => {
@@ -5433,7 +5988,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
               accessibilityRole="button"
               accessibilityLabel="Créer un match pour ce créneau"
               style={({ pressed }) => [
-                { backgroundColor: canCreate ? '#15803d' : '#ff751f', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+                { backgroundColor: canCreate ? '#15803d' : THEME.accent, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
                 Platform.OS === "web" ? { cursor: canCreate ? 'pointer' : 'not-allowed', opacity: canCreate ? 1 : 0.85 } : null,
                 pressed && canCreate ? { opacity: 0.8 } : null,
               ]}
@@ -5517,6 +6072,9 @@ const LongSlotRow = ({ item }) => {
   const otherUserIds = allUserIds.filter(uid => String(uid) !== String(meId));
   const myProfile = meId ? profileOf(profilesById, meId) : null;
   const isMeAvailable = meId && allUserIds.some(uid => String(uid) === String(meId));
+  const maxAvatars = 8;
+  const limitedOtherIds = otherUserIds.slice(0, maxAvatars);
+  const extraCount = Math.max(0, otherUserIds.length - limitedOtherIds.length);
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -5532,92 +6090,112 @@ const LongSlotRow = ({ item }) => {
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
 
+  const enter = useEnterAnim(!matchCreatedUndoVisible);
+  const ctaScale = useRef(new Animated.Value(1)).current;
+
   return (
-    <View style={[cardStyle, { minHeight: 120 }]}>
-      <Text style={{ fontWeight: "800", color: "#111827", fontSize: 18, marginBottom: 6 }}>
-        {formatRange(item.starts_at, item.ends_at)}
-      </Text>
+    <Animated.View style={[styles.matchCardGlow, enter.style]}>
+      <View style={styles.matchCard}>
+        <Text style={styles.matchDate}>{formatRange(item.starts_at, item.ends_at)}</Text>
 
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-        <Pressable
-          disabled={!canCreate}
-          accessibilityState={{ disabled: !canCreate }}
-          onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
-          accessibilityRole="button"
-          accessibilityLabel="Créer un match pour ce créneau 1h30"
-          style={({ pressed }) => [
-            { backgroundColor: canCreate ? '#15803d' : '#ff751f', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-            Platform.OS === "web" ? { cursor: canCreate ? 'pointer' : 'not-allowed', opacity: canCreate ? 1 : 0.85 } : null,
-            pressed && canCreate ? { opacity: 0.8 } : null,
-          ]}
-        >
-          {!canCreate ? (
-            <Image source={clickIcon} style={{ width: 28, height: 28, marginRight: 8, tintColor: 'white' }} />
-          ) : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {canCreate && (
-              <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
-            )}
-            <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
-              {canCreate ? "Créer un match (4 joueurs)" : `Sélectionner ${3 - selectedIds.length} joueur${3 - selectedIds.length > 1 ? 's' : ''} (${selectedIds.length}/3)`}
-            </Text>
+        {canCreate ? (
+          <View style={styles.ctaRow}>
+            <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
+              <Pressable
+                onPress={press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds))}
+                onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
+                onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
+                accessibilityRole="button"
+                accessibilityLabel="Créer un match pour ce créneau 1h30"
+                style={({ pressed }) => [
+                  styles.ctaPrimary,
+                  pressed ? styles.ctaButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.ctaPrimaryText}>Créer un match</Text>
+              </Pressable>
+            </Animated.View>
+            <Pressable
+              onPress={onContactClub}
+              accessibilityRole="button"
+              accessibilityLabel="Appeler un club"
+              style={({ pressed }) => [
+                styles.ctaSecondary,
+                pressed ? { opacity: 0.9 } : null,
+              ]}
+            >
+              <Ionicons name="call" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+              <Text style={styles.ctaSecondaryText}>Appeler un club</Text>
+            </Pressable>
           </View>
-        </Pressable>
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
-        {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
-        {isMeAvailable && myProfile && (
-          <>
-            <View style={{ position: 'relative' }}>
-              <LevelAvatar
-                key={`me-${meId}`}
-                profile={myProfile}
-                onPress={undefined} // Non sélectionnable
-                onLongPressProfile={openProfile}
-                selected={false}
-                size={48}
-              />
-              {/* Badge pour indiquer que c'est le créateur */}
-              <View style={{
-                position: 'absolute',
-                top: -4,
-                right: -4,
-                backgroundColor: '#10b981',
-                borderRadius: 10,
-                width: 20,
-                height: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 2,
-                borderColor: '#ffffff',
-              }}>
-                <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>✓</Text>
-              </View>
-            </View>
-            {/* Symbole + entre mon avatar et les autres */}
-            {otherUserIds.length > 0 && (
-              <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginHorizontal: 4 }}>+</Text>
-            )}
-          </>
+        ) : (
+          <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
+            <Pressable
+              disabled={!canCreate}
+              accessibilityState={{ disabled: !canCreate }}
+              onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
+              onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
+              onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
+              accessibilityRole="button"
+              accessibilityLabel="Sélectionner 3 joueurs pour ce créneau 1h30"
+              style={({ pressed }) => [
+                styles.ctaButton,
+                !canCreate && styles.ctaButtonDisabled,
+                pressed ? styles.ctaButtonPressed : null,
+              ]}
+            >
+              <Text style={[styles.ctaText, !canCreate && styles.ctaTextDisabled]}>
+                Sélectionner 3 joueurs
+              </Text>
+              <Text style={styles.ctaSubText}>
+                {`${selectedIds.length}/3 sélectionnés`}
+              </Text>
+            </Pressable>
+          </Animated.View>
         )}
-        {/* Afficher les autres joueurs */}
-        {otherUserIds.map((uid) => {
-          const p = profileOf(profilesById, uid);
-          console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
-          return (
-            <LevelAvatar
-              key={String(uid)}
-              profile={p}
-              onPress={() => toggleSelect(uid)}
-              onLongPressProfile={openProfile}
-              selected={selectedIds.includes(String(uid))}
-              size={48}
-            />
-          );
-        })}
+
+        <View style={styles.avatarRow}>
+          {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
+          {isMeAvailable && myProfile ? (
+            <>
+              <View style={styles.avatarItem}>
+                <LevelAvatar
+                  key={`me-${meId}`}
+                  profile={myProfile}
+                  onPress={undefined}
+                  onLongPressProfile={openProfile}
+                  selected={false}
+                  size={48}
+                />
+              </View>
+              {otherUserIds.length > 0 ? (
+                <Text style={styles.avatarPlus}>+</Text>
+              ) : null}
+            </>
+          ) : null}
+          {limitedOtherIds.map((uid) => {
+            const p = profileOf(profilesById, uid);
+            console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
+            return (
+              <View key={String(uid)} style={styles.avatarItem}>
+                <LevelAvatar
+                  profile={p}
+                  onPress={() => toggleSelect(uid)}
+                  onLongPressProfile={openProfile}
+                  selected={selectedIds.includes(String(uid))}
+                  size={48}
+                />
+              </View>
+            );
+          })}
+          {extraCount > 0 ? (
+            <View style={styles.avatarOverflow}>
+              <Text style={styles.avatarOverflowText}>+{extraCount}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -5628,6 +6206,9 @@ const HourSlotRow = ({ item }) => {
   const otherUserIds = allUserIds.filter(uid => String(uid) !== String(meId));
   const myProfile = meId ? profileOf(profilesById, meId) : null;
   const isMeAvailable = meId && allUserIds.some(uid => String(uid) === String(meId));
+  const maxAvatars = 8;
+  const limitedOtherIds = otherUserIds.slice(0, maxAvatars);
+  const extraCount = Math.max(0, otherUserIds.length - limitedOtherIds.length);
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -5643,92 +6224,111 @@ const HourSlotRow = ({ item }) => {
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
 
+  const enter = useEnterAnim(!matchCreatedUndoVisible);
+  const ctaScale = useRef(new Animated.Value(1)).current;
+
   return (
-    <View style={[cardStyle, { minHeight: 120 }]}>
-      <Text style={{ fontWeight: "800", color: "#111827", fontSize: 18, marginBottom: 6 }}>
-        {formatRange(item.starts_at, item.ends_at)}
-      </Text>
+    <Animated.View style={[styles.matchCardGlow, enter.style]}>
+      <View style={styles.matchCard}>
+        <Text style={styles.matchDate}>{formatRange(item.starts_at, item.ends_at)}</Text>
 
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-        <Pressable
-          disabled={!canCreate}
-          accessibilityState={{ disabled: !canCreate }}
-          onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
-          accessibilityRole="button"
-          accessibilityLabel="Créer un match pour ce créneau 1h"
-          style={({ pressed }) => [
-            { backgroundColor: canCreate ? '#15803d' : '#ff751f', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-            Platform.OS === "web" ? { cursor: canCreate ? 'pointer' : 'not-allowed', opacity: canCreate ? 1 : 0.85 } : null,
-            pressed && canCreate ? { opacity: 0.8 } : null,
-          ]}
-        >
-          {!canCreate ? (
-            <Image source={clickIcon} style={{ width: 28, height: 28, marginRight: 8, tintColor: 'white' }} />
-          ) : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {canCreate && (
-              <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
-            )}
-            <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
-              {canCreate ? "Créer un match (4 joueurs)" : `Sélectionner ${3 - selectedIds.length} joueur${3 - selectedIds.length > 1 ? 's' : ''} (${selectedIds.length}/3)`}
-            </Text>
+        {canCreate ? (
+          <View style={styles.ctaRow}>
+            <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
+              <Pressable
+                onPress={press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds))}
+                onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
+                onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
+                accessibilityRole="button"
+                accessibilityLabel="Créer un match pour ce créneau 1h"
+                style={({ pressed }) => [
+                  styles.ctaPrimary,
+                  pressed ? styles.ctaButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.ctaPrimaryText}>Créer un match</Text>
+              </Pressable>
+            </Animated.View>
+            <Pressable
+              onPress={onContactClub}
+              accessibilityRole="button"
+              accessibilityLabel="Appeler un club"
+              style={({ pressed }) => [
+                styles.ctaSecondary,
+                pressed ? { opacity: 0.9 } : null,
+              ]}
+            >
+              <Ionicons name="call" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+              <Text style={styles.ctaSecondaryText}>Appeler un club</Text>
+            </Pressable>
           </View>
-        </Pressable>
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
-        {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
-        {isMeAvailable && myProfile && (
-          <>
-            <View style={{ position: 'relative' }}>
-              <LevelAvatar
-                key={`me-${meId}`}
-                profile={myProfile}
-                onPress={undefined} // Non sélectionnable
-                onLongPressProfile={openProfile}
-                selected={false}
-                size={48}
-              />
-              {/* Badge pour indiquer que c'est le créateur */}
-              <View style={{
-                position: 'absolute',
-                top: -4,
-                right: -4,
-                backgroundColor: '#10b981',
-                borderRadius: 10,
-                width: 20,
-                height: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 2,
-                borderColor: '#ffffff',
-              }}>
-                <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>✓</Text>
-              </View>
-            </View>
-            {/* Symbole + entre mon avatar et les autres */}
-            {otherUserIds.length > 0 && (
-              <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginHorizontal: 4 }}>+</Text>
-            )}
-          </>
+        ) : (
+          <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
+            <Pressable
+              disabled={!canCreate}
+              accessibilityState={{ disabled: !canCreate }}
+              onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
+              onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
+              onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
+              accessibilityRole="button"
+              accessibilityLabel="Sélectionner 3 joueurs pour ce créneau 1h"
+              style={({ pressed }) => [
+                styles.ctaButton,
+                !canCreate && styles.ctaButtonDisabled,
+                pressed ? styles.ctaButtonPressed : null,
+              ]}
+            >
+              <Text style={[styles.ctaText, !canCreate && styles.ctaTextDisabled]}>
+                Sélectionner 3 joueurs
+              </Text>
+              <Text style={styles.ctaSubText}>
+                {`${selectedIds.length}/3 sélectionnés`}
+              </Text>
+            </Pressable>
+          </Animated.View>
         )}
-        {/* Afficher les autres joueurs */}
-        {otherUserIds.map((uid) => {
-          const p = profileOf(profilesById, uid);
-          console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
-          return (
-            <LevelAvatar
-              key={String(uid)}
-              profile={p}
-              onPress={() => toggleSelect(uid)}
-              onLongPressProfile={openProfile}
-              selected={selectedIds.includes(String(uid))}
-              size={48}
-            />
-          );
-        })}
+
+        <View style={styles.avatarRow}>
+          {isMeAvailable && myProfile ? (
+            <>
+              <View style={styles.avatarItem}>
+                <LevelAvatar
+                  key={`me-${meId}`}
+                  profile={myProfile}
+                  onPress={undefined}
+                  onLongPressProfile={openProfile}
+                  selected={false}
+                  size={48}
+                />
+              </View>
+              {otherUserIds.length > 0 ? (
+                <Text style={styles.avatarPlus}>+</Text>
+              ) : null}
+            </>
+          ) : null}
+          {limitedOtherIds.map((uid) => {
+            const p = profileOf(profilesById, uid);
+            console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
+            return (
+              <View key={String(uid)} style={styles.avatarItem}>
+                <LevelAvatar
+                  profile={p}
+                  onPress={() => toggleSelect(uid)}
+                  onLongPressProfile={openProfile}
+                  selected={selectedIds.includes(String(uid))}
+                  size={48}
+                />
+              </View>
+            );
+          })}
+          {extraCount > 0 ? (
+            <View style={styles.avatarOverflow}>
+              <Text style={styles.avatarOverflowText}>+{extraCount}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -5763,12 +6363,13 @@ const HourSlotRow = ({ item }) => {
     }, [m?.id, m?.time_slots?.starts_at, m?.time_slots?.ends_at, groupId, rsvpsByMatch]);
     // --- End: inserted availIds/extraProfiles state and effect
     return (
-      <View style={cardStyle}>
-        <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>{formatRange(slot.starts_at, slot.ends_at)}</Text>
+      <View style={styles.matchCardGlow}>
+        <View style={styles.matchCard}>
+          <Text style={styles.matchDate}>{formatRange(slot.starts_at, slot.ends_at)}</Text>
         <MetaLine m={m} />
         <Divider m={8} />
         <View style={{ marginBottom: 8 }}>
-          <Text style={{ fontWeight: '800', color: '#111827' }}>
+          <Text style={{ fontWeight: '800', color: THEME.text }}>
             {`✅ ${(rsvps || []).filter(r => (r.status || '').toLowerCase() === 'accepted').length}/4 confirmés`}
           </Text>
         </View>
@@ -5786,7 +6387,8 @@ const HourSlotRow = ({ item }) => {
             );
           })}
         </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+          </View>
         </View>
       </View>
     );
@@ -6448,23 +7050,24 @@ const HourSlotRow = ({ item }) => {
     const matchDate = m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : null;
 
     return (
-      <View style={[cardStyle, { backgroundColor: reserved ? '#dcfce7' : '#fee2e2', borderColor: '#063383' }]}>
-        {slotDate ? (
-          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
-            {slotDate}
-          </Text>
-        ) : matchDate ? (
-          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16, marginBottom: 6 }}>
-            Match du {matchDate}
-          </Text>
-        ) : (
-          <Text style={{ fontWeight: '800', color: '#6b7280', fontSize: 14, marginBottom: 6, fontStyle: 'italic' }}>
-            Date non définie
-          </Text>
-        )}
+      <View style={[styles.matchCardGlow, reserved && styles.matchCardGlowReserved]}>
+        <View style={[styles.matchCard, reserved && styles.matchCardReserved]}>
+          {slotDate ? (
+            <Text style={[styles.matchDate, styles.matchDateCentered]}>
+              {slotDate}
+            </Text>
+          ) : matchDate ? (
+            <Text style={[styles.matchDate, styles.matchDateCentered]}>
+              Match du {matchDate}
+            </Text>
+          ) : (
+            <Text style={[styles.matchDateCentered, { fontWeight: '800', color: THEME.muted, fontSize: 14, marginBottom: 6, fontStyle: 'italic' }]}>
+              Date non définie
+            </Text>
+          )}
 
         {/* Avatars confirmés */}
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
           {accepted.map((r) => {
             const p = profilesById[String(r.user_id)];
             console.log('[MatchCardConfirmed] Accepted user:', r.user_id, 'profile exists:', !!p?.id);
@@ -6486,7 +7089,7 @@ const HourSlotRow = ({ item }) => {
             marginTop: 4,
             marginBottom: 4,
             flexDirection: 'row',
-            justifyContent: 'space-between',
+            justifyContent: 'center',
             alignItems: 'stretch',
             gap: 8,
           }}
@@ -6526,20 +7129,27 @@ const HourSlotRow = ({ item }) => {
                   }
                 }}
                 style={{
-                  width: '48%',
-                  backgroundColor: '#480c3d', // violine - toujours la même couleur
+                  width: '50%',
+                  backgroundColor: 'rgba(72, 12, 61, 0.45)', // violine plus liquid
                   paddingVertical: 0,
                   paddingHorizontal: 10,
-                  borderRadius: 8,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.18)',
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
                   height: 56,
                   minHeight: 56,
                   maxHeight: 56,
+                  shadowColor: '#480c3d',
+                  shadowOpacity: 0.28,
+                  shadowRadius: 16,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 5,
                 }}
               >
-                <Ionicons name="call" size={30} color="#ffffff" style={{ marginRight: 8, width: 30, height: 30 }} />
+                <Ionicons name="call" size={22} color="#ffffff" style={{ marginRight: 8, width: 22, height: 22 }} />
                 <Text
                   style={{
                     color: '#ffffff',
@@ -6563,26 +7173,33 @@ const HourSlotRow = ({ item }) => {
             onPress={() => toggleCourtReservation(m.id, !!m.is_court_reserved)}
             style={{
               width: '50%',
-              backgroundColor: m?.is_court_reserved ? '#10b981' : '#ef4444',
+              backgroundColor: m?.is_court_reserved ? 'rgba(16, 185, 129, 0.45)' : 'rgba(239, 68, 68, 0.45)',
               paddingVertical: 0,
               paddingHorizontal: 10,
-              borderRadius: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.18)',
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
               height: 56,
               minHeight: 56,
               maxHeight: 56,
+              shadowColor: m?.is_court_reserved ? '#10b981' : '#ef4444',
+              shadowOpacity: 0.28,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 5,
             }}
           >
-            <View style={{ width: 48, height: 48, marginRight: 16, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 40, height: 40, marginRight: 12, alignItems: 'center', justifyContent: 'center' }}>
               {m?.is_court_reserved && m.court_reserved_by && profilesById?.[String(m.court_reserved_by)]?.avatar_url ? (
                 <Image
                   source={{ uri: profilesById[String(m.court_reserved_by)].avatar_url }}
                   style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
                     borderWidth: 0,
                     borderColor: '#fff',
                     resizeMode: 'cover',
@@ -6592,8 +7209,8 @@ const HourSlotRow = ({ item }) => {
                 <Image
                   source={require('../../../assets/icons/calendrier.png')}
                   style={{
-                    width: 36,
-                    height: 36,
+                    width: 28,
+                    height: 28,
                     shadowColor: '#fff',
                     shadowOffset: { width: 0, height: 0 },
                     shadowOpacity: 0.8,
@@ -6622,7 +7239,7 @@ const HourSlotRow = ({ item }) => {
 
         {/* Ligne 1 : remplacer + désister */}
         {isUserInAccepted && (
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, justifyContent: 'center' }}>
             <Pressable
               onPress={() => {
                 const meProfile = profilesById?.[String(meId)];
@@ -6633,38 +7250,52 @@ const HourSlotRow = ({ item }) => {
               }}
               style={{
                 width: '50%',
-                backgroundColor: '#ff8c00',
+                backgroundColor: 'rgba(255, 140, 0, 0.45)',
                 paddingVertical: 10,
                 paddingHorizontal: 12,
-                borderRadius: 8,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.18)',
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
+                shadowColor: '#ff8c00',
+                shadowOpacity: 0.28,
+                shadowRadius: 16,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 5,
               }}
             >
-              <Ionicons name="person-remove-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Ionicons name="sync" size={20} color="#ffffff" style={{ marginRight: 8 }} />
               <Text
                 style={{
                   color: '#ffffff',
-                  fontWeight: '800',
+                  fontWeight: '900',
                   fontSize: 14,
                   textAlign: 'center',
                 }}
               >
-                Me faire remplacer
+                Remplacement
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => onRsvpDecline(m.id)}
+              onPress={() => confirmRsvpDecline(m.id)}
               style={{
                 width: '50%',
-                backgroundColor: '#b91c1c',
+                backgroundColor: 'rgba(185, 28, 28, 0.45)',
                 paddingVertical: 10,
                 paddingHorizontal: 12,
-                borderRadius: 8,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.18)',
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
+                shadowColor: '#b91c1c',
+                shadowOpacity: 0.28,
+                shadowRadius: 16,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 5,
               }}
             >
               <Ionicons name="exit-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
@@ -6683,7 +7314,7 @@ const HourSlotRow = ({ item }) => {
         )}
 
         {/* Ligne 2 : discuter + supprimer */}
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, justifyContent: 'center' }}>
         {isUserInAccepted && (
           <Pressable
             onPress={() => {
@@ -6691,13 +7322,20 @@ const HourSlotRow = ({ item }) => {
             }}
             style={{
                 width: '50%',
-              backgroundColor: '#7c3aed',
+              backgroundColor: 'rgba(124, 58, 237, 0.45)',
               paddingVertical: 10,
               paddingHorizontal: 12,
-              borderRadius: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.18)',
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
+              shadowColor: '#7c3aed',
+              shadowOpacity: 0.28,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 5,
             }}
           >
             <Ionicons name="chatbubble-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
@@ -6733,13 +7371,20 @@ const HourSlotRow = ({ item }) => {
             }}
             style={{
               width: '50%',
-              backgroundColor: '#991b1b',
+              backgroundColor: 'rgba(153, 27, 27, 0.45)',
               paddingVertical: 10,
               paddingHorizontal: 12,
-              borderRadius: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.18)',
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
+              shadowColor: '#991b1b',
+              shadowOpacity: 0.28,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 5,
             }}
           >
             <Ionicons name="trash-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
@@ -6873,19 +7518,19 @@ const HourSlotRow = ({ item }) => {
           <View
             style={{
               marginTop: 8,
-              backgroundColor: '#f3f4f6',
+              backgroundColor: THEME.cardAlt,
               paddingVertical: 12,
               paddingHorizontal: 12,
               borderRadius: 8,
               borderWidth: 1,
-              borderColor: '#e5e7eb',
+              borderColor: THEME.cardBorder,
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-              <Ionicons name="trophy" size={18} color="#10b981" style={{ marginRight: 6 }} />
+              <Ionicons name="trophy" size={18} color={THEME.accent} style={{ marginRight: 6 }} />
               <Text
                 style={{
-                  color: '#374151',
+                  color: THEME.text,
                   fontWeight: '700',
                   fontSize: 14,
                 }}
@@ -7710,7 +8355,7 @@ const HourSlotRow = ({ item }) => {
         </Modal>
 
         {/* Popup de confirmation de remplacement */}
-        <Modal
+          <Modal
           visible={replacementConfirmVisible}
           transparent={true}
           animationType="fade"
@@ -7801,7 +8446,8 @@ const HourSlotRow = ({ item }) => {
               </View>
             </View>
           </View>
-        </Modal>
+          </Modal>
+        </View>
       </View>
     );
   };
@@ -7925,12 +8571,12 @@ const HourSlotRow = ({ item }) => {
     const maybes   = rsvps.filter(r => (r.status || '').toString().toLowerCase() === 'maybe');
     const declined = rsvps.filter(r => (r.status || '').toString().toLowerCase() === 'no');
     const acceptedCount = accepted.length;
-    const pendingBg =
-      acceptedCount >= 4 ? '#dcfce7' :        // 4 confirmés → vert clair
-      acceptedCount === 3 ? '#fef9c3' :       // 3 → jaune clair
-      acceptedCount === 2 ? '#ffedd5' :       // 2 → orange clair
-      acceptedCount === 1 ? '#fee2e2' :       // 1 → rouge clair
-      '#ffffff';                              // 0 → blanc
+    const pendingBorder =
+      acceptedCount >= 4 ? 'rgba(16,185,129,0.4)' :
+      acceptedCount === 3 ? 'rgba(229,255,0,0.35)' :
+      acceptedCount === 2 ? 'rgba(245,158,11,0.25)' :
+      acceptedCount === 1 ? 'rgba(239,68,68,0.25)' :
+      THEME.cardBorder;
 
     // Me + status
     const mine = rsvps.find((r) => String(r.user_id) === String(meId));
@@ -7995,7 +8641,8 @@ const HourSlotRow = ({ item }) => {
     // --- End: inserted availIds/extraProfiles state and effect
 
     return (
-      <View style={[cardStyle, { backgroundColor: pendingBg, borderColor: '#063383' }]}>
+      <View style={styles.matchCardGlow}>
+        <View style={[styles.matchCard, { borderColor: pendingBorder }]}>
         {/* Ligne 1 — Date + heure + icône confirmations */}
         <View
           style={{
@@ -8005,7 +8652,7 @@ const HourSlotRow = ({ item }) => {
             marginBottom: 4,
           }}
         >
-          <Text style={{ fontWeight: '800', color: '#111827', fontSize: 16 }}>
+          <Text style={styles.matchDate}>
             {formatRange(slot.starts_at, slot.ends_at)}
           </Text>
 
@@ -8048,13 +8695,13 @@ const HourSlotRow = ({ item }) => {
           })}
         </View>
         ) : (
-          <Text style={{ color: '#9ca3af', marginBottom: 12 }}>Aucun joueur confirmé pour le moment</Text>
+          <Text style={{ color: THEME.muted, marginBottom: 12 }}>Aucun joueur confirmé pour le moment</Text>
         )}
 
         {/* Ligne 4 — En attente / Remplaçants : une SEULE ligne d'avatars (orange), non cliquables */}
         <View style={{ marginTop: 2, marginBottom: 4, overflow: 'visible' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 0 }}>
-            <Text style={{ fontWeight: '800', color: '#111827' }}>En attente / Remplaçants</Text>
+            <Text style={{ fontWeight: '800', color: THEME.text }}>En attente / Remplaçants</Text>
           </View>
 
           {(() => {
@@ -8065,7 +8712,7 @@ const HourSlotRow = ({ item }) => {
             const combined = [...maybeFromRsvps, ...declinedList];
 
             if (!combined.length) {
-              return <Text style={{ color: '#6b7280' }}>Aucun joueur en attente.</Text>;
+              return <Text style={{ color: THEME.muted }}>Aucun joueur en attente.</Text>;
             }
 
             return (
@@ -8135,19 +8782,24 @@ const HourSlotRow = ({ item }) => {
             <View style={{ gap: 8 }}>
               {/* Me désister (rouge clair) */}
               <Pressable
-                onPress={press('Me désister', () => onRsvpDecline(m.id))}
+                onPress={press('Me désister', () => confirmRsvpDecline(m.id))}
                 accessibilityRole="button"
                 accessibilityLabel="Me désister du match"
                 style={({ pressed }) => [
                   {
                     flex: 1,
                     alignSelf: 'stretch',
-                    backgroundColor: '#fecaca',
-                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(254, 202, 202, 0.45)',
+                    borderColor: 'rgba(239, 68, 68, 0.45)',
                     borderWidth: 1,
                     paddingVertical: 10,
-                    paddingHorizontal: 14,
-                    borderRadius: 8,
+                    paddingHorizontal: 16,
+                    borderRadius: 999,
+                    shadowColor: '#ef4444',
+                    shadowOpacity: 0.28,
+                    shadowRadius: 16,
+                    shadowOffset: { width: 0, height: 2 },
+                    elevation: 5,
                   },
                   Platform.OS === 'web' ? { cursor: 'pointer' } : null,
                   pressed ? { opacity: 0.9 } : null,
@@ -8185,10 +8837,15 @@ const HourSlotRow = ({ item }) => {
                     {
                       flex: 1,
                       alignSelf: 'stretch',
-                      backgroundColor: '#b91c1c',
-                      paddingVertical: 10,
-                      paddingHorizontal: 14,
-                      borderRadius: 8,
+                    backgroundColor: 'rgba(185, 28, 28, 0.45)',
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 999,
+                    shadowColor: '#b91c1c',
+                    shadowOpacity: 0.28,
+                    shadowRadius: 16,
+                    shadowOffset: { width: 0, height: 2 },
+                    elevation: 5,
                     },
                     Platform.OS === 'web' ? { cursor: 'pointer' } : null,
                     pressed ? { opacity: 0.9 } : null,
@@ -8204,6 +8861,7 @@ const HourSlotRow = ({ item }) => {
           </View>
         ) : null}
         </>
+        </View>
       </View>
     );
   };
@@ -8220,54 +8878,52 @@ const HourSlotRow = ({ item }) => {
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: 'rgba(0, 24, 49, 0.7)',
+              backgroundColor: 'rgba(6, 26, 43, 0.72)',
               zIndex: 9999,
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: 12,
             }}
           >
-            <ActivityIndicator size="large" color="#e0ff00" />
-            <Text style={{ color: '#e0ff00', marginTop: 12, fontWeight: '700' }}>
+            <ActivityIndicator size="large" color={THEME.accent} />
+            <Text style={{ color: THEME.accent, marginTop: 12, fontWeight: '700' }}>
               Chargement de la semaine...
             </Text>
           </View>
         )}
         {/* Sélecteur 1h / 1h30 */}
-        <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10 }}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={styles.segmentWrap}>
+          <View style={styles.segment}>
             <Pressable
-              onPress={() => setMode('long')}
-              style={{
-                flex: 1,
-                backgroundColor: mode === 'long' ? '#FF751F' : '#aaaaaa',
-                paddingVertical: 12,
-                paddingHorizontal: 12,
-                borderRadius: 8,
-                alignItems: 'center',
-                borderWidth: mode === 'long' ? 2 : 0,
-                borderColor: mode === 'long' ? '#ffffff' : 'transparent',
-              }}
+              onPress={() => setMode('hour')}
+              style={[
+                styles.segmentBtn,
+                mode === 'hour' && styles.segmentBtnActiveProposes,
+              ]}
             >
-              <Text style={{ color: mode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-                1H30 ({(renderLongSections || []).reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})
+              <Text
+                style={[
+                  styles.segmentText,
+                  mode === 'hour' && styles.segmentTextActive,
+                ]}
+              >
+                {`1h (${(renderHourReady || []).length || 0})`}
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => setMode('hour')}
-              style={{
-                flex: 1,
-                backgroundColor: mode === 'hour' ? '#FF751F' : '#aaaaaa',
-                paddingVertical: 12,
-                paddingHorizontal: 12,
-                borderRadius: 8,
-                alignItems: 'center',
-                borderWidth: mode === 'hour' ? 2 : 0,
-                borderColor: mode === 'hour' ? '#ffffff' : 'transparent',
-              }}
+              onPress={() => setMode('long')}
+              style={[
+                styles.segmentBtn,
+                mode === 'long' && styles.segmentBtnActiveProposes,
+              ]}
             >
-              <Text style={{ color: mode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-                1H ({(renderHourReady || []).length || 0})
+              <Text
+                style={[
+                  styles.segmentText,
+                  mode === 'long' && styles.segmentTextActive,
+                ]}
+              >
+                {`1h30 (${(renderLongSections || []).reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})`}
               </Text>
             </Pressable>
           </View>
@@ -8276,7 +8932,7 @@ const HourSlotRow = ({ item }) => {
         {mode === 'long' ? (
           <>
             {(renderLongSections || []).length === 0 ? (
-              <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
+              <Text style={{ color: THEME.muted, marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
             ) : (
               <SectionList
                 key={`long-list-${listKeySeed}-${(renderLongSections || []).length}-${(renderLongSections || []).map((s) => s.data?.length || 0).join(',')}`}
@@ -8301,7 +8957,7 @@ const HourSlotRow = ({ item }) => {
         ) : (
           <>
             {(renderHourReady || []).length === 0 ? (
-              <Text style={{ color: '#6b7280', marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
+              <Text style={{ color: THEME.muted, marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
             ) : (
               <FlatList
                 key={`hour-list-${listKeySeed}-${(renderHourReady || []).length}-${(renderHourReady || []).map((x) => x.time_slot_id).slice(0, 3).join(',')}`}
@@ -8347,13 +9003,100 @@ const HourSlotRow = ({ item }) => {
   }
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: '#001831', overflow: 'visible' }}>
+    <View style={styles.screen}>
       {networkNotice && (
-        <View style={{ backgroundColor: '#f59e0b', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, marginBottom: 8 }}>
-          <Text style={{ color: '#111827', fontWeight: '800', textAlign: 'center' }}>{networkNotice}</Text>
+        <View style={styles.networkNotice}>
+          <Text style={styles.networkNoticeText}>{networkNotice}</Text>
         </View>
       )}
 
+      <View style={styles.header}>
+        <View />
+      </View>
+
+      <View
+        style={styles.segmentWrapFloating}
+        onLayout={(event) => {
+          const h = Math.max(0, event?.nativeEvent?.layout?.height || 0);
+          setMatchTabsHeight((prev) => (Math.abs(prev - h) > 1 ? h : prev));
+        }}
+      >
+        <View style={styles.segment}>
+          <Pressable
+            onPress={() => setTab('proposes')}
+            style={[
+              styles.segmentBtn,
+              tab === 'proposes' && styles.segmentBtnActiveProposes,
+            ]}
+          >
+            <View style={styles.segmentContent}>
+              <Text
+                style={[
+                  styles.segmentCount,
+                  tab === 'proposes' && styles.segmentCountActive,
+                ]}
+              >
+                {proposedTabCountDisplay}
+              </Text>
+              <View style={styles.segmentLabelStack}>
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    tab === 'proposes' && styles.segmentLabelActive,
+                  ]}
+                >
+                  <Text style={styles.segmentLabelStrong}>matchs</Text>
+                </Text>
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    tab === 'proposes' && styles.segmentLabelActive,
+                  ]}
+                >
+                  possibles
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+          <Pressable
+            onPress={() => setTab('valides')}
+            style={[
+              styles.segmentBtn,
+              tab === 'valides' && styles.segmentBtnActive,
+            ]}
+          >
+            <View style={styles.segmentContent}>
+              <Text
+                style={[
+                  styles.segmentCount,
+                  tab === 'valides' && styles.segmentCountActive,
+                ]}
+              >
+                {confirmedTabCount}
+              </Text>
+              <View style={styles.segmentLabelStack}>
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    tab === 'valides' && styles.segmentLabelActive,
+                  ]}
+                >
+                  <Text style={styles.segmentLabelStrong}>matchs</Text>
+                </Text>
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    tab === 'valides' && styles.segmentLabelActive,
+                  ]}
+                >
+                  validés
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        </View>
+      </View>
+      <View style={{ height: matchTabsHeight + 8 }} />
       
       {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
       {tab === 'proposes' && (
@@ -8361,22 +9104,8 @@ const HourSlotRow = ({ item }) => {
           {/* Icônes filtres pour afficher/masquer les configurations - Positionnées en bas, au-dessus du sélecteur de semaine */}
           <View
             onLayout={updateMeasuredHeight(setFilterBarMeasuredHeight, FILTER_BAR_HEIGHT)}
-            style={{ 
-              position: 'absolute',
-              bottom: filterButtonsBottom,
-              left: 16,
-              right: 16,
-              flexDirection: 'row', 
-              flexWrap: 'nowrap',
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              gap: 2,
-              paddingVertical: 0,
-              paddingHorizontal: 4,
-              backgroundColor: '#001831',
-              zIndex: 1000,
-              elevation: 10,
-            }}>
+            style={[styles.filtersBar, { bottom: filterButtonsBottom }]}
+          >
             <Pressable
               onPress={() => {
                 if (!filterConfigVisible) {
@@ -8388,11 +9117,18 @@ const HourSlotRow = ({ item }) => {
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingVertical: 4,
-                paddingHorizontal: 12,
-                paddingRight: 4,
-                borderRadius: 8,
-                backgroundColor: 'transparent',
+                justifyContent: 'center',
+                paddingVertical: 3,
+                paddingHorizontal: 8,
+                borderRadius: 999,
+                backgroundColor: 'rgba(255,255,255,0.16)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.22)',
+                shadowColor: '#000000',
+                shadowOpacity: 0.25,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 3,
                 gap: 8,
               }}
             >
@@ -8401,14 +9137,17 @@ const HourSlotRow = ({ item }) => {
                 style={{
                   width: 20,
                   height: 20,
-                  tintColor: filterByLevel ? '#15803d' : '#9ca3af',
+                  tintColor: filterByLevel ? THEME.accent : THEME.muted,
                 }}
                 resizeMode="contain"
               />
               <Text style={{ 
-                color: filterByLevel ? '#15803d' : '#9ca3af', 
+                color: filterByLevel ? THEME.accent : THEME.muted, 
                 fontWeight: '700', 
-                fontSize: 12 
+                fontSize: 12,
+                textShadowColor: 'rgba(0,0,0,0.6)',
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 2,
               }}>
                 {filterByLevel ? `Filtre actif (${filterLevels.length})` : 'Filtre niveau'}
               </Text>
@@ -8421,11 +9160,18 @@ const HourSlotRow = ({ item }) => {
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  paddingVertical: 4,
-                  paddingHorizontal: 8,
-                  paddingLeft: 4,
-                  borderRadius: 8,
-                  backgroundColor: 'transparent',
+                justifyContent: 'center',
+                paddingVertical: 3,
+                paddingHorizontal: 6,
+                borderRadius: 999,
+                backgroundColor: 'rgba(255,255,255,0.16)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.22)',
+                shadowColor: '#000000',
+                shadowOpacity: 0.25,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 3,
                   gap: 6,
                   flexShrink: 0,
                 }}
@@ -8436,6 +9182,9 @@ const HourSlotRow = ({ item }) => {
                   fontWeight: '700', 
                   fontSize: 12,
                   flexShrink: 0,
+                  textShadowColor: 'rgba(0,0,0,0.6)',
+                  textShadowOffset: { width: 0, height: 1 },
+                  textShadowRadius: 2,
                 }}>
                   {hotMatches.length}
                 </Text>
@@ -8453,25 +9202,35 @@ const HourSlotRow = ({ item }) => {
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingVertical: 4,
-                paddingHorizontal: 12,
-                paddingLeft: 4,
-                borderRadius: 8,
-                backgroundColor: 'transparent',
+                justifyContent: 'center',
+                paddingVertical: 3,
+                paddingHorizontal: 8,
+                borderRadius: 999,
+                backgroundColor: 'rgba(255,255,255,0.16)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.22)',
+                shadowColor: '#000000',
+                shadowOpacity: 0.25,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 3,
                 gap: 8,
               }}
             >
               <Text style={{ 
-                color: filterByGeo ? '#15803d' : '#9ca3af', 
+                color: filterByGeo ? THEME.accent : THEME.muted, 
                 fontWeight: '700', 
-                fontSize: 12 
+                fontSize: 12,
+                textShadowColor: 'rgba(0,0,0,0.6)',
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 2,
               }}>
                 {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
               </Text>
               <Ionicons 
                 name="location" 
                 size={20} 
-                color={filterByGeo ? '#15803d' : '#9ca3af'}
+                color={filterByGeo ? THEME.accent : THEME.muted}
               />
             </Pressable>
           </View>
@@ -8483,16 +9242,16 @@ const HourSlotRow = ({ item }) => {
               bottom: filterConfigBottom,
               left: 16,
               right: 16,
-              backgroundColor: '#f3f4f6', 
+              backgroundColor: THEME.card, 
               borderRadius: 12, 
               padding: 12,
               borderWidth: 1,
-              borderColor: filterByLevel ? '#15803d' : '#d1d5db',
+              borderColor: filterByLevel ? THEME.accent : THEME.cardBorder,
               zIndex: 1002,
               elevation: 11,
               maxHeight: 300,
             }}>
-              <Text style={{ fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.text, marginBottom: 12 }}>
                 Sélectionnez les niveaux à afficher
               </Text>
               
@@ -8516,9 +9275,9 @@ const HourSlotRow = ({ item }) => {
                         paddingVertical: 4.5,
                         paddingHorizontal: 11,
                         borderRadius: 999,
-                        backgroundColor: isSelected ? lv.color : '#ffffff',
+                        backgroundColor: isSelected ? lv.color : 'rgba(255,255,255,0.06)',
                         borderWidth: isSelected ? 2 : 1,
-                        borderColor: isSelected ? lv.color : '#d1d5db',
+                        borderColor: isSelected ? lv.color : THEME.cardBorder,
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
@@ -8526,7 +9285,7 @@ const HourSlotRow = ({ item }) => {
                       <Text style={{ 
                         fontSize: 13, 
                         fontWeight: isSelected ? '900' : '800', 
-                        color: '#111827' 
+                        color: THEME.text 
                       }}>
                         {lv.v}
                       </Text>
@@ -8536,7 +9295,7 @@ const HourSlotRow = ({ item }) => {
               </View>
               
               {filterByLevel && (
-                <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: '500', color: THEME.accent, marginTop: 8 }}>
                   ✓ Filtre actif : niveaux ciblés {filterLevels.slice().sort((a, b) => a - b).join(', ')}
                 </Text>
               )}
@@ -8550,18 +9309,18 @@ const HourSlotRow = ({ item }) => {
               bottom: filterConfigBottom,
               left: 16,
               right: 16,
-              backgroundColor: '#f3f4f6', 
+              backgroundColor: THEME.card, 
               borderRadius: 12, 
               padding: 12,
               borderWidth: 1,
-              borderColor: filterByGeo ? '#15803d' : '#d1d5db',
+              borderColor: filterByGeo ? THEME.accent : THEME.cardBorder,
               zIndex: 1002,
               elevation: 11,
               maxHeight: 400,
             }}>
               {/* Sélection du type de position */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.text, marginBottom: 8 }}>
                   Position de référence
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -8596,15 +9355,15 @@ const HourSlotRow = ({ item }) => {
                           paddingVertical: 8,
                           paddingHorizontal: 12,
                           borderRadius: 8,
-                          backgroundColor: (isSelected && filterByGeo) ? '#15803d' : '#ffffff',
+                          backgroundColor: (isSelected && filterByGeo) ? THEME.accent : 'rgba(255,255,255,0.06)',
                           borderWidth: 1,
-                          borderColor: (isSelected && filterByGeo) ? '#15803d' : '#d1d5db',
+                          borderColor: (isSelected && filterByGeo) ? THEME.accent : THEME.cardBorder,
                         }}
                       >
                         <Text style={{ 
                           fontSize: 14, 
                           fontWeight: (isSelected && filterByGeo) ? '800' : '700', 
-                          color: (isSelected && filterByGeo) ? '#ffffff' : '#111827' 
+                          color: (isSelected && filterByGeo) ? THEME.ink : THEME.text 
                         }}>
                           {label}
                         </Text>
@@ -8628,16 +9387,17 @@ const HourSlotRow = ({ item }) => {
                       searchFilterGeoCity(text);
                     }}
                     style={{
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'rgba(255,255,255,0.06)',
                       borderRadius: 8,
                       padding: 12,
                       borderWidth: 1,
-                      borderColor: '#d1d5db',
+                      borderColor: THEME.cardBorder,
                       fontSize: 14,
+                      color: THEME.text,
                     }}
                   />
                   {filterGeoCitySuggestions.length > 0 && (
-                    <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db' }}>
+                    <View style={{ marginTop: 8, backgroundColor: THEME.cardAlt, borderRadius: 8, borderWidth: 1, borderColor: THEME.cardBorder }}>
                       {filterGeoCitySuggestions.map((suggestion, idx) => (
                         <Pressable
                           key={idx}
@@ -8649,10 +9409,10 @@ const HourSlotRow = ({ item }) => {
                           style={{
                             padding: 12,
                             borderBottomWidth: idx < filterGeoCitySuggestions.length - 1 ? 1 : 0,
-                            borderBottomColor: '#e5e7eb',
+                            borderBottomColor: THEME.cardBorder,
                           }}
                         >
-                          <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                          <Text style={{ fontSize: 14, color: THEME.text }}>{suggestion.name}</Text>
                         </Pressable>
                       ))}
                     </View>
@@ -8662,7 +9422,7 @@ const HourSlotRow = ({ item }) => {
               
               {/* Sélection du rayon */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.text, marginBottom: 8 }}>
                   Rayon : {filterGeoRadiusKm ? `${filterGeoRadiusKm} km` : 'non sélectionné'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
@@ -8685,9 +9445,9 @@ const HourSlotRow = ({ item }) => {
                           paddingVertical: 6,
                           paddingHorizontal: 8,
                           borderRadius: 8,
-                          backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                          backgroundColor: isSelected ? THEME.accent : 'rgba(255,255,255,0.06)',
                           borderWidth: 1,
-                          borderColor: isSelected ? '#15803d' : '#d1d5db',
+                          borderColor: isSelected ? THEME.accent : THEME.cardBorder,
                           alignItems: 'center',
                           justifyContent: 'center',
                         }}
@@ -8695,7 +9455,7 @@ const HourSlotRow = ({ item }) => {
                         <Text style={{ 
                           fontSize: 12, 
                           fontWeight: isSelected ? '800' : '700', 
-                          color: isSelected ? '#ffffff' : '#111827' 
+                          color: isSelected ? THEME.ink : THEME.text 
                         }}>
                           {km} km
                         </Text>
@@ -8709,106 +9469,6 @@ const HourSlotRow = ({ item }) => {
         </>
       )}
       
-{/* Sélecteur en 3 boutons (zone fond bleu) + sous-ligne 1h30/1h quand "proposés" */}
-<View style={[
-  { backgroundColor: '#001831', borderRadius: 12, padding: 10, marginBottom: 0, zIndex: 1002, elevation: 12 },
-  Platform.OS === 'android' && { marginTop: dynamicHeaderSpacing - 4 },
-  Platform.OS !== 'android' && { marginTop: -12 }
-]}>
-  {/* 3 — Matchs (zone liste/onglets) */}
-  <Step order={3} name="matchs" text="En appuyant ici, retrouve les matchs possibles selon les dispos du groupe.">
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-{/* Matchs possibles */}
-  <Pressable
-    onPress={() => {
-      console.log('[Matches] Button pressed: proposes');
-      console.log('[Matches] longReady:', longReady?.length, 'hourReady:', hourReady?.length);
-      console.log('[Matches] longReadyWeek:', longReadyWeek?.length, 'hourReadyWeek:', hourReadyWeek?.length);
-      setTab('proposes');
-    }}
-    accessibilityRole="button"
-    accessibilityLabel="Voir les matchs possibles"
-    style={({ pressed }) => [
-      {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 6,
-        borderRadius: 12,
-        backgroundColor: tab === 'proposes' ? '#FF751F' : '#ffffff',
-        borderWidth: (tab === 'proposes' || pressed) ? 2 : 0,
-        borderColor: (tab === 'proposes' || pressed) ? '#ffffff' : 'transparent',
-      },
-      Platform.OS === 'web' ? { cursor: 'pointer' } : null,
-      pressed ? { opacity: 0.92 } : null,
-    ]}
-  >
-    {({ pressed }) => (
-      <>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ fontSize: 18 }}>{'🤝'}</Text>
-          <Text style={{ fontSize: 50, fontWeight: '900', color: tab === 'proposes' ? '#ffffff' : '#001831', lineHeight: 52 }}>
-            {proposedTabCountDisplay}
-          </Text>
-          <Text style={{ fontSize: 18 }}>{'🤝'}</Text>
-        </View>
-        <View style={{ marginTop: -6, alignItems: 'center' }}>
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: '900',
-              color: tab === 'proposes' ? '#ffffff' : '#001831',
-              textAlign: 'center',
-            }}
-          >
-            {`${matchWord(proposedTabCountDisplay)} ${possibleWord(proposedTabCountDisplay)}`}
-          </Text>
-        </View>
-      </>
-    )}
-    </Pressable>
-
-    {/* Matchs validés */}
-    <Pressable
-      onPress={() => setTab('valides')}
-      accessibilityRole="button"
-      accessibilityLabel="Voir les matchs validés"
-      style={({ pressed }) => [
-        {
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: 6,
-          borderRadius: 12,
-          backgroundColor: tab === 'valides' ? '#FF751F' : '#ffffff',
-          borderWidth: (tab === 'valides' || pressed) ? 2 : 0,
-          borderColor: (tab === 'valides' || pressed) ? '#ffffff' : 'transparent',
-        },
-        Platform.OS === 'web' ? { cursor: 'pointer' } : null,
-        pressed ? { opacity: 0.92 } : null,
-      ]}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Text style={{ fontSize: 18 }}>{'🎾'}</Text>
-        <Text style={{ fontSize: 50, fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', lineHeight: 52 }}>
-          {confirmedTabCount}
-        </Text>
-        <Text style={{ fontSize: 18 }}>{'🎾'}</Text>
-      </View>
-      <View style={{ marginTop: -6, alignItems: 'center' }}>
-        <Text style={{ fontSize: 12, fontWeight: '900', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center' }}>
-          {`${matchWord(confirmedTabCount)} ${valideWord(confirmedTabCount)}`}
-        </Text>
-        {confirmedWithoutReservationCount > 0 && (
-          <Text style={{ fontSize: 10, fontWeight: '600', color: tab === 'valides' ? '#ffffff' : '#001831', textAlign: 'center', marginTop: 2 }}>
-            {`${confirmedWithoutReservationCount} sans résa`}
-          </Text>
-        )}
-      </View>
-    </Pressable>
-    </View>
-  </Step>
-  </View>
 
   {tab === 'proposes' &&
     (matchCreatedUndoVisible && proposesTabSnapshotRef.current
@@ -8820,40 +9480,38 @@ const HourSlotRow = ({ item }) => {
       {tab === 'valides' && (
         <>
           {/* Sélecteur 1h / 1h30 pour Validés */}
-          <View style={{ marginBottom: 12, marginTop: -8, backgroundColor: '#001831', borderRadius: 12, padding: 10, zIndex: 998, elevation: 8 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={styles.segmentWrap}>
+            <View style={styles.segment}>
               <Pressable
-                onPress={() => setConfirmedMode('long')}
-                style={{
-                  flex: 1,
-                  backgroundColor: confirmedMode === 'long' ? '#FF751F' : '#aaaaaa',
-                  paddingVertical: 12,
-                  paddingHorizontal: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  borderWidth: confirmedMode === 'long' ? 2 : 0,
-                  borderColor: confirmedMode === 'long' ? '#ffffff' : 'transparent',
-                }}
+                onPress={() => setConfirmedMode('hour')}
+                style={[
+                  styles.segmentBtn,
+                  confirmedMode === 'hour' && styles.segmentBtnActive,
+                ]}
               >
-                <Text style={{ color: confirmedMode === 'long' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-                  1H30 ({confirmedLongWeek?.length || 0})
+                <Text
+                  style={[
+                    styles.segmentText,
+                    confirmedMode === 'hour' && styles.segmentTextActive,
+                  ]}
+                >
+                  {`1h (${confirmedHourWeek?.length || 0})`}
                 </Text>
               </Pressable>
               <Pressable
-                onPress={() => setConfirmedMode('hour')}
-                style={{
-                  flex: 1,
-                  backgroundColor: confirmedMode === 'hour' ? '#FF751F' : '#aaaaaa',
-                  paddingVertical: 12,
-                  paddingHorizontal: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  borderWidth: confirmedMode === 'hour' ? 2 : 0,
-                  borderColor: confirmedMode === 'hour' ? '#ffffff' : 'transparent',
-                }}
+                onPress={() => setConfirmedMode('long')}
+                style={[
+                  styles.segmentBtn,
+                  confirmedMode === 'long' && styles.segmentBtnActive,
+                ]}
               >
-                <Text style={{ color: confirmedMode === 'hour' ? '#ffffff' : '#001831', fontWeight: '800', fontSize: 16 }}>
-                  1H ({confirmedHourWeek?.length || 0})
+                <Text
+                  style={[
+                    styles.segmentText,
+                    confirmedMode === 'long' && styles.segmentTextActive,
+                  ]}
+                >
+                  {`1h30 (${confirmedLongWeek?.length || 0})`}
                 </Text>
               </Pressable>
             </View>
@@ -8861,7 +9519,7 @@ const HourSlotRow = ({ item }) => {
 
           {confirmedMode === 'long' ? (
             confirmedLong.length === 0 ? (
-              <Text style={{ color: '#6b7280' }}>Aucun match 1h30 confirmé.</Text>
+              <Text style={{ color: THEME.muted }}>Aucun match 1h30 confirmé.</Text>
             ) : (
               <FlatList
           data={confirmedLong.filter(m => {
@@ -9195,7 +9853,7 @@ const HourSlotRow = ({ item }) => {
             )
           ) : (
             confirmedHour.length === 0 ? (
-              <Text style={{ color: '#6b7280' }}>Aucun match 1h confirmé.</Text>
+              <Text style={{ color: THEME.muted }}>Aucun match 1h confirmé.</Text>
             ) : (
               <FlatList
           data={confirmedHour.filter(m => {
@@ -9558,28 +10216,25 @@ const HourSlotRow = ({ item }) => {
         <View style={{ position: 'absolute', bottom: (tabBarHeight || 0) + 140, right: 13, width: 48, height: 48 }} />
       </Step>
       {/* Bouton flottant match éclair - toujours visible sur tous les onglets */}
-      <Pressable
-        onPress={() => openFlashMatchDateModal()}
-        style={{
-          position: 'absolute',
-          bottom: (tabBarHeight || 0) + 140,
-          right: 13,
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          backgroundColor: '#e0ff00',
-          alignItems: 'center',
-          justifyContent: 'center',
-          elevation: 8,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 4,
-          zIndex: 1000,
-        }}
+      <Animated.View
+        style={[
+          styles.fabWrap,
+          { bottom: (tabBarHeight || 0) + 140 },
+          { transform: [{ scale: fabScale }] },
+        ]}
       >
-        <Ionicons name="flash" size={24} color="#000000" />
-      </Pressable>
+        <Pressable
+          onPressIn={() => Animated.spring(fabScale, { toValue: 0.96, useNativeDriver: true }).start()}
+          onPressOut={() => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true }).start()}
+          onPress={() => {
+            Vibration.vibrate(10);
+            openFlashMatchDateModal();
+          }}
+          style={styles.fabButton}
+        >
+          <Ionicons name="flash" size={22} color={THEME.ink} />
+        </Pressable>
+      </Animated.View>
 
       {/* Modale de choix date/heure/durée */}
       <Modal
@@ -11986,7 +12641,7 @@ const HourSlotRow = ({ item }) => {
             
             {hotMatches.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 16 }}>
+                <Text style={{ color: THEME.muted, textAlign: 'center', fontSize: 16 }}>
                   Aucun match en feu pour le moment.
                 </Text>
                 <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 14, marginTop: 8 }}>
@@ -12169,7 +12824,7 @@ const HourSlotRow = ({ item }) => {
                           }}
                           style={({ pressed }) => [
                             {
-                              backgroundColor: groupId ? '#ff751f' : '#9ca3af',
+                              backgroundColor: groupId ? THEME.accent : '#9ca3af',
                             paddingVertical: 10,
                             paddingHorizontal: 12,
                             borderRadius: 8,
@@ -13464,81 +14119,41 @@ const HourSlotRow = ({ item }) => {
       </Modal>
 
       {/* Popup "Match créé" avec annulation */}
-      <Modal
+      <MatchCreatedUndoModal
         visible={matchCreatedUndoVisible}
-        transparent
-        animationType="fade"
+        endAtRef={matchCreatedUndoEndRef}
         onRequestClose={() => {
           matchCreatedUndoOnExpireRef.current = null;
           matchCreatedUndoOnConfirmRef.current = null;
           clearMatchCreatedUndoState();
           setMatchCreatedUndoVisible(false);
         }}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '90%', maxWidth: 420, backgroundColor: '#ffffff', borderRadius: 16, padding: 20 }}>
-            <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240', marginBottom: 8 }}>
-              Match créé 🎾
-            </Text>
-            <Text style={{ color: '#6b7280', marginBottom: 16 }}>
-              Annulation possible pendant {matchCreatedUndoSeconds}s
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Pressable
-                onPress={() => {
-                  const cb = matchCreatedUndoOnConfirmRef.current;
-                  matchCreatedUndoOnExpireRef.current = null;
-                  matchCreatedUndoOnConfirmRef.current = null;
-                  clearMatchCreatedUndoState();
-                  setMatchCreatedUndoVisible(false);
-                  cb && cb();
-                }}
-                style={{
-                  width: '50%',
-                  backgroundColor: '#10b981',
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  borderRadius: 10,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Ionicons name="checkmark-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
-                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
-                  Confirmer
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  if (matchCreatedUndoMatchId) {
-                    onCancelMatch(matchCreatedUndoMatchId);
-                  }
-                  matchCreatedUndoOnExpireRef.current = null;
-                  matchCreatedUndoOnConfirmRef.current = null;
-                  clearMatchCreatedUndoState();
-                  setMatchCreatedUndoVisible(false);
-                }}
-                style={{
-                  width: '50%',
-                  backgroundColor: '#b91c1c',
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  borderRadius: 10,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Ionicons name="close-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
-                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
-                  Annuler ({matchCreatedUndoSeconds}s)
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onExpire={() => {
+          const cb = matchCreatedUndoOnExpireRef.current;
+          matchCreatedUndoOnExpireRef.current = null;
+          matchCreatedUndoOnConfirmRef.current = null;
+          clearMatchCreatedUndoState();
+          setMatchCreatedUndoVisible(false);
+          cb && cb();
+        }}
+        onConfirm={() => {
+          const cb = matchCreatedUndoOnConfirmRef.current;
+          matchCreatedUndoOnExpireRef.current = null;
+          matchCreatedUndoOnConfirmRef.current = null;
+          clearMatchCreatedUndoState();
+          setMatchCreatedUndoVisible(false);
+          cb && cb();
+        }}
+        onCancel={() => {
+          if (matchCreatedUndoMatchId) {
+            onCancelMatch(matchCreatedUndoMatchId);
+          }
+          matchCreatedUndoOnExpireRef.current = null;
+          matchCreatedUndoOnConfirmRef.current = null;
+          clearMatchCreatedUndoState();
+          setMatchCreatedUndoVisible(false);
+        }}
+      />
 
       {/* Modale de contacts du joueur */}
       <Modal visible={playerContactsModalVisible} transparent animationType="fade" onRequestClose={() => setPlayerContactsModalVisible(false)}>
@@ -13677,6 +14292,123 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
+      {/* Modal de clubs (fallback si aucun téléphone de groupe) */}
+      <Modal
+        visible={clubFallbackModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClubFallbackModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 520, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Appeler un club</Text>
+              <Pressable onPress={() => setClubFallbackModalOpen(false)} style={{ padding: 8 }}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </Pressable>
+            </View>
+
+            {clubFallbackLoading ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#156bc9" />
+                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des clubs...</Text>
+              </View>
+            ) : (
+              <>
+                <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+                  <TextInput
+                    placeholder="Rechercher un club (nom, adresse, téléphone)"
+                    placeholderTextColor="#9ca3af"
+                    value={clubFallbackSearchQuery}
+                    onChangeText={setClubFallbackSearchQuery}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      borderWidth: 1,
+                      borderColor: '#e5e7eb',
+                      borderRadius: 10,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      color: '#111827',
+                      marginBottom: 8
+                    }}
+                    returnKeyType="search"
+                  />
+                </View>
+
+                {visibleClubFallbacks.length === 0 ? (
+                  <View style={{ padding: 20 }}>
+                    <Text style={{ color: '#6b7280', textAlign: 'center', marginBottom: 8 }}>
+                      {clubFallbackSearchQuery ? 'Aucun club ne correspond à votre recherche.' : clubFallbacks.length === 0 ? 'Aucun club chargé.' : 'Aucun club affiché.'}
+                    </Text>
+                    {clubFallbackSearchQuery && clubFallbacks.length > 0 && (
+                      <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 11 }}>
+                        Total: {clubFallbacks.length} club(s) chargé(s)
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <ScrollView style={{ maxHeight: 420 }}>
+                    {visibleClubFallbacks.map((club) => {
+                      const hasPhone = !!club.phoneNumber;
+                      return (
+                        <Pressable
+                          key={club.id}
+                          onPress={() => {
+                            if (hasPhone) {
+                              Linking.openURL(`tel:${club.phoneNumber}`);
+                              setClubFallbackModalOpen(false);
+                            } else {
+                              Alert.alert('Information', `Le club "${club.name}" n'a pas de numéro de téléphone renseigné.`);
+                            }
+                          }}
+                          disabled={!hasPhone}
+                          style={({ pressed }) => ({
+                            paddingVertical: 12,
+                            paddingHorizontal: 12,
+                            borderRadius: 10,
+                            backgroundColor: pressed && hasPhone ? '#f3f4f6' : '#ffffff',
+                            borderWidth: 1,
+                            borderColor: hasPhone ? '#e5e7eb' : '#f3f4f6',
+                            marginBottom: 8,
+                            opacity: hasPhone ? 1 : 0.6,
+                          })}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <View style={{ flex: 1, paddingRight: 8 }}>
+                              <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
+                                {club.name}
+                              </Text>
+                              {club.address && (
+                                <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                                  {club.address}
+                                </Text>
+                              )}
+                              <Text style={{ fontSize: 12, color: hasPhone ? '#111827' : '#9ca3af', fontWeight: hasPhone ? '700' : '400' }}>
+                                {hasPhone ? club.phoneNumber : 'Pas de téléphone'}
+                              </Text>
+                              {club.distanceKm !== Infinity && typeof club.distanceKm === 'number' && (
+                                <Text style={{ fontSize: 12, color: '#156bc9', fontWeight: '700', marginTop: 2 }}>
+                                  📍 {club.distanceKm.toFixed(1)} km
+                                </Text>
+                              )}
+                            </View>
+                            {hasPhone ? (
+                              <Ionicons name="call" size={22} color="#15803d" />
+                            ) : (
+                              <Ionicons name="call-outline" size={22} color="#9ca3af" />
+                            )}
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Week navigator - Positionné en bas */}
       <View
         onLayout={updateMeasuredHeight(setWeekBarMeasuredHeight, WEEK_BAR_HEIGHT)}
@@ -13691,7 +14423,7 @@ const HourSlotRow = ({ item }) => {
           gap: 4,
           paddingVertical: 0,
           paddingHorizontal: 6,
-          backgroundColor: '#001831',
+          backgroundColor: 'transparent',
           zIndex: 999,
           elevation: 9,
           marginBottom: 0,
@@ -13707,9 +14439,34 @@ const HourSlotRow = ({ item }) => {
           <Ionicons name="caret-back" size={32} color={COLORS.primary} />
         </Pressable>
 
-        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
-          {formatWeekRangeLabel(currentWs, currentWe)}
-        </Text>
+        <View
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 4,
+            borderRadius: 999,
+            width: 280,
+            alignItems: 'center',
+            backgroundColor: 'rgba(255,255,255,0.16)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.22)',
+            shadowColor: '#000000',
+            shadowOpacity: 0.25,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 3,
+          }}
+        >
+          <Text style={{ 
+            fontWeight: '800', 
+            fontSize: 15, 
+            color: THEME.text,
+            textShadowColor: 'rgba(0,0,0,0.6)',
+            textShadowOffset: { width: 0, height: 1 },
+            textShadowRadius: 2,
+          }}>
+            {formatWeekRangeLabel(currentWs, currentWe)}
+          </Text>
+        </View>
 
         <Pressable
           onPress={() => setWeekOffset((x) => x + 1)}
@@ -13733,7 +14490,7 @@ const HourSlotRow = ({ item }) => {
           paddingTop: 4,
           paddingBottom: safeBottomInset > 0 ? safeBottomInset : 0,
           paddingHorizontal: 6,
-          backgroundColor: '#001831',
+          backgroundColor: 'transparent',
           zIndex: 998,
           elevation: 8,
           marginTop: 0,
@@ -13751,16 +14508,21 @@ const HourSlotRow = ({ item }) => {
           <Pressable
             onPress={() => setGroupSelectorOpen(true)}
             style={{
-              flexBasis: '50%',
-              minWidth: 120,
+              width: 280,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              paddingVertical: 2,
-              paddingHorizontal: 4,
-              borderRadius: 10,
-              borderWidth: 0,
-              backgroundColor: '#001831',
+              paddingVertical: 4,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.22)',
+              backgroundColor: 'rgba(255,255,255,0.16)',
+              shadowColor: '#000000',
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
               ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
             }}
           >
@@ -13768,11 +14530,22 @@ const HourSlotRow = ({ item }) => {
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              style={{ fontWeight: '700', color: '#e0ff00', fontSize: 14, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false, maxWidth: 180 }}
+              style={{ 
+                fontWeight: '700', 
+                color: THEME.accent, 
+                fontSize: 14, 
+                textAlign: 'center', 
+                textAlignVertical: 'center', 
+                includeFontPadding: false, 
+                maxWidth: 260,
+                textShadowColor: 'rgba(0,0,0,0.6)',
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 2,
+              }}
             >
               {activeGroup?.name || 'Sélectionner un groupe'}
             </Text>
-            <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+            <Ionicons name="chevron-down" size={18} color={THEME.accent} style={{ marginLeft: 4 }} />
           </Pressable>
 
           {activeGroup?.club_id ? (
