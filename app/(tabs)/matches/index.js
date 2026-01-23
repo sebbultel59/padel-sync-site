@@ -6,26 +6,26 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    ActionSheetIOS,
-    ActivityIndicator,
-    Alert,
-    Animated,
-    DeviceEventEmitter,
-    FlatList,
-    Image,
-    InteractionManager,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    SectionList,
-    StyleSheet,
-    Text,
-    TextInput,
-    useWindowDimensions,
-    Vibration,
-    View
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  DeviceEventEmitter,
+  FlatList,
+  Image,
+  InteractionManager,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  SectionList,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  Vibration,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
@@ -308,6 +308,7 @@ export default function MatchesScreen() {
   }, []);
 
   const MATCH_CREATED_UNDO_SECONDS = 10;
+  const MATCH_CREATE_CONFIRM_SECONDS = 10;
   const clearMatchCreatedUndoState = useCallback(() => {
     if (matchCreatedUndoIntervalRef.current) {
       clearInterval(matchCreatedUndoIntervalRef.current);
@@ -317,6 +318,40 @@ export default function MatchesScreen() {
     matchCreatedUndoOnConfirmRef.current = null;
     matchCreatedUndoVisibleRef.current = false;
   }, []);
+
+  const closeConfirm = useCallback((reason = 'close') => {
+    console.log('[MatchesConfirm] close', { reason, pendingPlayers: pendingCreateRef.current?.selectedUserIds || [] });
+    confirmFiredRef.current = false;
+    pendingCreateRef.current = null;
+    setPendingCreate(null);
+    setIsConfirmOpen(false);
+  }, []);
+
+  const openConfirm = useCallback(({ startsAt, endsAt, selectedUserIds }) => {
+    const snapshot = {
+      startsAt,
+      endsAt,
+      selectedUserIds: Array.isArray(selectedUserIds) ? [...selectedUserIds] : [],
+    };
+    console.log('OPEN_MODAL_2', snapshot);
+    pendingCreateRef.current = snapshot;
+    setPendingCreate(snapshot);
+    confirmFiredRef.current = false;
+    setIsConfirmOpen(true);
+  }, []);
+
+  const handleConfirmCreate = useCallback((source = 'confirm') => {
+    if (confirmFiredRef.current) return;
+    confirmFiredRef.current = true;
+    const payload = pendingCreateRef.current;
+    console.log('[MatchesConfirm] create', { source, pendingPlayers: payload?.selectedUserIds || [] });
+    closeConfirm(source);
+    if (payload?.startsAt && payload?.endsAt) {
+      onCreateIntervalMatch(payload.startsAt, payload.endsAt, payload.selectedUserIds, 'confirmed', { skipPostCreateModal: true });
+    }
+  }, [closeConfirm, onCreateIntervalMatch]);
+
+
 
   const notifyMatchCreated = useCallback(async (matchId, playerIds = []) => {
     const ids = Array.from(new Set((playerIds || []).map(String).filter(Boolean)));
@@ -369,12 +404,14 @@ export default function MatchesScreen() {
 
   const showMatchCreatedUndo = useCallback((matchId, { seconds = MATCH_CREATED_UNDO_SECONDS, onExpire, onConfirm } = {}) => {
     if (!matchId) return;
+    console.log('OPEN_MODAL_2', { matchId, seconds });
     clearMatchCreatedUndoState();
     matchCreatedUndoVisibleRef.current = true;
     matchCreatedUndoOnExpireRef.current = onExpire || null;
     matchCreatedUndoOnConfirmRef.current = onConfirm || onExpire || null;
     const duration = Math.max(1, Number(seconds) || MATCH_CREATED_UNDO_SECONDS);
-    matchCreatedUndoEndRef.current = Date.now() + duration * 1000;
+    const endAt = Date.now() + duration * 1000;
+    setMatchCreatedUndoEndsAt(endAt);
     setMatchCreatedUndoMatchId(matchId);
     setMatchCreatedUndoVisible(true);
     // L'expiration est gérée dans le composant de modal
@@ -385,6 +422,7 @@ export default function MatchesScreen() {
       clearMatchCreatedUndoState();
     };
   }, [clearMatchCreatedUndoState]);
+
 
   useEffect(() => {
     matchCreatedUndoVisibleRef.current = matchCreatedUndoVisible;
@@ -493,13 +531,17 @@ export default function MatchesScreen() {
   const previousGroupIdRef = React.useRef(null); // Pour détecter les changements de groupe vs semaine
   const previousWeekOffsetRef = React.useRef(0); // Pour détecter les changements de semaine
   const [matchCreatedUndoVisible, setMatchCreatedUndoVisible] = useState(false);
-  
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [pendingCreate, setPendingCreate] = useState(null);
+  const [matchCreatedUndoEndsAt, setMatchCreatedUndoEndsAt] = useState(0);
   const [matchCreatedUndoMatchId, setMatchCreatedUndoMatchId] = useState(null);
-  const matchCreatedUndoEndRef = useRef(0);
   const matchCreatedUndoIntervalRef = useRef(null);
   const matchCreatedUndoOnExpireRef = useRef(null);
   const matchCreatedUndoOnConfirmRef = useRef(null);
   const matchCreatedUndoVisibleRef = useRef(false);
+  const pendingCreateRef = useRef(null);
+  const confirmFiredRef = useRef(false);
+  const handleConfirmCreateRef = useRef(null);
   const notifiedMatchesRef = useRef(new Set());
   
   // Group selector states
@@ -1648,7 +1690,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    height: 68,
+    paddingVertical: 0,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.16)',
     borderWidth: 1,
@@ -1667,9 +1710,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff8c00',
     borderColor: '#ff8c00',
   },
+  segmentBtnCompact: {
+    height: 42,
+  },
   segmentText: {
     color: THEME.muted,
-    fontSize: 13,
+    fontSize: 22,
     fontWeight: '700',
   },
   segmentTextActive: {
@@ -1681,20 +1727,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    height: '100%',
+  },
+  segmentCountWrap: {
+    height: 64,
+    justifyContent: 'center',
+    paddingTop: 2,
   },
   segmentCount: {
     fontSize: 60,
     fontWeight: '900',
     color: THEME.muted,
-    lineHeight: 62,
+    lineHeight: 64,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   segmentCountActive: {
     color: '#001833',
     fontSize: 60,
-    lineHeight: 62,
+    lineHeight: 64,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   segmentLabelStack: {
     flexDirection: 'column',
+    justifyContent: 'center',
+    paddingVertical: 0,
   },
   segmentLabel: {
     fontSize: 12,
@@ -1702,10 +1760,15 @@ const styles = StyleSheet.create({
     color: THEME.muted,
     lineHeight: 14,
   },
+  segmentLabelLarge: {
+    fontSize: 14,
+    lineHeight: 16,
+  },
   segmentLabelActive: {
     color: '#001833',
   },
   segmentLabelStrong: {
+    fontSize: 14,
     fontWeight: '900',
   },
   matchCard: {
@@ -2079,39 +2142,56 @@ const Badge = ({ tone = 'blue', text }) => (
 );
 
 const MatchCreatedUndoModal = React.memo(
-  ({ visible, endAtRef, onRequestClose, onConfirm, onCancel, onExpire }) => {
-    const [seconds, setSeconds] = React.useState(0);
-    const expireHandledRef = React.useRef(false);
+  ({ visible, durationSeconds = 10, onConfirm, onCancel, onTimeout }) => {
+    const [secondsLeft, setSecondsLeft] = React.useState(durationSeconds);
+    const firedRef = React.useRef(false);
+    const onTimeoutRef = React.useRef(onTimeout);
+
+    // Garder la référence à jour
+    React.useEffect(() => {
+      onTimeoutRef.current = onTimeout;
+    }, [onTimeout]);
+
+    // Gérer le timeout quand secondsLeft atteint 0
+    React.useEffect(() => {
+      if (secondsLeft === 0 && !firedRef.current && visible) {
+        firedRef.current = true;
+        // Utiliser setTimeout pour différer l'appel et éviter la mise à jour pendant le rendu
+        setTimeout(() => {
+          onTimeoutRef.current && onTimeoutRef.current();
+        }, 0);
+      }
+    }, [secondsLeft, visible]);
 
     React.useEffect(() => {
-      if (!visible) {
-        expireHandledRef.current = false;
-        return;
-      }
-      const update = () => {
-        const left = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
-        setSeconds(left);
-        if (left <= 0 && !expireHandledRef.current) {
-          expireHandledRef.current = true;
-          onExpire && onExpire();
-        }
+      if (!visible) return;
+      console.log('[MatchesConfirmModal] open');
+      firedRef.current = false;
+      setSecondsLeft(durationSeconds);
+      const id = setInterval(() => {
+        setSecondsLeft((prev) => {
+          const next = Math.max(0, prev - 1);
+          console.log('[MatchesConfirmModal] tick', next);
+          return next;
+        });
+      }, 1000);
+      return () => {
+        console.log('[MatchesConfirmModal] close');
+        clearInterval(id);
       };
-      update();
-      const id = setInterval(update, 1000);
-      return () => clearInterval(id);
-    }, [visible, endAtRef, onExpire]);
+    }, [visible, durationSeconds]);
 
     if (!visible) return null;
 
     return (
-      <Modal transparent animationType="fade" visible={visible} onRequestClose={onRequestClose}>
+      <Modal transparent animationType="fade" visible={visible} onRequestClose={onCancel}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <View style={{ width: '90%', maxWidth: 420, backgroundColor: '#ffffff', borderRadius: 16, padding: 20 }}>
             <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240', marginBottom: 8 }}>
               Match créé 🎾
             </Text>
             <Text style={{ color: '#6b7280', marginBottom: 16 }}>
-              Annulation possible pendant {seconds}s
+              😊 Un conseil : avec une piste réservée avant de confirmer, ton match est assuré !
             </Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Pressable
@@ -2147,7 +2227,7 @@ const MatchCreatedUndoModal = React.memo(
               >
                 <Ionicons name="close-circle-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
                 <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
-                  Annuler ({seconds}s)
+                  Annuler ({secondsLeft}s)
                 </Text>
               </Pressable>
             </View>
@@ -3898,7 +3978,8 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   }
 
   const onCreateIntervalMatch = useCallback(
-    async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'confirmed') => {
+    async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'confirmed', options = {}) => {
+      const { skipPostCreateModal = false } = options || {};
       if (!groupId) return;
       // Preflight: prevent overlapping creation with same players
       try {
@@ -4101,16 +4182,21 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
 
         if (newMatchId) {
           const notifyIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
-          showMatchCreatedUndo(newMatchId, {
-            onExpire: () => {
-              notifyMatchCreated(newMatchId, notifyIds);
-              notifyGroupMatchCreated(newMatchId, notifyIds);
-            },
-            onConfirm: () => {
-              notifyMatchCreated(newMatchId, notifyIds);
-              notifyGroupMatchCreated(newMatchId, notifyIds);
-            },
-          });
+          if (skipPostCreateModal) {
+            notifyMatchCreated(newMatchId, notifyIds);
+            notifyGroupMatchCreated(newMatchId, notifyIds);
+          } else {
+            showMatchCreatedUndo(newMatchId, {
+              onExpire: () => {
+                notifyMatchCreated(newMatchId, notifyIds);
+                notifyGroupMatchCreated(newMatchId, notifyIds);
+              },
+              onConfirm: () => {
+                notifyMatchCreated(newMatchId, notifyIds);
+                notifyGroupMatchCreated(newMatchId, notifyIds);
+              },
+            });
+          }
         }
         
         if (newMatchId && uid) {
@@ -5263,7 +5349,8 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
 }
 
   const onCreateMatch = useCallback(
-    async (time_slot_id, selectedUserIds = []) => {
+    async (time_slot_id, selectedUserIds = [], options = {}) => {
+      const { skipPostCreateModal = false } = options || {};
       if (!groupId) return;
       // Preflight: prevent overlapping creation with same players
       try {
@@ -5337,16 +5424,21 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
           if (createdMatch?.id) {
             createdMatchId = createdMatch.id;
             const notifyIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
-            showMatchCreatedUndo(createdMatchId, {
-              onExpire: () => {
-                notifyMatchCreated(createdMatchId, notifyIds);
-                notifyGroupMatchCreated(createdMatchId, notifyIds);
-              },
-              onConfirm: () => {
-                notifyMatchCreated(createdMatchId, notifyIds);
-                notifyGroupMatchCreated(createdMatchId, notifyIds);
-              },
-            });
+            if (skipPostCreateModal) {
+              notifyMatchCreated(createdMatchId, notifyIds);
+              notifyGroupMatchCreated(createdMatchId, notifyIds);
+            } else {
+              showMatchCreatedUndo(createdMatchId, {
+                onExpire: () => {
+                  notifyMatchCreated(createdMatchId, notifyIds);
+                  notifyGroupMatchCreated(createdMatchId, notifyIds);
+                },
+                onConfirm: () => {
+                  notifyMatchCreated(createdMatchId, notifyIds);
+                  notifyGroupMatchCreated(createdMatchId, notifyIds);
+                },
+              });
+            }
             // Confirmer le match côté backend
             await supabase.from('matches').update({ status: 'confirmed' }).eq('id', createdMatch.id);
             // Accepter tous les joueurs sélectionnés
@@ -5984,7 +6076,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds })) : undefined}
               accessibilityRole="button"
               accessibilityLabel="Créer un match pour ce créneau"
               style={({ pressed }) => [
@@ -6102,7 +6194,7 @@ const LongSlotRow = ({ item }) => {
           <View style={styles.ctaRow}>
             <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
               <Pressable
-                onPress={press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds))}
+                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds }))}
                 onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
                 onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
                 accessibilityRole="button"
@@ -6133,7 +6225,7 @@ const LongSlotRow = ({ item }) => {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds })) : undefined}
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
@@ -6236,7 +6328,7 @@ const HourSlotRow = ({ item }) => {
           <View style={styles.ctaRow}>
             <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
               <Pressable
-                onPress={press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds))}
+                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds }))}
                 onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
                 onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
                 accessibilityRole="button"
@@ -6267,7 +6359,7 @@ const HourSlotRow = ({ item }) => {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => onCreateIntervalMatch(item.starts_at, item.ends_at, selectedIds)) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds })) : undefined}
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
@@ -8898,6 +8990,7 @@ const HourSlotRow = ({ item }) => {
               onPress={() => setMode('hour')}
               style={[
                 styles.segmentBtn,
+                styles.segmentBtnCompact,
                 mode === 'hour' && styles.segmentBtnActiveProposes,
               ]}
             >
@@ -8914,6 +9007,7 @@ const HourSlotRow = ({ item }) => {
               onPress={() => setMode('long')}
               style={[
                 styles.segmentBtn,
+                styles.segmentBtnCompact,
                 mode === 'long' && styles.segmentBtnActiveProposes,
               ]}
             >
@@ -9030,14 +9124,16 @@ const HourSlotRow = ({ item }) => {
             ]}
           >
             <View style={styles.segmentContent}>
-              <Text
-                style={[
-                  styles.segmentCount,
-                  tab === 'proposes' && styles.segmentCountActive,
-                ]}
-              >
-                {proposedTabCountDisplay}
-              </Text>
+              <View style={styles.segmentCountWrap}>
+                <Text
+                  style={[
+                    styles.segmentCount,
+                    tab === 'proposes' && styles.segmentCountActive,
+                  ]}
+                >
+                  {proposedTabCountDisplay}
+                </Text>
+              </View>
               <View style={styles.segmentLabelStack}>
                 <Text
                   style={[
@@ -9045,7 +9141,7 @@ const HourSlotRow = ({ item }) => {
                     tab === 'proposes' && styles.segmentLabelActive,
                   ]}
                 >
-                  <Text style={styles.segmentLabelStrong}>matchs</Text>
+                  <Text style={styles.segmentLabelStrong}>MATCHS</Text>
                 </Text>
                 <Text
                   style={[
@@ -9066,14 +9162,16 @@ const HourSlotRow = ({ item }) => {
             ]}
           >
             <View style={styles.segmentContent}>
-              <Text
-                style={[
-                  styles.segmentCount,
-                  tab === 'valides' && styles.segmentCountActive,
-                ]}
-              >
-                {confirmedTabCount}
-              </Text>
+              <View style={styles.segmentCountWrap}>
+                <Text
+                  style={[
+                    styles.segmentCount,
+                    tab === 'valides' && styles.segmentCountActive,
+                  ]}
+                >
+                  {confirmedTabCount}
+                </Text>
+              </View>
               <View style={styles.segmentLabelStack}>
                 <Text
                   style={[
@@ -9081,11 +9179,12 @@ const HourSlotRow = ({ item }) => {
                     tab === 'valides' && styles.segmentLabelActive,
                   ]}
                 >
-                  <Text style={styles.segmentLabelStrong}>matchs</Text>
+                  <Text style={styles.segmentLabelStrong}>MATCHS</Text>
                 </Text>
                 <Text
                   style={[
                     styles.segmentLabel,
+                    styles.segmentLabelLarge,
                     tab === 'valides' && styles.segmentLabelActive,
                   ]}
                 >
@@ -9096,7 +9195,7 @@ const HourSlotRow = ({ item }) => {
           </Pressable>
         </View>
       </View>
-      <View style={{ height: matchTabsHeight + 8 }} />
+      <View style={{ height: matchTabsHeight + 1 }} />
       
       {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
       {tab === 'proposes' && (
@@ -9486,6 +9585,7 @@ const HourSlotRow = ({ item }) => {
                 onPress={() => setConfirmedMode('hour')}
                 style={[
                   styles.segmentBtn,
+                  styles.segmentBtnCompact,
                   confirmedMode === 'hour' && styles.segmentBtnActive,
                 ]}
               >
@@ -9502,6 +9602,7 @@ const HourSlotRow = ({ item }) => {
                 onPress={() => setConfirmedMode('long')}
                 style={[
                   styles.segmentBtn,
+                  styles.segmentBtnCompact,
                   confirmedMode === 'long' && styles.segmentBtnActive,
                 ]}
               >
@@ -14120,39 +14221,11 @@ const HourSlotRow = ({ item }) => {
 
       {/* Popup "Match créé" avec annulation */}
       <MatchCreatedUndoModal
-        visible={matchCreatedUndoVisible}
-        endAtRef={matchCreatedUndoEndRef}
-        onRequestClose={() => {
-          matchCreatedUndoOnExpireRef.current = null;
-          matchCreatedUndoOnConfirmRef.current = null;
-          clearMatchCreatedUndoState();
-          setMatchCreatedUndoVisible(false);
-        }}
-        onExpire={() => {
-          const cb = matchCreatedUndoOnExpireRef.current;
-          matchCreatedUndoOnExpireRef.current = null;
-          matchCreatedUndoOnConfirmRef.current = null;
-          clearMatchCreatedUndoState();
-          setMatchCreatedUndoVisible(false);
-          cb && cb();
-        }}
-        onConfirm={() => {
-          const cb = matchCreatedUndoOnConfirmRef.current;
-          matchCreatedUndoOnExpireRef.current = null;
-          matchCreatedUndoOnConfirmRef.current = null;
-          clearMatchCreatedUndoState();
-          setMatchCreatedUndoVisible(false);
-          cb && cb();
-        }}
-        onCancel={() => {
-          if (matchCreatedUndoMatchId) {
-            onCancelMatch(matchCreatedUndoMatchId);
-          }
-          matchCreatedUndoOnExpireRef.current = null;
-          matchCreatedUndoOnConfirmRef.current = null;
-          clearMatchCreatedUndoState();
-          setMatchCreatedUndoVisible(false);
-        }}
+        visible={isConfirmOpen}
+        durationSeconds={MATCH_CREATE_CONFIRM_SECONDS}
+        onConfirm={() => handleConfirmCreate('confirm')}
+        onCancel={() => closeConfirm('cancel')}
+        onTimeout={() => handleConfirmCreate('timeout')}
       />
 
       {/* Modale de contacts du joueur */}

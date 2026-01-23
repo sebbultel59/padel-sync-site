@@ -73,6 +73,150 @@ const LEVELS = [
 const colorForLevel = (n) => (LEVELS.find(x => x.v === Number(n))?.color) || '#9ca3af';
 const levelMeta = (n) => LEVELS.find((x) => x.v === n) ?? null;
 
+const formatAddressCompact = (value) => {
+  if (!value) return '';
+  const addrObj = typeof value === 'string' ? { address: value } : value;
+  const raw = (addrObj.address || '').trim();
+
+  let street =
+    (addrObj.street || addrObj.road || addrObj.address_line1 || '').trim();
+  if (!street && (addrObj.house_number || addrObj.housenumber) && (addrObj.road || addrObj.street_name)) {
+    street = `${addrObj.house_number || addrObj.housenumber} ${addrObj.road || addrObj.street_name}`.trim();
+  }
+  if (!street) {
+    street = (raw.split(',')[0] || '').trim();
+  }
+  const postcode = (addrObj.postcode || addrObj.postalCode || '').trim();
+  const city = (addrObj.city || '').trim();
+  const region = (addrObj.region || addrObj.state || '').trim();
+  const country = (addrObj.country || '').trim();
+
+  if (street && (postcode || city || region || country)) {
+    return [street, postcode, city, region, country]
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  if (!raw) return '';
+  const parts = raw.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return raw;
+
+  const isPostal = (p) => /\b\d{5}\b/.test(p);
+  const isStreetLike = (p) =>
+    /(rue|avenue|boulevard|impasse|chemin|route|allée|allee|place|quai|cours|lotissement|clos|résidence|residence|square|voie|sentier|passage|faubourg|esplanade|parvis|promenade)/i.test(p);
+  const isCountryLike = (p) =>
+    /(france|belgique|suisse|luxembourg|monaco|andorre|espagne|italie|allemagne|portugal|royaume-uni|angleterre)/i.test(p);
+
+  let streetPart = '';
+  let postalPart = '';
+  let cityPart = '';
+  let regionPart = '';
+  let countryPart = '';
+  const usedIdx = new Set();
+
+  const postalIdx = parts.findIndex((p) => isPostal(p));
+  const lastIdx = parts.length - 1;
+  if (parts[lastIdx] && !isPostal(parts[lastIdx]) && (isCountryLike(parts[lastIdx]) || parts.length >= 3)) {
+    countryPart = parts[lastIdx];
+    usedIdx.add(lastIdx);
+  }
+
+  const streetLikeIdx = parts.findIndex((p, idx) => idx !== postalIdx && idx !== lastIdx && isStreetLike(p));
+  if (streetLikeIdx >= 0) {
+    if (/^\d+$/.test(parts[0]) && streetLikeIdx !== 0) {
+      streetPart = `${parts[0]} ${parts[streetLikeIdx]}`.trim();
+      usedIdx.add(0);
+      usedIdx.add(streetLikeIdx);
+    } else {
+      streetPart = parts[streetLikeIdx];
+      usedIdx.add(streetLikeIdx);
+    }
+  } else if (/^\d+\s+\D+/.test(parts[0])) {
+    streetPart = parts[0];
+    usedIdx.add(0);
+  } else {
+    streetPart = parts[0];
+    usedIdx.add(0);
+  }
+
+  if (postalIdx >= 0) {
+    const m = parts[postalIdx].match(/\b\d{5}\b/);
+    postalPart = m ? m[0] : '';
+    const cityFromPostal = parts[postalIdx].replace(/\b\d{5}\b/, '').trim();
+    if (cityFromPostal && !isStreetLike(cityFromPostal)) {
+      cityPart = cityFromPostal;
+    }
+    usedIdx.add(postalIdx);
+  }
+
+  if (!cityPart) {
+    const cityIdx = parts.findIndex((p, idx) =>
+      !usedIdx.has(idx) &&
+      !isPostal(p) &&
+      !isStreetLike(p) &&
+      p !== countryPart
+    );
+    if (cityIdx >= 0) {
+      cityPart = parts[cityIdx];
+      usedIdx.add(cityIdx);
+    }
+  }
+
+  const regionIdx = parts.findIndex((p, idx) =>
+    !usedIdx.has(idx) &&
+    !isPostal(p) &&
+    !isStreetLike(p) &&
+    p !== countryPart
+  );
+  if (regionIdx >= 0) {
+    regionPart = parts[regionIdx];
+    usedIdx.add(regionIdx);
+  }
+
+  return [streetPart, postalPart, cityPart, regionPart, countryPart]
+    .map((p) => p && p.trim())
+    .filter(Boolean)
+    .join(', ');
+};
+
+const formatAutocompleteSimple = (value) => {
+  if (!value) return '';
+  const parts = value.split(',').map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return value.trim();
+
+  const isPostal = (p) => /\b\d{5}\b/.test(p);
+  const isCountryLike = (p) => /france/i.test(p);
+
+  let street = parts[0] || '';
+  if (/^\d+$/.test(parts[0]) && parts[1]) {
+    street = `${parts[0]} ${parts[1]}`.trim();
+  }
+
+  let postal = '';
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    if (isPostal(parts[i])) {
+      postal = parts[i].match(/\b\d{5}\b/)?.[0] || '';
+      break;
+    }
+  }
+
+  const country = parts.length >= 2 ? parts[parts.length - 1] : '';
+
+  let city = '';
+  for (let i = 0; i < parts.length; i += 1) {
+    const p = parts[i];
+    if (!p || isPostal(p) || isCountryLike(p)) continue;
+    if (i === 0 || (i === 1 && /^\d+$/.test(parts[0]))) continue;
+    if (p.toLowerCase() === country.toLowerCase()) continue;
+    if (!/\d/.test(p)) {
+      city = p;
+      break;
+    }
+  }
+
+  return [street, postal, city, country].filter(Boolean).join(', ');
+};
+
 const RAYONS = [
   { v: 5, label: "5 km" },
   { v: 10, label: "10 km" },
@@ -92,6 +236,7 @@ export default function ProfilScreen() {
 
   const [me, setMe] = useState(null); // { id, email }
   const [displayName, setDisplayName] = useState("");
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(null);
 
   // champs profil
@@ -107,6 +252,7 @@ export default function ProfilScreen() {
   const [addressWork, setAddressWork] = useState(null); // { address, lat, lng } | null
   const [addressHomeInput, setAddressHomeInput] = useState(""); // Input text pour domicile
   const [addressWorkInput, setAddressWorkInput] = useState(""); // Input text pour travail
+  const [editingAddresses, setEditingAddresses] = useState(false);
   const [addressHomeSuggestions, setAddressHomeSuggestions] = useState([]);
   const [addressWorkSuggestions, setAddressWorkSuggestions] = useState([]);
   const [geocodingHome, setGeocodingHome] = useState(false);
@@ -117,6 +263,7 @@ export default function ProfilScreen() {
 
   // classement (facultatif)
   const [classement, setClassement] = useState("");
+  const [editingClassement, setEditingClassement] = useState(false);
   const [niveauInfoModalVisible, setNiveauInfoModalVisible] = useState(false);
   const [mainPickerVisible, setMainPickerVisible] = useState(false);
   const [cotePickerVisible, setCotePickerVisible] = useState(false);
@@ -929,6 +1076,10 @@ export default function ProfilScreen() {
           const lng = coords[0];
           const props = feature.properties;
           const formattedAddress = props.label || trimmedAddress;
+          const streetName = (props.street || props.name || '').trim();
+          const street = [props.housenumber, streetName].filter(Boolean).join(' ').trim();
+          const contextParts = (props.context || '').split(',').map((p) => p.trim()).filter(Boolean);
+          const region = contextParts.length ? contextParts[contextParts.length - 1] : '';
           
           // Vérifier que c'est bien en France (tolérant pour DOM-TOM)
           if (lat >= 38 && lat <= 54 && lng >= -10 && lng <= 15) {
@@ -936,6 +1087,12 @@ export default function ProfilScreen() {
               address: formattedAddress,
               lat,
               lng,
+              street,
+              housenumber: props.housenumber || '',
+              postcode: props.postcode || '',
+              city: props.city || '',
+              region,
+              country: 'France',
             };
           }
         }
@@ -953,12 +1110,25 @@ export default function ProfilScreen() {
         const result = dataNominatim[0];
         const lat = parseFloat(result.lat);
         const lng = parseFloat(result.lon);
+        const addr = result.address || {};
+        const streetName = (addr.road || addr.pedestrian || addr.neighbourhood || addr.suburb || '').trim();
+        const street = [addr.house_number, streetName].filter(Boolean).join(' ').trim();
+        const city = addr.city || addr.town || addr.village || addr.hamlet || addr.municipality || '';
+        const region = addr.state || addr.region || '';
+        const country = addr.country || '';
+        const postcode = addr.postcode || '';
         // Vérifier que c'est bien en France (tolérant pour DOM-TOM)
         if (lat >= 38 && lat <= 54 && lng >= -10 && lng <= 15) {
           return {
-            address: trimmedAddress,
+            address: result.display_name || trimmedAddress,
             lat,
             lng,
+            street,
+            housenumber: addr.house_number || '',
+            postcode,
+            city,
+            region,
+            country,
           };
         }
       }
@@ -968,6 +1138,30 @@ export default function ProfilScreen() {
       return null;
     }
   }, []);
+
+  const normalizeAddressForDisplay = useCallback(async (current, inputValue) => {
+    if (!current && !inputValue) return current;
+    const hasStructured = current && (current.street || current.postcode || current.city || current.region || current.country);
+    if (hasStructured) return current;
+    const toGeocode = (inputValue || current?.address || '').trim();
+    if (!toGeocode) return current;
+    const geocoded = await geocodeAddress(toGeocode);
+    return geocoded || current;
+  }, [geocodeAddress]);
+
+  const onValidateAddresses = useCallback(async () => {
+    const [nextHome, nextWork] = await Promise.all([
+      normalizeAddressForDisplay(addressHome, addressHomeInput),
+      normalizeAddressForDisplay(addressWork, addressWorkInput),
+    ]);
+
+    if (nextHome) setAddressHome(nextHome);
+    if (nextWork) setAddressWork(nextWork);
+    if (nextHome?.address && !addressHomeInput?.trim()) setAddressHomeInput(nextHome.address);
+    if (nextWork?.address && !addressWorkInput?.trim()) setAddressWorkInput(nextWork.address);
+
+    setEditingAddresses(false);
+  }, [normalizeAddressForDisplay, addressHome, addressWork, addressHomeInput, addressWorkInput]);
 
   // comparaison simple (stringify) du snapshot
   const isDirty = useMemo(() => {
@@ -1483,32 +1677,87 @@ export default function ProfilScreen() {
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Pseudo <Text style={{ color: '#dc2626' }}>*</Text></Text>
           </View>
           <View style={[s.tile, s.tileFull]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
-              <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
-              <TextInput
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder="Ex. Seb Padel"
-                placeholderTextColor="#9ca3af"
-                autoCapitalize="words"
-                style={{ flex: 1, fontSize: 14, color: '#ffffff' }}
-                maxLength={60}
-              />
+            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 22, fontWeight: '800', color: '#ffffff' }}>
+                    {displayName && displayName.trim() ? displayName : '-'}
+                  </Text>
+                  {!editingDisplayName ? (
+                    <Pressable onPress={() => setEditingDisplayName(true)}>
+                      <Ionicons name="create" size={18} color="#ffffff" />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
             </View>
+            {!editingDisplayName ? null : (
+              <View style={{ marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
+                  <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                  <TextInput
+                    value={displayName}
+                    onChangeText={setDisplayName}
+                    placeholder="Ex. Seb Padel"
+                    placeholderTextColor="#9ca3af"
+                    autoCapitalize="words"
+                    style={{ flex: 1, fontSize: 14, color: '#ffffff' }}
+                    maxLength={60}
+                    autoFocus
+                  />
+                </View>
+                <Pressable
+                  onPress={() => setEditingDisplayName(false)}
+                  style={{ alignSelf: 'center', marginTop: 10, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+                >
+                  <Text style={{ fontSize: 13, color: '#E0FF00', fontWeight: '700' }}>Valider</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
 
           {/* Ligne 2 : Adresses */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-            <Ionicons name="location" size={22} color="#e0ff00" />
-            <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Adresses</Text>
+            <Ionicons name="location" size={22} color="#ffffff" />
+            <Text style={[s.tileTitle, { color: '#ffffff' }]}>Adresses</Text>
+            <Pressable onPress={() => setEditingAddresses(true)}>
+              <Ionicons name="create" size={18} color="#ffffff" />
+            </Pressable>
           </View>
-          <Text style={{ fontSize: 14, fontWeight: '400', color: '#E0FF00', marginBottom: 8 }}>(pour trouver des matchs à proximité)</Text>
+          <Text style={{ fontSize: 14, fontWeight: '400', color: '#ffffff', marginBottom: 8 }}>(pour trouver des matchs à proximité)</Text>
+          {!editingAddresses ? (
+            <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'rgba(10, 32, 56, 0.6)', marginBottom: 8 }]}>
+              <View style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <Ionicons name="home" size={18} color="#ffffff" />
+                  <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#9ca3af' }}>
+                  {addressHomeInput && addressHomeInput.trim()
+                    ? formatAutocompleteSimple(addressHomeInput)
+                    : 'Non renseigné'}
+                </Text>
+              </View>
+
+              <View style={{ marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <Ionicons name="briefcase" size={18} color="#ffffff" />
+                  <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>Travail</Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#9ca3af' }}>
+                  {addressWorkInput && addressWorkInput.trim()
+                    ? formatAutocompleteSimple(addressWorkInput)
+                    : 'Non renseigné'}
+                </Text>
+              </View>
+            </View>
+          ) : (
           <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: '#032344', marginBottom: 8 }]}>
             {/* Domicile */}
             <View style={{ marginTop: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Ionicons name="home" size={18} color="#E0FF00" />
-                <Text style={[s.label, { fontSize: 16, color: '#E0FF00' }]}>Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
+                <Ionicons name="home" size={18} color="#ffffff" />
+                <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
                 <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
@@ -1594,8 +1843,8 @@ export default function ProfilScreen() {
             {/* Travail */}
             <View style={{ marginTop: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Ionicons name="briefcase" size={18} color="#E0FF00" />
-                <Text style={[s.label, { fontSize: 16, color: '#E0FF00' }]}>Travail</Text>
+                <Ionicons name="briefcase" size={18} color="#ffffff" />
+                <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>Travail</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
                 <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
@@ -1678,6 +1927,15 @@ export default function ProfilScreen() {
               )}
             </View>
           </View>
+          )}
+          {editingAddresses ? (
+            <Pressable
+              onPress={onValidateAddresses}
+              style={{ alignSelf: 'center', marginTop: 10, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+            >
+              <Text style={{ fontSize: 13, color: '#E0FF00', fontWeight: '700' }}>Valider</Text>
+            </Pressable>
+          ) : null}
 
           {/* Ligne 3 : Niveau à 100% */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
@@ -1736,23 +1994,37 @@ export default function ProfilScreen() {
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>CLASSEMENT FFT</Text>
             </View>
           <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
               {/* Classement FFT */}
-              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
+              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
                 {classement && classement.trim() ? (
                   <>
-                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
-                      {classement}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontSize: 32, fontWeight: '900', color: '#E0FF00' }}>
+                        {classement}
+                      </Text>
+                      {!editingClassement ? (
+                        <Pressable onPress={() => setEditingClassement(true)}>
+                          <Ionicons name="create" size={18} color="#E0FF00" />
+                        </Pressable>
+                      ) : null}
+                    </View>
                     <Text style={{ fontSize: 12, color: '#9ca3af', textTransform: 'lowercase' }}>
                       Classement FFT
                     </Text>
                   </>
                 ) : (
                   <>
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#6b7280', marginBottom: 4 }}>
-                      -
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '700', color: '#6b7280' }}>
+                        -
+                      </Text>
+                      {!editingClassement ? (
+                        <Pressable onPress={() => setEditingClassement(true)}>
+                          <Ionicons name="create" size={18} color="#E0FF00" />
+                        </Pressable>
+                      ) : null}
+                    </View>
                     <Text style={{ fontSize: 12, color: '#6b7280' }}>
                       Non renseigné
                     </Text>
@@ -1761,20 +2033,31 @@ export default function ProfilScreen() {
               </View>
             </View>
             
-            {/* Champ de saisie pour modifier */}
+            {/* Mode lecture / édition */}
             <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
-                <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
-                <TextInput
-                  value={classement}
-                  onChangeText={setClassement}
-                  placeholder="Ex. 500"
-                  placeholderTextColor="#9ca3af"
-                  keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-                  style={{ flex: 1, fontSize: 14, color: '#ffffff', textAlign: 'center' }}
-                  maxLength={6}
-                />
-              </View>
+              {!editingClassement ? null : (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
+                    <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                    <TextInput
+                      value={classement}
+                      onChangeText={setClassement}
+                      placeholder="Ex. 500"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                      style={{ flex: 1, fontSize: 14, color: '#ffffff', textAlign: 'center' }}
+                      maxLength={6}
+                      autoFocus
+                    />
+                  </View>
+                  <Pressable
+                    onPress={() => setEditingClassement(false)}
+                    style={{ alignSelf: 'center', marginTop: 10, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+                  >
+                    <Text style={{ fontSize: 13, color: '#E0FF00', fontWeight: '700' }}>Valider</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           </View>
 
@@ -2448,7 +2731,7 @@ const s = StyleSheet.create({
 
   avatarBtns: { marginTop: 10, flexDirection: "row", gap: 10 },
 
-  card: { backgroundColor: "#032344", borderWidth: 2, borderColor: "#e0ff00", borderRadius: 12, padding: 12 },
+  card: { backgroundColor: "rgba(10, 32, 56, 0.6)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderRadius: 26, padding: 12 },
 
   sectionTitle: { fontSize: 16, fontWeight: "800", color: "#E0FF00" },
 
@@ -2457,10 +2740,10 @@ const s = StyleSheet.create({
 
   // Tiles
   tile: {
-    backgroundColor: "#032344",
-    borderWidth: 2,
-    borderColor: "#e0ff00",
-    borderRadius: 12,
+    backgroundColor: "rgba(10, 32, 56, 0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 26,
     padding: 12,
     minWidth: 0,
     width: '100%',

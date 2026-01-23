@@ -2,6 +2,7 @@
 // Écran des statistiques du joueur
 
 import { Ionicons } from "@expo/vector-icons";
+import { Circle, Svg } from "react-native-svg";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -64,6 +65,59 @@ function BadgeIcon({ badge, size = 120 }) {
           }}
         />
       ) : null}
+    </View>
+  );
+}
+
+function RatingDonut({
+  value = 0,
+  size = 140,
+  thickness = 6,
+  color = "#E0FF00",
+  trackColor = "rgba(255,255,255,0.12)",
+  children,
+}) {
+  const clamped = Math.max(0, Math.min(100, Number(value) || 0));
+  const r = (size - thickness) / 2;
+  const c = 2 * Math.PI * r;
+  const filled = (clamped / 100) * c;
+
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Svg width={size} height={size} style={{ position: "absolute" }}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={trackColor}
+          strokeWidth={thickness}
+          fill="transparent"
+        />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={color}
+          strokeWidth={thickness}
+          fill="transparent"
+          strokeDasharray={c}
+          strokeDashoffset={c - filled}
+          strokeLinecap="round"
+          rotation={-90}
+          originX={size / 2}
+          originY={size / 2}
+        />
+      </Svg>
+      <View
+        style={{
+          position: "absolute",
+          width: size - thickness * 2,
+          height: size - thickness * 2,
+          borderRadius: (size - thickness * 2) / 2,
+          backgroundColor: "rgba(6,26,43,0.5)",
+        }}
+      />
+      <View style={{ alignItems: "center", justifyContent: "center" }}>{children}</View>
     </View>
   );
 }
@@ -640,6 +694,8 @@ export default function StatsScreen() {
     }
   }, [stats?.topPartners]);
 
+  const xpPct = Math.min(100, Number(stats?.xp) || 0);
+
   return (
     <ScrollView
       contentContainerStyle={[s.container, { paddingBottom: Math.max(28, insets.bottom + 140) }]}
@@ -808,57 +864,57 @@ export default function StatsScreen() {
             <Text style={s.tileTitle}>NIVEAU / XP / CLASSEMENT</Text>
           </View>
           <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', gap: 8 }}>
-              {/* Niveau */}
-              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                <Text style={{ fontSize: 48, fontWeight: '900', color: colorForLevel(stats.level), marginBottom: 4 }}>
+            {/* Ligne 1: Niveau + Donut + Rating */}
+            <View style={{ position: 'relative', alignItems: 'center', marginBottom: 12 }}>
+              {/* Donut centré */}
+              <RatingDonut value={xpPct} size={140} thickness={6} color={colorForLevel(stats.level)}>
+                <Text style={{ fontSize: 72, fontWeight: '900', color: colorForLevel(stats.level) }}>
                   {stats.level}
                 </Text>
-                <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+                <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
                   Niveau
                 </Text>
-              </View>
-              
-              {/* Séparateur vertical */}
-              <View style={{ width: 1, backgroundColor: '#E0FF00', alignSelf: 'stretch', marginVertical: 8 }} />
-              
-              {/* Rating */}
-              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                <Text style={{ fontSize: 48, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
-                  {stats.rating.toFixed(0)}
+              </RatingDonut>
+
+              {/* XP aligné à droite */}
+              <View style={{ position: 'absolute', right: 0, bottom: 0, alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 28, fontWeight: '900', color: colorForLevel(stats.level), marginBottom: 4, textAlign: 'right' }}>
+                  {xpPct.toFixed(0)}%
                 </Text>
-                <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                  Rating
+                <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'right' }}>
+                  XP
                 </Text>
-              </View>
-              
-              {/* Séparateur vertical */}
-              <View style={{ width: 1, backgroundColor: '#E0FF00', alignSelf: 'stretch', marginVertical: 8 }} />
-              
-              {/* Rang Global */}
-              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-                {stats.rankGlobal ? (
-                  <>
-                    <Text style={{ fontSize: 48, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
-                      #{stats.rankGlobal}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#9ca3af' }}>
-                      Rang global
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: '#6b7280', marginBottom: 4 }}>
-                      -
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#6b7280' }}>
-                      Non classé
-                    </Text>
-                  </>
-                )}
               </View>
             </View>
-            
+
+            {/* Ligne 2: Rang global */}
+            <View style={{ marginTop: 8, alignItems: 'center' }}>
+              {(stats.rankGlobal || globalRank?.rank) ? (
+                <>
+                  <Text style={{ fontSize: 72, fontWeight: '900', color: '#E0FF00', marginBottom: 4 }}>
+                    #{globalRank?.rank ?? stats.rankGlobal}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+                    Rang global
+                  </Text>
+                  {globalRank?.total ? (
+                    <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+                      sur {globalRank.total} membres
+                    </Text>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#6b7280', marginBottom: 4 }}>
+                    -
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                    Non classé
+                  </Text>
+                </>
+              )}
+            </View>
+
             {/* Rang club (si disponible) - affiché en dessous */}
             {stats.rankClub && (
               <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937', alignItems: 'center' }}>
@@ -869,27 +925,6 @@ export default function StatsScreen() {
               </View>
             )}
             
-            {/* Barre de progression XP */}
-            {stats.level < 8 && (
-              <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E0FF00' }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <Text style={{ fontSize: 14, color: '#9ca3af' }}>XP vers niveau suivant</Text>
-                  <Text style={{ fontSize: 21, fontWeight: '700', color: '#E0FF00' }}>
-                    {stats.xp} / 100
-                  </Text>
-                </View>
-                <View style={{ height: 8, backgroundColor: '#1f2937', borderRadius: 4, overflow: 'hidden' }}>
-                  <View
-                    style={{
-                      height: '100%',
-                      width: `${Math.min(100, stats.xp)}%`,
-                      backgroundColor: colorForLevel(stats.level),
-                      borderRadius: 4,
-                    }}
-                  />
-                </View>
-              </View>
-            )}
           </View>
         </>
       ))}
@@ -1510,10 +1545,10 @@ export default function StatsScreen() {
 const s = StyleSheet.create({
   container: { padding: 16, gap: 12, backgroundColor: "#001831" },
   tile: {
-    backgroundColor: "#032344",
-    borderWidth: 2,
-    borderColor: "#e0ff00",
-    borderRadius: 12,
+    backgroundColor: "rgba(10, 32, 56, 0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 26,
     padding: 12,
     minWidth: 0,
     width: '100%',

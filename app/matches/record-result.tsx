@@ -2,7 +2,7 @@
 // Écran de saisie du résultat d'un match
 
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -19,9 +19,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SUPABASE_URL } from '../../config/env';
 import { supabase } from '../../lib/supabase';
+import { computeRatingDelta } from '../../lib/rating';
 import { formatPlayerName } from '../../lib/uiSafe';
 
 const BRAND = '#1a4b97';
+const WIN_COLOR = '#10b981';
+const LOSE_COLOR = '#ef4444';
 
 type MatchType = 'ranked' | 'friendly' | 'tournament';
 type ResultType = 'normal' | 'wo' | 'retire' | 'interrupted';
@@ -31,6 +34,8 @@ interface Player {
   display_name: string;
   name?: string;
   avatar_url?: string;
+  level?: number | null;
+  rating?: number | null;
 }
 
 const MATCH_TYPES: { value: MatchType; label: string }[] = [
@@ -45,6 +50,20 @@ const RESULT_TYPES: { value: ResultType; label: string }[] = [
   { value: 'retire', label: 'Abandon' },
   { value: 'interrupted', label: 'Interrompu' },
 ];
+
+const LEVEL_COLORS: Record<number, string> = {
+  1: '#a3e635',
+  2: '#86efac',
+  3: '#0e7aff',
+  4: '#0d97ac',
+  5: '#ff9d00',
+  6: '#f06300',
+  7: '#fb7185',
+  8: '#a78bfa',
+};
+
+const levelColor = (level?: number | null) =>
+  (level != null && LEVEL_COLORS[level]) || '#9ca3af';
 
 export default function MatchResultFormScreen() {
   const params = useLocalSearchParams();
@@ -101,16 +120,27 @@ export default function MatchResultFormScreen() {
       const playerIds = rsvps.map(r => r.user_id);
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, display_name, name, avatar_url')
+        .select('id, display_name, name, avatar_url, level')
         .in('id', playerIds);
 
       if (profilesError) throw profilesError;
+
+      const { data: ratings, error: ratingsError } = await supabase
+        .from('player_ratings')
+        .select('player_id, rating')
+        .in('player_id', playerIds);
+
+      if (ratingsError) throw ratingsError;
+
+      const ratingsById = new Map((ratings || []).map(r => [r.player_id, r.rating]));
 
       const playersList: Player[] = (profiles || []).map(p => ({
         id: p.id,
         display_name: p.display_name || p.name || 'Joueur',
         name: p.name,
         avatar_url: p.avatar_url || undefined,
+        level: typeof p.level === 'number' ? p.level : null,
+        rating: typeof ratingsById.get(p.id) === 'number' ? ratingsById.get(p.id) : null,
       }));
 
       setPlayers(playersList);
@@ -145,6 +175,28 @@ export default function MatchResultFormScreen() {
     const player = players.find(p => p.id === playerId);
     return formatPlayerName(player?.display_name || 'Joueur');
   };
+
+  const pointsPreview = useMemo(() => {
+    if (winningTeamPlayers.length !== 2 || losingTeamPlayers.length !== 2) return null;
+
+    const ratingFor = (playerId: string) =>
+      players.find(p => p.id === playerId)?.rating ?? 0;
+
+    const avgRating = (ids: string[]) =>
+      ids.reduce((sum, id) => sum + ratingFor(id), 0) / Math.max(1, ids.length);
+
+    const winningRating = avgRating(winningTeamPlayers);
+    const losingRating = avgRating(losingTeamPlayers);
+
+    const ctx = { matchType, resultType };
+    const winDelta = computeRatingDelta(winningRating, losingRating, true, ctx);
+    const loseDelta = computeRatingDelta(losingRating, winningRating, false, ctx);
+
+    return {
+      winDelta,
+      loseDelta,
+    };
+  }, [winningTeamPlayers, losingTeamPlayers, players, matchType, resultType]);
 
   const handleSubmit = async () => {
     if (winningTeamPlayers.length !== 2) {
@@ -361,12 +413,12 @@ export default function MatchResultFormScreen() {
           <>
             {/* Équipe gagnante */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Équipe gagnante (2 joueurs)</Text>
+              <Text style={[styles.sectionTitle, styles.sectionTitleWin]}>Équipe gagnante (2 joueurs)</Text>
               <Pressable
                 onPress={() => setShowWinningTeamPicker(true)}
-                style={styles.pickerButton}
+                style={[styles.pickerButton, styles.pickerButtonWin]}
               >
-                <Text style={styles.pickerButtonText}>
+                <Text style={[styles.pickerButtonText, styles.pickerButtonTextWin]}>
                   {winningTeamPlayers.length === 0
                     ? 'Sélectionner 2 joueurs'
                     : winningTeamPlayers.length === 1
@@ -376,7 +428,7 @@ export default function MatchResultFormScreen() {
                 <Text style={styles.pickerChevron}>▼</Text>
               </Pressable>
               {winningTeamPlayers.length > 0 && (
-                <Text style={styles.hintText}>
+                <Text style={[styles.hintText, styles.hintTextWin]}>
                   {winningTeamPlayers.length === 1 ? 'Sélectionnez 1 joueur supplémentaire' : '✓ Équipe gagnante complète'}
                 </Text>
               )}
@@ -384,7 +436,7 @@ export default function MatchResultFormScreen() {
 
             {/* Équipe perdante */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Équipe perdante (2 joueurs)</Text>
+              <Text style={[styles.sectionTitle, styles.sectionTitleLose]}>Équipe perdante (2 joueurs)</Text>
               <Pressable
                 onPress={() => {
                   if (winningTeamPlayers.length !== 2) {
@@ -395,6 +447,7 @@ export default function MatchResultFormScreen() {
                 }}
                 style={[
                   styles.pickerButton,
+                  styles.pickerButtonLose,
                   winningTeamPlayers.length !== 2 && styles.pickerButtonDisabled,
                 ]}
                 disabled={winningTeamPlayers.length !== 2}
@@ -402,6 +455,7 @@ export default function MatchResultFormScreen() {
                 <Text
                   style={[
                     styles.pickerButtonText,
+                    styles.pickerButtonTextLose,
                     winningTeamPlayers.length !== 2 && styles.pickerButtonTextDisabled,
                   ]}
                 >
@@ -414,11 +468,31 @@ export default function MatchResultFormScreen() {
                 <Text style={styles.pickerChevron}>▼</Text>
               </Pressable>
               {losingTeamPlayers.length > 0 && (
-                <Text style={styles.hintText}>
+                <Text style={[styles.hintText, styles.hintTextLose]}>
                   {losingTeamPlayers.length === 1 ? 'Sélectionnez 1 joueur supplémentaire' : '✓ Équipe perdante complète'}
                 </Text>
               )}
             </View>
+
+            {pointsPreview && (
+              <View style={styles.pointsPreview}>
+                <Text style={styles.pointsTitle}>Points estimés</Text>
+                <View style={styles.pointsRow}>
+                  <Text style={[styles.pointsLabel, styles.pointsLabelWin]}>Gagnants</Text>
+                  <Text style={[styles.pointsValue, styles.pointsValueWin]}>
+                    {pointsPreview.winDelta >= 0 ? '+' : ''}
+                    {pointsPreview.winDelta.toFixed(2)} pts
+                  </Text>
+                </View>
+                <View style={styles.pointsRow}>
+                  <Text style={[styles.pointsLabel, styles.pointsLabelLose]}>Perdants</Text>
+                  <Text style={[styles.pointsValue, styles.pointsValueLose]}>
+                    {pointsPreview.loseDelta >= 0 ? '+' : ''}
+                    {pointsPreview.loseDelta.toFixed(2)} pts
+                  </Text>
+                </View>
+              </View>
+            )}
           </>
         )}
 
@@ -604,18 +678,25 @@ export default function MatchResultFormScreen() {
                     disabled={!canSelect}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                      {player.avatar_url ? (
-                        <Image
-                          source={{ uri: player.avatar_url }}
-                          style={{ width: 32, height: 32, borderRadius: 16 }}
-                        />
-                      ) : (
-                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: '#6b7280', fontSize: 14, fontWeight: '700' }}>
-                            {formatPlayerName(player.display_name || player.name || 'J')[0].toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
+                      <View style={styles.avatarWrap}>
+                        {player.avatar_url ? (
+                          <Image
+                            source={{ uri: player.avatar_url }}
+                            style={styles.avatarImage}
+                          />
+                        ) : (
+                          <View style={styles.avatarFallback}>
+                            <Text style={styles.avatarFallbackText}>
+                              {formatPlayerName(player.display_name || player.name || 'J')[0].toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        {player.level ? (
+                          <View style={[styles.levelBadge, { backgroundColor: levelColor(player.level) }]}>
+                            <Text style={styles.levelBadgeText}>{player.level}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text
                         style={[
                           styles.modalOptionText,
@@ -673,18 +754,25 @@ export default function MatchResultFormScreen() {
                     disabled={!canSelect}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                      {player.avatar_url ? (
-                        <Image
-                          source={{ uri: player.avatar_url }}
-                          style={{ width: 32, height: 32, borderRadius: 16 }}
-                        />
-                      ) : (
-                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: '#6b7280', fontSize: 14, fontWeight: '700' }}>
-                            {formatPlayerName(player.display_name || player.name || 'J')[0].toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
+                      <View style={styles.avatarWrap}>
+                        {player.avatar_url ? (
+                          <Image
+                            source={{ uri: player.avatar_url }}
+                            style={styles.avatarImage}
+                          />
+                        ) : (
+                          <View style={styles.avatarFallback}>
+                            <Text style={styles.avatarFallbackText}>
+                              {formatPlayerName(player.display_name || player.name || 'J')[0].toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        {player.level ? (
+                          <View style={[styles.levelBadge, { backgroundColor: levelColor(player.level) }]}>
+                            <Text style={styles.levelBadgeText}>{player.level}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text
                         style={[
                           styles.modalOptionText,
@@ -818,6 +906,12 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 12,
   },
+  sectionTitleWin: {
+    color: WIN_COLOR,
+  },
+  sectionTitleLose: {
+    color: LOSE_COLOR,
+  },
   teamSelector: {
     flexDirection: 'row',
     gap: 12,
@@ -894,9 +988,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: '#f9fafb',
   },
+  pickerButtonWin: {
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+  },
+  pickerButtonLose: {
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+  },
   pickerButtonText: {
     fontSize: 16,
     color: '#111827',
+  },
+  pickerButtonTextWin: {
+    color: WIN_COLOR,
+    fontWeight: '700',
+  },
+  pickerButtonTextLose: {
+    color: LOSE_COLOR,
+    fontWeight: '700',
   },
   pickerChevron: {
     fontSize: 12,
@@ -983,6 +1093,59 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: 'italic',
   },
+  hintTextWin: {
+    color: 'rgba(16, 185, 129, 0.9)',
+    fontStyle: 'normal',
+  },
+  hintTextLose: {
+    color: 'rgba(239, 68, 68, 0.9)',
+    fontStyle: 'normal',
+  },
+  pointsPreview: {
+    marginTop: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  pointsTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  pointsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  pointsLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  pointsLabelWin: {
+    color: WIN_COLOR,
+  },
+  pointsLabelLose: {
+    color: LOSE_COLOR,
+  },
+  pointsValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  pointsValueWin: {
+    color: WIN_COLOR,
+  },
+  pointsValueLose: {
+    color: LOSE_COLOR,
+  },
   scoreHint: {
     fontSize: 12,
     color: '#6b7280',
@@ -1006,6 +1169,46 @@ const styles = StyleSheet.create({
   },
   modalOptionTextDisabled: {
     color: '#9ca3af',
+  },
+  avatarWrap: {
+    width: 32,
+    height: 32,
+    position: 'relative',
+  },
+  avatarImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  avatarFallback: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarFallbackText: {
+    color: '#6b7280',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  levelBadge: {
+    position: 'absolute',
+    right: -6,
+    bottom: -6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  levelBadgeText: {
+    color: '#0b0b0b',
+    fontSize: 9,
+    fontWeight: '800',
   },
 });
 
