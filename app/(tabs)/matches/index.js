@@ -6181,6 +6181,8 @@ const LongSlotRow = ({ item }) => {
   };
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
+  const remainingToSelect = Math.max(0, 3 - selectedIds.length);
+  const selectLabel = `Sélectionner ${remainingToSelect} joueur${remainingToSelect > 1 ? 's' : ''}`;
 
   const enter = useEnterAnim(!matchCreatedUndoVisible);
   const ctaScale = useRef(new Animated.Value(1)).current;
@@ -6229,7 +6231,7 @@ const LongSlotRow = ({ item }) => {
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
-              accessibilityLabel="Sélectionner 3 joueurs pour ce créneau 1h30"
+              accessibilityLabel={`${selectLabel} pour ce créneau 1h30`}
               style={({ pressed }) => [
                 styles.ctaButton,
                 !canCreate && styles.ctaButtonDisabled,
@@ -6237,10 +6239,7 @@ const LongSlotRow = ({ item }) => {
               ]}
             >
               <Text style={[styles.ctaText, !canCreate && styles.ctaTextDisabled]}>
-                Sélectionner 3 joueurs
-              </Text>
-              <Text style={styles.ctaSubText}>
-                {`${selectedIds.length}/3 sélectionnés`}
+                {selectLabel}
               </Text>
             </Pressable>
           </Animated.View>
@@ -6363,7 +6362,7 @@ const HourSlotRow = ({ item }) => {
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
-              accessibilityLabel="Sélectionner 3 joueurs pour ce créneau 1h"
+              accessibilityLabel={`${selectLabel} pour ce créneau 1h`}
               style={({ pressed }) => [
                 styles.ctaButton,
                 !canCreate && styles.ctaButtonDisabled,
@@ -6371,10 +6370,7 @@ const HourSlotRow = ({ item }) => {
               ]}
             >
               <Text style={[styles.ctaText, !canCreate && styles.ctaTextDisabled]}>
-                Sélectionner 3 joueurs
-              </Text>
-              <Text style={styles.ctaSubText}>
-                {`${selectedIds.length}/3 sélectionnés`}
+                {selectLabel}
               </Text>
             </Pressable>
           </Animated.View>
@@ -9253,42 +9249,44 @@ const HourSlotRow = ({ item }) => {
             </Pressable>
             
             {/* Icône flammes pour les matchs en feu - centrée entre les filtres */}
-            {hotMatches.length > 0 && (
-              <Pressable
-                onPress={() => setHotMatchesModalVisible(true)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
+            <Pressable
+              onPress={() => setHotMatchesModalVisible(true)}
+              disabled={hotMatches.length === 0}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
                 justifyContent: 'center',
                 paddingVertical: 3,
                 paddingHorizontal: 6,
                 borderRadius: 999,
-                backgroundColor: 'rgba(255,255,255,0.16)',
+                backgroundColor: hotMatches.length > 0 ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)',
                 borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.22)',
-                shadowColor: '#000000',
-                shadowOpacity: 0.25,
+                borderColor: hotMatches.length > 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)',
+                shadowColor: hotMatches.length > 0 ? '#000000' : 'transparent',
+                shadowOpacity: hotMatches.length > 0 ? 0.25 : 0,
                 shadowRadius: 6,
                 shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
-                  gap: 6,
-                  flexShrink: 0,
-                }}
-              >
-                <Text style={{ fontSize: 18 }}>🔥</Text>
-                <Text style={{ 
-                  color: '#fd9c68', 
+                elevation: hotMatches.length > 0 ? 3 : 0,
+                gap: 6,
+                flexShrink: 0,
+                opacity: hotMatches.length > 0 ? 1 : 0.6,
+              }}
+            >
+              <Text style={{ fontSize: 18 }}>🔥</Text>
+              <Text
+                style={{ 
+                  color: hotMatches.length > 0 ? '#fd9c68' : THEME.muted, 
                   fontWeight: '700', 
                   fontSize: 12,
                   flexShrink: 0,
-                  textShadowColor: 'rgba(0,0,0,0.6)',
+                  textShadowColor: hotMatches.length > 0 ? 'rgba(0,0,0,0.6)' : 'transparent',
                   textShadowOffset: { width: 0, height: 1 },
                   textShadowRadius: 2,
-                }}>
-                  {hotMatches.length}
-                </Text>
-              </Pressable>
-            )}
+                }}
+              >
+                {hotMatches.length}
+              </Text>
+            </Pressable>
             
             <Pressable
               onPress={() => {
@@ -10344,23 +10342,46 @@ const HourSlotRow = ({ item }) => {
         transparent={true}
         onRequestClose={() => setFlashDateModalOpen(false)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(6, 26, 43, 0.85)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ 
+            backgroundColor: THEME.card, 
+            borderRadius: 32, 
+            padding: 28, 
+            width: '90%', 
+            maxWidth: 400,
+            borderWidth: 1,
+            borderColor: THEME.cardBorder,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 20 },
+            shadowOpacity: 0.4,
+            shadowRadius: 30,
+            elevation: 20,
+          }}>
             <Pressable
               onPress={() => setFlashDateModalOpen(false)}
               accessibilityRole="button"
               accessibilityLabel="Fermer"
-              style={{ position: 'absolute', top: 10, right: 10, padding: 6 }}
+              style={{ 
+                position: 'absolute', 
+                top: 16, 
+                right: 16, 
+                padding: 8,
+                borderRadius: 20,
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              }}
             >
-              <Ionicons name="close" size={22} color="#111827" />
+              <Ionicons name="close" size={22} color={THEME.text} />
             </Pressable>
-            <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', marginBottom: 20 }}>
-              Créer un match éclair ⚡️
-            </Text>
+            <View style={{ alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+              <Ionicons name="flash" size={32} color={THEME.accent} style={{ marginBottom: 8 }} />
+              <Text style={{ fontSize: 26, fontWeight: '900', color: THEME.accent, textAlign: 'center' }}>
+                Créer un match éclair
+              </Text>
+            </View>
 
             {/* Sélection de la date et heure (comme match géographique) */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.text, marginBottom: 12 }}>
                 Date et heure
               </Text>
               <Pressable
@@ -10375,20 +10396,25 @@ const HourSlotRow = ({ item }) => {
                   }, 300);
                 }}
                 style={{
-                  backgroundColor: flashStart ? COLORS.accent : '#f3f4f6',
-                  borderRadius: 8,
-                  padding: 12,
+                  backgroundColor: flashStart ? THEME.accent : THEME.cardAlt,
+                  borderRadius: 24,
+                  padding: 18,
                   borderWidth: 1,
-                  borderColor: flashStart ? COLORS.accent : '#d1d5db',
+                  borderColor: flashStart ? THEME.accent : THEME.cardBorder,
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
+                  shadowColor: flashStart ? THEME.accent : 'transparent',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: flashStart ? 0.3 : 0,
+                  shadowRadius: 8,
+                  elevation: flashStart ? 8 : 0,
                 }}
               >
                 <View style={{ flex: 1 }}>
                   {flashStart ? (
                     <>
-                      <Text style={{ fontSize: 16, color: flashStart ? '#ffffff' : '#111827', fontWeight: '800' }}>
+                      <Text style={{ fontSize: 16, color: THEME.ink, fontWeight: '800' }}>
                         {(() => {
                           const d = flashStart;
                           const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -10400,7 +10426,7 @@ const HourSlotRow = ({ item }) => {
                           return `${dayName} ${dayFormatted} ${month}`;
                         })()}
                       </Text>
-                      <Text style={{ fontSize: 16, color: flashStart ? '#ffffff' : '#111827', fontWeight: '800', marginTop: 4 }}>
+                      <Text style={{ fontSize: 16, color: THEME.ink, fontWeight: '800', marginTop: 4 }}>
                         {(() => {
                           const d = flashStart;
                           const startHours = String(d.getHours()).padStart(2, '0');
@@ -10410,7 +10436,7 @@ const HourSlotRow = ({ item }) => {
                       </Text>
                     </>
                   ) : (
-                    <Text style={{ fontSize: 16, color: '#111827', fontWeight: '400' }}>
+                    <Text style={{ fontSize: 16, color: THEME.text, fontWeight: '500' }}>
                       Sélectionner une date et une heure
                     </Text>
                   )}
@@ -10428,24 +10454,26 @@ const HourSlotRow = ({ item }) => {
                   }}
                   hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                 style={{
-                  padding: 10,
-                    borderRadius: 4,
-                    minWidth: 36,
-                    minHeight: 36,
+                  padding: 12,
+                    borderRadius: 20,
+                    minWidth: 40,
+                    minHeight: 40,
                   alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: 'rgba(0,0,0,0.05)',
+                    backgroundColor: flashStart ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    borderColor: flashStart ? 'rgba(0,0,0,0.1)' : THEME.cardBorder,
                     ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
                   }}
                 >
-                  <Ionicons name="calendar-outline" size={20} color={flashStart ? "#ffffff" : "#6b7280"} />
+                  <Ionicons name="calendar-outline" size={22} color={flashStart ? THEME.ink : THEME.accent} />
                       </Pressable>
               </Pressable>
             </View>
 
             {/* Toggles pour la durée */}
             <View style={{ marginBottom: 24 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.text, marginBottom: 12 }}>
                 Durée
               </Text>
               <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -10458,13 +10486,15 @@ const HourSlotRow = ({ item }) => {
                   }}
                   style={{
                     flex: 1,
-                    backgroundColor: flashDurationMin === 60 ? COLORS.accent : '#e5e7eb',
-                    borderRadius: 8,
-                    padding: 16,
+                    backgroundColor: flashDurationMin === 60 ? THEME.accent : THEME.cardAlt,
+                    borderRadius: 20,
+                    padding: 18,
                     alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: flashDurationMin === 60 ? THEME.accent : THEME.cardBorder,
                   }}
                 >
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: flashDurationMin === 60 ? '#ffffff' : '#111827' }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: flashDurationMin === 60 ? THEME.ink : THEME.text }}>
                     1h
                   </Text>
                 </Pressable>
@@ -10477,13 +10507,15 @@ const HourSlotRow = ({ item }) => {
                   }}
                   style={{
                     flex: 1,
-                    backgroundColor: flashDurationMin === 90 ? COLORS.accent : '#e5e7eb',
-                    borderRadius: 8,
-                    padding: 16,
+                    backgroundColor: flashDurationMin === 90 ? THEME.accent : THEME.cardAlt,
+                    borderRadius: 20,
+                    padding: 18,
                     alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: flashDurationMin === 90 ? THEME.accent : THEME.cardBorder,
                   }}
                 >
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: flashDurationMin === 90 ? '#ffffff' : '#111827' }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: flashDurationMin === 90 ? THEME.ink : THEME.text }}>
                     1h30
                   </Text>
                 </Pressable>
@@ -10491,28 +10523,33 @@ const HourSlotRow = ({ item }) => {
             </View>
 
             {/* Heure de fin estimée */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.text, marginBottom: 8 }}>
                 Heure de fin estimée
               </Text>
-              <Text style={{
-                backgroundColor: '#f3f4f6',
-                borderRadius: 8,
-                padding: 12,
+              <View style={{
+                backgroundColor: THEME.cardAlt,
+                borderRadius: 20,
+                padding: 16,
                 borderWidth: 1,
-                borderColor: '#d1d5db',
-                fontSize: 16,
-                color: '#111827',
+                borderColor: THEME.cardBorder,
               }}>
-                {(() => {
-                  try {
-                    const end = new Date(flashStart.getTime() + (flashDurationMin || 0) * 60000);
-                    return end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                  } catch {
-                    return '';
-                  }
-                })()}
-              </Text>
+                <Text style={{
+                  fontSize: 18,
+                  color: THEME.accent,
+                  fontWeight: '800',
+                  textAlign: 'center',
+                }}>
+                  {(() => {
+                    try {
+                      const end = new Date(flashStart.getTime() + (flashDurationMin || 0) * 60000);
+                      return end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                    } catch {
+                      return '';
+                    }
+                  })()}
+                </Text>
+              </View>
             </View>
 
             {/* Boutons */}
@@ -10521,13 +10558,15 @@ const HourSlotRow = ({ item }) => {
                 onPress={() => setFlashDateModalOpen(false)}
                 style={{
                   flex: 1,
-                  backgroundColor: '#b91c1c',
-                  borderRadius: 8,
-                  padding: 14,
+                  backgroundColor: THEME.cardAlt,
+                  borderRadius: 24,
+                  padding: 16,
                   alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: THEME.cardBorder,
                 }}
               >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.text }}>
                   Annuler
                 </Text>
               </Pressable>
@@ -10535,13 +10574,18 @@ const HourSlotRow = ({ item }) => {
                 onPress={onValidateFlashDate}
                 style={{
                   flex: 1,
-                  backgroundColor: COLORS.accent,
-                  borderRadius: 8,
-                  padding: 14,
+                  backgroundColor: THEME.accent,
+                  borderRadius: 24,
+                  padding: 16,
                   alignItems: 'center',
+                  shadowColor: THEME.accent,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 8,
                 }}
               >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.ink }}>
                   Valider
                 </Text>
               </Pressable>
@@ -10557,15 +10601,24 @@ const HourSlotRow = ({ item }) => {
         transparent={true}
         onRequestClose={() => setFlashDatePickerModalOpen(false)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '80%' }}>
-            <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(6, 26, 43, 0.85)', justifyContent: 'flex-end' }}>
+          <View style={{ 
+            backgroundColor: THEME.card, 
+            borderTopLeftRadius: 32, 
+            borderTopRightRadius: 32, 
+            padding: 24, 
+            maxHeight: '80%',
+            borderWidth: 1,
+            borderColor: THEME.cardBorder,
+            borderBottomWidth: 0,
+          }}>
+            <Text style={{ fontSize: 22, fontWeight: '900', color: THEME.accent, marginBottom: 24, textAlign: 'center' }}>
               Sélectionner la date et l'heure
             </Text>
             
             {/* Menu déroulant des dates */}
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10, textAlign: 'center' }}>Date</Text>
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ fontSize: 14, color: THEME.muted, marginBottom: 12, textAlign: 'center', fontWeight: '700' }}>Date</Text>
               <ScrollView style={{ height: 200, width: '100%' }} showsVerticalScrollIndicator={false}>
                 {(() => {
                   const dates = [];
@@ -10599,14 +10652,16 @@ const HourSlotRow = ({ item }) => {
                           setTempDate(new Date(date));
                         }}
                         style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
-                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
-                          borderRadius: 8,
-                          marginVertical: 2,
+                          paddingVertical: 14,
+                          paddingHorizontal: 18,
+                          backgroundColor: isSelected ? THEME.accent : 'rgba(21, 107, 201, 0.25)',
+                          borderRadius: 20,
+                          marginVertical: 4,
+                          borderWidth: 1,
+                          borderColor: isSelected ? THEME.accent : 'rgba(21, 107, 201, 0.4)',
                         }}
                       >
-                        <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#ffffff' : '#111827' }}>
+                        <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '500', color: isSelected ? THEME.ink : THEME.text }}>
                           {formatDate(date)}
                         </Text>
                       </Pressable>
@@ -10617,8 +10672,8 @@ const HourSlotRow = ({ item }) => {
               </View>
 
             {/* Menu déroulant des heures (tranches de 15 min) */}
-            <View style={{ marginTop: 20, marginBottom: 20 }}>
-              <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 10, textAlign: 'center' }}>Heure</Text>
+            <View style={{ marginTop: 24, marginBottom: 24 }}>
+              <Text style={{ fontSize: 14, color: THEME.muted, marginBottom: 12, textAlign: 'center', fontWeight: '700' }}>Heure</Text>
               <ScrollView style={{ height: 200, width: '100%' }} showsVerticalScrollIndicator={false}>
                 {(() => {
                   const timeSlots = [];
@@ -10644,14 +10699,16 @@ const HourSlotRow = ({ item }) => {
                           setTempTime({ hours: slot.hour, minutes: slot.minute, seconds: 0 });
                         }}
                         style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
-                          backgroundColor: isSelected ? COLORS.accent : 'transparent',
-                          borderRadius: 8,
-                          marginVertical: 2,
+                          paddingVertical: 14,
+                          paddingHorizontal: 18,
+                          backgroundColor: isSelected ? THEME.accent : 'rgba(21, 107, 201, 0.25)',
+                          borderRadius: 20,
+                          marginVertical: 4,
+                          borderWidth: 1,
+                          borderColor: isSelected ? THEME.accent : 'rgba(21, 107, 201, 0.4)',
                         }}
                       >
-                        <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#ffffff' : '#111827' }}>
+                        <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '500', color: isSelected ? THEME.ink : THEME.text }}>
                           {formatTime(slot.hour, slot.minute)}
                         </Text>
                       </Pressable>
@@ -10669,9 +10726,17 @@ const HourSlotRow = ({ item }) => {
                     setFlashDateModalOpen(true);
                   }, 300);
                 }}
-                style={{ flex: 1, backgroundColor: '#b91c1c', borderRadius: 8, padding: 14, alignItems: 'center' }}
+                style={{ 
+                  flex: 1, 
+                  backgroundColor: THEME.cardAlt, 
+                  borderRadius: 24, 
+                  padding: 16, 
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: THEME.cardBorder,
+                }}
               >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Annuler</Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.text }}>Annuler</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -10686,9 +10751,20 @@ const HourSlotRow = ({ item }) => {
                     setFlashDateModalOpen(true);
                   }, 300);
                 }}
-                style={{ flex: 1, backgroundColor: COLORS.accent, borderRadius: 8, padding: 14, alignItems: 'center' }}
+                style={{ 
+                  flex: 1, 
+                  backgroundColor: THEME.accent, 
+                  borderRadius: 24, 
+                  padding: 16, 
+                  alignItems: 'center',
+                  shadowColor: THEME.accent,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 8,
+                }}
               >
-                <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Valider</Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.ink }}>Valider</Text>
               </Pressable>
             </View>
           </View>
@@ -10719,10 +10795,10 @@ const HourSlotRow = ({ item }) => {
           resetFlashFilters();
         }}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 16, width: '90%', maxWidth: 400, maxHeight: '90%' }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(6, 12, 20, 0.55)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: 'rgba(11, 34, 64, 0.92)', borderRadius: 26, padding: 16, width: '90%', maxWidth: 400, maxHeight: '90%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', shadowColor: '#0b2240', shadowOpacity: 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0b2240' }}>Sélectionner 3 joueurs</Text>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#e0ff00', letterSpacing: 0.2 }}>Sélectionner 3 joueurs</Text>
             <Pressable
                 onPress={() => {
                   setFlashPickerOpen(false);
@@ -10730,14 +10806,14 @@ const HourSlotRow = ({ item }) => {
                 }}
                 style={{ padding: 8 }}
               >
-                <Ionicons name="close" size={24} color="#111827" />
+                <Ionicons name="close" size={24} color="#ffffff" />
             </Pressable>
             </View>
 
             {flashLoading ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
               <ActivityIndicator size="large" color={COLORS.accent} />
-                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
+                <Text style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '700' }}>Chargement des membres...</Text>
               </View>
             ) : (
               <>
@@ -10797,7 +10873,7 @@ const HourSlotRow = ({ item }) => {
                   if (flashMembers.length === 0) {
                     return (
                       <View style={{ padding: 20 }}>
-                        <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                        <Text style={{ color: 'rgba(255,255,255,0.75)', textAlign: 'center', fontWeight: '600' }}>
                           Aucun membre dans ce groupe.
                         </Text>
                       </View>
@@ -10807,21 +10883,26 @@ const HourSlotRow = ({ item }) => {
                   if (filteredMembers.length === 0) {
                     return (
                       <>
-                <TextInput
+                        <TextInput
                           placeholder="Rechercher un joueur (nom, email, niveau)..."
                           placeholderTextColor="#9ca3af"
                   value={flashQuery}
                   onChangeText={setFlashQuery}
                   style={{
-                            backgroundColor: '#f9fafb',
+                            backgroundColor: 'rgba(255,255,255,0.75)',
                             borderWidth: 1,
-                            borderColor: '#e5e7eb',
-                            borderRadius: 10,
+                            borderColor: 'rgba(15,23,42,0.12)',
+                            borderRadius: 999,
                             paddingHorizontal: 12,
                             paddingVertical: 10,
                             color: '#111827',
                             marginBottom: 12,
                             fontSize: 14,
+                            shadowColor: '#0b2240',
+                            shadowOpacity: 0.08,
+                            shadowRadius: 10,
+                            shadowOffset: { width: 0, height: 3 },
+                            elevation: 2,
                           }}
                           returnKeyType="search"
                           autoCapitalize="none"
@@ -10830,8 +10911,8 @@ const HourSlotRow = ({ item }) => {
                         {/* Boutons de filtres */}
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, marginBottom: 12 }}>
                           <Text style={{ 
-                            color: '#111827', 
-                            fontWeight: '700', 
+                            color: '#ffffff', 
+                            fontWeight: '800', 
                             fontSize: 14 
                           }}>
                             Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
@@ -10846,7 +10927,15 @@ const HourSlotRow = ({ item }) => {
                             }}
                             style={{
                               padding: 10,
-                              backgroundColor: 'transparent',
+                              backgroundColor: flashLevelFilter.length > 0 ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.65)',
+                              shadowColor: '#0b2240',
+                              shadowOpacity: 0.12,
+                              shadowRadius: 8,
+                              shadowOffset: { width: 0, height: 2 },
+                              elevation: 3,
                             }}
                           >
                             <Image 
@@ -10871,7 +10960,15 @@ const HourSlotRow = ({ item }) => {
                             }}
                             style={{
                               padding: 10,
-                              backgroundColor: 'transparent',
+                              backgroundColor: flashAvailabilityFilter ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.65)',
+                              shadowColor: '#0b2240',
+                              shadowOpacity: 0.12,
+                              shadowRadius: 8,
+                              shadowOffset: { width: 0, height: 2 },
+                              elevation: 3,
                             }}
                           >
                             <Ionicons 
@@ -10897,7 +10994,15 @@ const HourSlotRow = ({ item }) => {
                             }}
                             style={{
                               padding: 10,
-                              backgroundColor: 'transparent',
+                              backgroundColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.65)',
+                              shadowColor: '#0b2240',
+                              shadowOpacity: 0.12,
+                              shadowRadius: 8,
+                              shadowOffset: { width: 0, height: 2 },
+                              elevation: 3,
                             }}
                           >
                             <Ionicons 
@@ -10917,7 +11022,7 @@ const HourSlotRow = ({ item }) => {
                         
                         {/* Message filtre disponibilité */}
                         {flashAvailabilityFilter && (
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: '#15803d', marginBottom: 8, textAlign: 'center' }}>
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: '#e0ff00', marginBottom: 8, textAlign: 'center' }}>
                             ✓ Uniquement les joueurs dispos
                           </Text>
                         )}
@@ -10925,14 +11030,19 @@ const HourSlotRow = ({ item }) => {
                         {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
                         {flashLevelFilterVisible && (
                           <View style={{ 
-                    backgroundColor: '#f3f4f6',
-                            borderRadius: 12, 
+                            backgroundColor: 'rgba(255,255,255,0.7)',
+                            borderRadius: 16, 
                             padding: 12,
                             borderWidth: 1,
-                            borderColor: flashLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                            borderColor: flashLevelFilter.length > 0 ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
                             marginBottom: 12,
+                            shadowColor: '#0b2240',
+                            shadowOpacity: 0.08,
+                            shadowRadius: 10,
+                            shadowOffset: { width: 0, height: 3 },
+                            elevation: 2,
                           }}>
-                            <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                            <Text style={{ fontSize: 14, fontWeight: '900', color: '#ffffff', marginBottom: 12 }}>
                               Sélectionnez les niveaux à afficher
                             </Text>
                             
@@ -10955,9 +11065,14 @@ const HourSlotRow = ({ item }) => {
                                       paddingVertical: 3.3,
                                       paddingHorizontal: 8.8,
                                       borderRadius: 999,
-                                      backgroundColor: isSelected ? lv.color : '#ffffff',
+                                      backgroundColor: isSelected ? lv.color : 'rgba(255,255,255,0.85)',
                                       borderWidth: isSelected ? 2 : 1,
-                                      borderColor: isSelected ? lv.color : '#d1d5db',
+                                      borderColor: isSelected ? lv.color : 'rgba(15,23,42,0.12)',
+                                      shadowColor: '#0b2240',
+                                      shadowOpacity: 0.1,
+                                      shadowRadius: 6,
+                                      shadowOffset: { width: 0, height: 2 },
+                                      elevation: 2,
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                     }}
@@ -10975,7 +11090,7 @@ const HourSlotRow = ({ item }) => {
                             </View>
                             
                             {flashLevelFilter.length > 0 && (
-                              <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#e0ff00', marginTop: 8 }}>
                                 ✓ Filtre actif : {flashLevelFilter.length} niveau{flashLevelFilter.length > 1 ? 'x' : ''} sélectionné{flashLevelFilter.length > 1 ? 's' : ''}
                               </Text>
                             )}
@@ -10985,20 +11100,25 @@ const HourSlotRow = ({ item }) => {
                         {/* Zone de configuration du filtre géographique (masquée par défaut) */}
                         {flashGeoFilterVisible && (
                           <View style={{ 
-                            backgroundColor: '#f3f4f6', 
-                            borderRadius: 12, 
-                    padding: 12,
+                            backgroundColor: 'rgba(255,255,255,0.7)', 
+                            borderRadius: 16, 
+                            padding: 12,
                             borderWidth: 1,
-                            borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                            borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
                             marginBottom: 12,
+                            shadowColor: '#0b2240',
+                            shadowOpacity: 0.08,
+                            shadowRadius: 10,
+                            shadowOffset: { width: 0, height: 3 },
+                            elevation: 2,
                           }}>
-                            <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                            <Text style={{ fontSize: 14, fontWeight: '900', color: '#ffffff', marginBottom: 12 }}>
                               Filtrer par distance
                             </Text>
                             
                             {/* Sélection du type de position */}
                             <View style={{ marginBottom: 12 }}>
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
                                 Position de référence
                               </Text>
                               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -11030,10 +11150,15 @@ const HourSlotRow = ({ item }) => {
                                       style={{
                                         paddingVertical: 8,
                                         paddingHorizontal: 12,
-                                        borderRadius: 8,
-                                        backgroundColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#ffffff',
+                                        borderRadius: 999,
+                                        backgroundColor: (isSelected && flashGeoRefPoint) ? 'rgba(21, 128, 61, 0.9)' : 'rgba(255,255,255,0.85)',
                                         borderWidth: 1,
-                                        borderColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                        borderColor: (isSelected && flashGeoRefPoint) ? 'rgba(21, 128, 61, 0.9)' : 'rgba(15,23,42,0.12)',
+                                        shadowColor: '#0b2240',
+                                        shadowOpacity: 0.1,
+                                        shadowRadius: 6,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        elevation: 2,
                                       }}
                                     >
                                       <Text style={{ 
@@ -11052,7 +11177,7 @@ const HourSlotRow = ({ item }) => {
                             {/* Recherche de ville si type = 'city' */}
                             {flashGeoLocationType === 'city' && (
                               <View style={{ marginBottom: 12 }}>
-                                <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                                <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
                                   Rechercher une ville
                                 </Text>
                                 <TextInput
@@ -11063,16 +11188,21 @@ const HourSlotRow = ({ item }) => {
                                     searchFlashGeoCity(text);
                                   }}
                                   style={{
-                                    backgroundColor: '#ffffff',
-                                    borderRadius: 8,
+                                    backgroundColor: 'rgba(255,255,255,0.85)',
+                                    borderRadius: 999,
                                     padding: 12,
-                    borderWidth: 1,
-                    borderColor: '#d1d5db',
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(15,23,42,0.12)',
                                     fontSize: 14,
+                                    shadowColor: '#0b2240',
+                                    shadowOpacity: 0.08,
+                                    shadowRadius: 10,
+                                    shadowOffset: { width: 0, height: 3 },
+                                    elevation: 2,
                                   }}
                                 />
                                 {flashGeoCitySuggestions.length > 0 && (
-                                  <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                                  <View style={{ marginTop: 8, backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(15,23,42,0.12)', maxHeight: 150, shadowColor: '#0b2240', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 }}>
                                     <ScrollView>
                                       {flashGeoCitySuggestions.map((suggestion, idx) => (
                                         <Pressable
@@ -11099,7 +11229,7 @@ const HourSlotRow = ({ item }) => {
                             
                             {/* Sélection du rayon */}
                             <View style={{ marginBottom: 12 }}>
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
                                 Rayon : {flashGeoRadiusKm ? `${flashGeoRadiusKm} km` : 'non sélectionné'}
                               </Text>
                               <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
@@ -11119,10 +11249,15 @@ const HourSlotRow = ({ item }) => {
                                         flex: 1,
                                         paddingVertical: 6,
                                         paddingHorizontal: 8,
-                                        borderRadius: 8,
-                                        backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                        borderRadius: 999,
+                                        backgroundColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(255,255,255,0.85)',
                                         borderWidth: 1,
-                                        borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                        borderColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(15,23,42,0.12)',
+                                        shadowColor: '#0b2240',
+                                        shadowOpacity: 0.08,
+                                        shadowRadius: 8,
+                                        shadowOffset: { width: 0, height: 2 },
+                                        elevation: 2,
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                       }}
@@ -11141,7 +11276,7 @@ const HourSlotRow = ({ item }) => {
                             </View>
                             
                             {(flashGeoRefPoint && flashGeoRadiusKm) && (
-                              <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#e0ff00', marginTop: 8 }}>
                                 ✓ Filtre actif : {flashGeoRadiusKm} km autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
                               </Text>
                             )}
@@ -11149,7 +11284,7 @@ const HourSlotRow = ({ item }) => {
                         )}
                         
                         <View style={{ padding: 20 }}>
-                          <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                        <Text style={{ color: 'rgba(255,255,255,0.75)', textAlign: 'center', fontWeight: '600' }}>
                             Aucun membre trouvé
                             {flashQuery.trim() && ` pour "${flashQuery}"`}
                             {flashLevelFilter.length > 0 && ` avec les niveaux ${flashLevelFilter.sort((a, b) => a - b).join(', ')}`}
@@ -11168,15 +11303,20 @@ const HourSlotRow = ({ item }) => {
                         value={flashQuery}
                         onChangeText={setFlashQuery}
                         style={{
-                          backgroundColor: '#f9fafb',
+                          backgroundColor: 'rgba(255,255,255,0.75)',
                           borderWidth: 1,
-                          borderColor: '#e5e7eb',
-                          borderRadius: 10,
+                          borderColor: 'rgba(15,23,42,0.12)',
+                          borderRadius: 999,
                           paddingHorizontal: 12,
                           paddingVertical: 10,
                           color: '#111827',
                           marginBottom: 12,
                           fontSize: 14,
+                          shadowColor: '#0b2240',
+                          shadowOpacity: 0.08,
+                          shadowRadius: 10,
+                          shadowOffset: { width: 0, height: 3 },
+                          elevation: 2,
                         }}
                         returnKeyType="search"
                         autoCapitalize="none"
@@ -11184,9 +11324,9 @@ const HourSlotRow = ({ item }) => {
                       
                       {/* Boutons de filtres */}
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, marginBottom: 12 }}>
-                        <Text style={{ 
-                          color: '#111827', 
-                          fontWeight: '700', 
+                      <Text style={{ 
+                          color: '#ffffff', 
+                          fontWeight: '800', 
                           fontSize: 14 
                         }}>
                           Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
@@ -11201,7 +11341,15 @@ const HourSlotRow = ({ item }) => {
                           }}
                           style={{
                             padding: 10,
-                            backgroundColor: 'transparent',
+                            backgroundColor: flashLevelFilter.length > 0 ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.65)',
+                            shadowColor: '#0b2240',
+                            shadowOpacity: 0.12,
+                            shadowRadius: 8,
+                            shadowOffset: { width: 0, height: 2 },
+                            elevation: 3,
                           }}
                         >
                           <Image 
@@ -11226,7 +11374,15 @@ const HourSlotRow = ({ item }) => {
                           }}
                           style={{
                             padding: 10,
-                            backgroundColor: 'transparent',
+                            backgroundColor: flashAvailabilityFilter ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.65)',
+                            shadowColor: '#0b2240',
+                            shadowOpacity: 0.12,
+                            shadowRadius: 8,
+                            shadowOffset: { width: 0, height: 2 },
+                            elevation: 3,
                           }}
                         >
                           <Ionicons 
@@ -11252,7 +11408,15 @@ const HourSlotRow = ({ item }) => {
                           }}
                           style={{
                             padding: 10,
-                            backgroundColor: 'transparent',
+                            backgroundColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.65)',
+                            shadowColor: '#0b2240',
+                            shadowOpacity: 0.12,
+                            shadowRadius: 8,
+                            shadowOffset: { width: 0, height: 2 },
+                            elevation: 3,
                           }}
                         >
                           <Ionicons 
@@ -11272,7 +11436,7 @@ const HourSlotRow = ({ item }) => {
                       
                       {/* Message filtre disponibilité */}
                       {flashAvailabilityFilter && (
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#15803d', marginBottom: 8, textAlign: 'center' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: '#e0ff00', marginBottom: 8, textAlign: 'center' }}>
                           ✓ Uniquement les joueurs dispos
                         </Text>
                       )}
@@ -11280,12 +11444,17 @@ const HourSlotRow = ({ item }) => {
                       {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
                       {flashLevelFilterVisible && (
                         <View style={{ 
-                          backgroundColor: '#f3f4f6', 
-                          borderRadius: 12, 
+                          backgroundColor: 'rgba(255,255,255,0.7)',
+                          borderRadius: 16, 
                           padding: 12,
                           borderWidth: 1,
-                          borderColor: flashLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                          borderColor: flashLevelFilter.length > 0 ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
                           marginBottom: 12,
+                          shadowColor: '#0b2240',
+                          shadowOpacity: 0.08,
+                          shadowRadius: 10,
+                          shadowOffset: { width: 0, height: 3 },
+                          elevation: 2,
                         }}>
                           <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
                             Sélectionnez les niveaux à afficher
@@ -11295,7 +11464,7 @@ const HourSlotRow = ({ item }) => {
                             {LEVELS.map((lv) => {
                               const isSelected = Array.isArray(flashLevelFilter) && flashLevelFilter.includes(lv.v);
                               return (
-                                <Pressable
+                              <Pressable
                                   key={lv.v}
                                   onPress={() => {
                                     setFlashLevelFilter((prev) => {
@@ -11307,12 +11476,17 @@ const HourSlotRow = ({ item }) => {
                                     });
                                   }}
                                   style={{
-                                    paddingVertical: 3.3,
-                                    paddingHorizontal: 8.8,
-                                    borderRadius: 999,
-                                    backgroundColor: isSelected ? lv.color : '#ffffff',
-                                    borderWidth: isSelected ? 2 : 1,
-                                    borderColor: isSelected ? lv.color : '#d1d5db',
+                                  paddingVertical: 3.3,
+                                  paddingHorizontal: 8.8,
+                                  borderRadius: 999,
+                                  backgroundColor: isSelected ? lv.color : 'rgba(255,255,255,0.85)',
+                                  borderWidth: isSelected ? 2 : 1,
+                                  borderColor: isSelected ? lv.color : 'rgba(15,23,42,0.12)',
+                                  shadowColor: '#0b2240',
+                                  shadowOpacity: 0.1,
+                                  shadowRadius: 6,
+                                  shadowOffset: { width: 0, height: 2 },
+                                  elevation: 2,
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                   }}
@@ -11330,7 +11504,7 @@ const HourSlotRow = ({ item }) => {
                           </View>
                           
                           {flashLevelFilter.length > 0 && (
-                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#e0ff00', marginTop: 8 }}>
                               ✓ Filtre actif : {flashLevelFilter.length} niveau{flashLevelFilter.length > 1 ? 'x' : ''} sélectionné{flashLevelFilter.length > 1 ? 's' : ''}
                             </Text>
                           )}
@@ -11340,20 +11514,25 @@ const HourSlotRow = ({ item }) => {
                       {/* Zone de configuration du filtre géographique (masquée par défaut) */}
                       {flashGeoFilterVisible && (
                         <View style={{ 
-                          backgroundColor: '#f3f4f6', 
-                          borderRadius: 12, 
+                          backgroundColor: 'rgba(255,255,255,0.7)', 
+                          borderRadius: 16, 
                           padding: 12,
                           borderWidth: 1,
-                          borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                          borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
                           marginBottom: 12,
+                          shadowColor: '#0b2240',
+                          shadowOpacity: 0.08,
+                          shadowRadius: 10,
+                          shadowOffset: { width: 0, height: 3 },
+                          elevation: 2,
                         }}>
-                          <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                          <Text style={{ fontSize: 14, fontWeight: '900', color: '#ffffff', marginBottom: 12 }}>
                             Filtrer par distance
                           </Text>
                           
                           {/* Sélection du type de position */}
                           <View style={{ marginBottom: 12 }}>
-                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
                               Position de référence
                             </Text>
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -11365,7 +11544,7 @@ const HourSlotRow = ({ item }) => {
                               ].map(({ key, label }) => {
                                 const isSelected = flashGeoLocationType === key;
                                 return (
-                                  <Pressable
+                                <Pressable
                                     key={key}
                                     onPress={() => {
                                       if (isSelected) {
@@ -11385,10 +11564,15 @@ const HourSlotRow = ({ item }) => {
                                     style={{
                                       paddingVertical: 8,
                                       paddingHorizontal: 12,
-                                      borderRadius: 8,
-                                      backgroundColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#ffffff',
-                                      borderWidth: 1,
-                                      borderColor: (isSelected && flashGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                    borderRadius: 999,
+                                    backgroundColor: (isSelected && flashGeoRefPoint) ? 'rgba(21, 128, 61, 0.9)' : 'rgba(255,255,255,0.85)',
+                                    borderWidth: 1,
+                                    borderColor: (isSelected && flashGeoRefPoint) ? 'rgba(21, 128, 61, 0.9)' : 'rgba(15,23,42,0.12)',
+                                    shadowColor: '#0b2240',
+                                    shadowOpacity: 0.1,
+                                    shadowRadius: 6,
+                                    shadowOffset: { width: 0, height: 2 },
+                                    elevation: 2,
                                     }}
                                   >
                                     <Text style={{ 
@@ -11407,7 +11591,7 @@ const HourSlotRow = ({ item }) => {
                           {/* Recherche de ville si type = 'city' */}
                           {flashGeoLocationType === 'city' && (
                             <View style={{ marginBottom: 12 }}>
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
                                 Rechercher une ville
                               </Text>
                               <TextInput
@@ -11418,16 +11602,21 @@ const HourSlotRow = ({ item }) => {
                                   searchFlashGeoCity(text);
                                 }}
                                 style={{
-                                  backgroundColor: '#ffffff',
-                                  borderRadius: 8,
+                                  backgroundColor: 'rgba(255,255,255,0.85)',
+                                  borderRadius: 999,
                                   padding: 12,
                                   borderWidth: 1,
-                                  borderColor: '#d1d5db',
+                                  borderColor: 'rgba(15,23,42,0.12)',
                                   fontSize: 14,
+                                  shadowColor: '#0b2240',
+                                  shadowOpacity: 0.08,
+                                  shadowRadius: 10,
+                                  shadowOffset: { width: 0, height: 3 },
+                                  elevation: 2,
                                 }}
                               />
                               {flashGeoCitySuggestions.length > 0 && (
-                                <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                                <View style={{ marginTop: 8, backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(15,23,42,0.12)', maxHeight: 150, shadowColor: '#0b2240', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 }}>
                                   <ScrollView>
                                     {flashGeoCitySuggestions.map((suggestion, idx) => (
                                       <Pressable
@@ -11454,7 +11643,7 @@ const HourSlotRow = ({ item }) => {
                           
                           {/* Sélection du rayon */}
                           <View style={{ marginBottom: 12 }}>
-                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
                               Rayon : {flashGeoRadiusKm ? `${flashGeoRadiusKm} km` : 'non sélectionné'}
                             </Text>
                             <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
@@ -11474,10 +11663,15 @@ const HourSlotRow = ({ item }) => {
                                       flex: 1,
                                       paddingVertical: 6,
                                       paddingHorizontal: 8,
-                                      borderRadius: 8,
-                                      backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                      borderRadius: 999,
+                                      backgroundColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(255,255,255,0.85)',
                                       borderWidth: 1,
-                                      borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                      borderColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(15,23,42,0.12)',
+                                      shadowColor: '#0b2240',
+                                      shadowOpacity: 0.08,
+                                      shadowRadius: 8,
+                                      shadowOffset: { width: 0, height: 2 },
+                                      elevation: 2,
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                     }}
@@ -11496,7 +11690,7 @@ const HourSlotRow = ({ item }) => {
                           </View>
                           
                           {(flashGeoRefPoint && flashGeoRadiusKm) && (
-                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#e0ff00', marginTop: 8 }}>
                               ✓ Filtre actif : {flashGeoRadiusKm} km autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
                             </Text>
                           )}
@@ -11505,7 +11699,7 @@ const HourSlotRow = ({ item }) => {
 
                 {/* Avatars sélectionnés (bandeau) */}
                 {flashSelected.length > 0 && (
-                        <View style={{ marginBottom: 12, borderTopWidth: 0, borderBottomWidth: 0 }}>
+                        <View style={{ marginBottom: 12, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', paddingHorizontal: 8, paddingVertical: 6, shadowColor: '#0b2240', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2 }}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4 }}>
                             {filteredMembers
                         .filter(m => flashSelected.includes(String(m.id)))
@@ -11551,7 +11745,7 @@ const HourSlotRow = ({ item }) => {
                                     height: 22,
                                     borderRadius: 11,
                                     backgroundColor: colorForLevel(member.niveau),
-                                    borderWidth: 2,
+                                    borderWidth: 0.5,
                                     borderColor: '#ffffff',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -11570,7 +11764,7 @@ const HourSlotRow = ({ item }) => {
                 )}
 
                 {/* Liste des joueurs */}
-                  <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+                <ScrollView style={{ maxHeight: 320, marginBottom: 16, backgroundColor: THEME.cardAlt, borderRadius: 24, padding: 8, borderWidth: 1, borderColor: THEME.cardBorder }}>
                         {filteredMembers.map((member) => {
                       const isSelected = flashSelected.includes(String(member.id));
                       return (
@@ -11596,11 +11790,16 @@ const HourSlotRow = ({ item }) => {
                             flexDirection: 'row',
                             alignItems: 'center',
                             padding: 12,
-                            backgroundColor: isSelected ? '#e0ff00' : '#f9fafb',
-                            borderRadius: 8,
+                            backgroundColor: isSelected ? THEME.accent : THEME.cardAlt,
+                            borderRadius: 20,
                             marginBottom: 8,
-                            borderWidth: isSelected ? 2 : 1,
-                            borderColor: isSelected ? '#e0ff00' : '#e5e7eb',
+                            borderWidth: 1,
+                            borderColor: isSelected ? THEME.accent : THEME.cardBorder,
+                            shadowColor: isSelected ? THEME.accent : 'transparent',
+                            shadowOpacity: isSelected ? 0.25 : 0,
+                            shadowRadius: 8,
+                            shadowOffset: { width: 0, height: 4 },
+                            elevation: isSelected ? 8 : 0,
                           }}
                         >
                           <View style={{ position: 'relative', marginRight: 12 }}>
@@ -11633,7 +11832,7 @@ const HourSlotRow = ({ item }) => {
                                   height: 20,
                                   borderRadius: 10,
                                   backgroundColor: colorForLevel(member.niveau),
-                                  borderWidth: 2,
+                                  borderWidth: 0.5,
                                   borderColor: '#ffffff',
                                   alignItems: 'center',
                                   justifyContent: 'center',
@@ -11651,11 +11850,11 @@ const HourSlotRow = ({ item }) => {
                               </View>
                             )}
                           </View>
-                          <Text style={{ fontSize: 13, fontWeight: isSelected ? '800' : '400', color: isSelected ? '#001831' : '#111827', flex: 1 }}>
+                          <Text style={{ fontSize: 16, fontWeight: isSelected ? '800' : '600', color: isSelected ? THEME.ink : THEME.text, flex: 1 }}>
                             {(member.name || 'Joueur inconnu').split('@')[0]}
                           </Text>
                           {isSelected && (
-                            <Image source={racketIcon} style={{ width: 22, height: 22, tintColor: '#001831' }} />
+                            <Image source={racketIcon} style={{ width: 22, height: 22, tintColor: THEME.ink }} />
                           )}
                         </Pressable>
                       );
@@ -11666,50 +11865,36 @@ const HourSlotRow = ({ item }) => {
                 })()}
 
                 {/* Compteur de sélection */}
-                <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 16, textAlign: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#e0ff00', marginBottom: 16, textAlign: 'center', fontWeight: '900', letterSpacing: 0.2 }}>
                   {flashSelected.length}/3 joueurs sélectionnés
                 </Text>
 
                 {/* Boutons */}
-                <View style={{ flexDirection: 'column', gap: 6 }}>
-                  {/* Bouton avec confirmation */}
-                  <Pressable
-                    onPress={() => onCreateFlashMatch(true)}
-                    disabled={flashSelected.length !== 3}
-                    style={{
-                      backgroundColor: flashSelected.length === 3 ? COLORS.accent : '#d1d5db',
-                      borderRadius: 8,
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#ffffff' }}>
-                      Créer avec confirmation
-                    </Text>
-                    <Text style={{ fontSize: 11, color: '#ffffff', marginTop: 1, opacity: 0.9 }}>
-                      Les joueurs devront confirmer
-                    </Text>
-                  </Pressable>
-                  
+                <View style={{ flexDirection: 'column', gap: 12 }}>
                   {/* Bouton sans confirmation */}
                   <Pressable
                     onPress={() => onCreateFlashMatch(false)}
                     disabled={flashSelected.length !== 3}
                     style={{
-                      backgroundColor: flashSelected.length === 3 ? '#10b981' : '#d1d5db',
-                      borderRadius: 8,
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
+                      backgroundColor: flashSelected.length === 3 ? THEME.accent : THEME.cardAlt,
+                      borderRadius: 24,
+                      borderWidth: 1,
+                      borderColor: flashSelected.length === 3 ? THEME.accent : THEME.cardBorder,
+                      padding: 16,
                       alignItems: 'center',
+                      shadowColor: flashSelected.length === 3 ? THEME.accent : 'transparent',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: flashSelected.length === 3 ? 0.3 : 0,
+                      shadowRadius: 8,
+                      elevation: flashSelected.length === 3 ? 8 : 0,
                     }}
                   >
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#ffffff' }}>
-                      Créer sans confirmation
-                    </Text>
-                    <Text style={{ fontSize: 11, color: '#ffffff', marginTop: 1, opacity: 0.9 }}>
-                      Match confirmé directement
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="flash" size={18} color={flashSelected.length === 3 ? THEME.ink : THEME.text} style={{ marginRight: 6 }} />
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: flashSelected.length === 3 ? THEME.ink : THEME.text }}>
+                        Créer un match
+                      </Text>
+                    </View>
                   </Pressable>
                   
                   <Pressable
@@ -11719,13 +11904,15 @@ const HourSlotRow = ({ item }) => {
                       setFlashDateModalOpen(true);
                     }}
                     style={{
-                      backgroundColor: '#e5e7eb',
-                      borderRadius: 8,
-                      padding: 14,
+                      backgroundColor: THEME.cardAlt,
+                      borderRadius: 24,
+                      borderWidth: 1,
+                      borderColor: THEME.cardBorder,
+                      padding: 16,
                       alignItems: 'center',
                     }}
                   >
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: THEME.text }}>
                       Retour
                     </Text>
                   </Pressable>
@@ -12728,29 +12915,29 @@ const HourSlotRow = ({ item }) => {
 
       {/* Modale des matchs en feu */}
       <Modal visible={hotMatchesModalVisible} transparent animationType="fade" onRequestClose={() => setHotMatchesModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '95%', maxWidth: 600, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '90%' }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(6, 26, 43, 0.85)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '95%', maxWidth: 600, backgroundColor: THEME.card, borderRadius: 32, padding: 24, maxHeight: '90%', borderWidth: 1, borderColor: THEME.cardBorder, shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.4, shadowRadius: 30, elevation: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 24 }}>🔥</Text>
-                <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Matchs en feu</Text>
+                <Text style={{ fontWeight: '900', fontSize: 18, color: THEME.accent }}>Matchs en feu</Text>
               </View>
-              <Pressable onPress={() => setHotMatchesModalVisible(false)} style={{ padding: 8 }}>
-                <Ionicons name="close" size={24} color="#111827" />
+              <Pressable onPress={() => setHotMatchesModalVisible(false)} style={{ padding: 8, borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}>
+                <Ionicons name="close" size={24} color={THEME.text} />
               </Pressable>
             </View>
             
             {hotMatches.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ color: THEME.muted, textAlign: 'center', fontSize: 16 }}>
+                <Text style={{ color: THEME.text, textAlign: 'center', fontSize: 16 }}>
                   Aucun match en feu pour le moment.
                 </Text>
-                <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 14, marginTop: 8 }}>
+                <Text style={{ color: THEME.muted, textAlign: 'center', fontSize: 14, marginTop: 8 }}>
                   Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs disponibles).
                 </Text>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 500 }}>
+              <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ paddingBottom: 8 }}>
                 {hotMatches.map((m) => {
                   const availableUserIds = m.available_user_ids || [];
                   // Ne pas ajouter automatiquement l'utilisateur à la liste
@@ -12764,15 +12951,15 @@ const HourSlotRow = ({ item }) => {
                     <View
                       key={m.id}
                       style={{
-                        backgroundColor: '#fef2f2',
-                        borderRadius: 12,
+                        backgroundColor: THEME.cardAlt,
+                        borderRadius: 20,
                         padding: 16,
                         marginBottom: 12,
-                        borderWidth: 2,
-                        borderColor: '#ef4444',
+                        borderWidth: 1,
+                        borderColor: THEME.cardBorder,
                       }}
                     >
-                      <Text style={{ fontWeight: '800', fontSize: 16, color: '#111827', marginBottom: 8 }}>
+                      <Text style={{ fontWeight: '800', fontSize: 16, color: THEME.text, marginBottom: 8 }}>
                         {slot.starts_at && slot.ends_at 
                           ? formatRange(slot.starts_at, slot.ends_at)
                           : 'Date à définir'
@@ -12780,7 +12967,7 @@ const HourSlotRow = ({ item }) => {
                       </Text>
                       
                       <View style={{ marginTop: 8 }}>
-                        <Text style={{ fontWeight: '700', fontSize: 14, color: '#6b7280', marginBottom: 8 }}>
+                        <Text style={{ fontWeight: '700', fontSize: 14, color: THEME.muted, marginBottom: 8 }}>
                           {allAvailableIds.length}/4 joueurs disponibles
                         </Text>
                         
@@ -12800,11 +12987,11 @@ const HourSlotRow = ({ item }) => {
                                 style={{
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  backgroundColor: isMe ? '#fef3c7' : '#ffffff',
+                                  backgroundColor: isMe ? 'rgba(255,255,255,0.12)' : THEME.card,
                                   padding: 0,
                                   borderRadius: 28,
-                                  borderWidth: isMe ? 1.5 : 0.5,
-                                  borderColor: isMe ? '#f59e0b' : '#e5e7eb',
+                                  borderWidth: 1,
+                                  borderColor: isMe ? THEME.accent : THEME.cardBorder,
                                   position: 'relative',
                                 }}
                               >
@@ -12814,8 +13001,8 @@ const HourSlotRow = ({ item }) => {
                                     style={{ width: 48, height: 48, borderRadius: 24 }}
                                   />
                                 ) : (
-                                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#eaf2ff', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Text style={{ color: '#156bc9', fontWeight: '700', fontSize: 18 }}>
+                                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: THEME.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
+                                    <Text style={{ color: THEME.accent, fontWeight: '700', fontSize: 18 }}>
                                       {formatPlayerName(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
                                     </Text>
                                   </View>
@@ -12830,7 +13017,7 @@ const HourSlotRow = ({ item }) => {
                                       height: 20,
                                       borderRadius: 10,
                                       backgroundColor: colorForLevel(profile.niveau),
-                                      borderWidth: 2,
+                                      borderWidth: 0.5,
                                       borderColor: '#ffffff',
                                       alignItems: 'center',
                                       justifyContent: 'center',
@@ -12847,7 +13034,7 @@ const HourSlotRow = ({ item }) => {
                         </View>
                       </View>
                       
-                      <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700', marginTop: 8 }}>
+                      <Text style={{ fontSize: 12, color: THEME.accent, fontWeight: '700', marginTop: 8 }}>
                         🔥 Il ne manque plus qu'un joueur !
                       </Text>
                       
@@ -12925,22 +13112,28 @@ const HourSlotRow = ({ item }) => {
                           }}
                           style={({ pressed }) => [
                             {
-                              backgroundColor: groupId ? THEME.accent : '#9ca3af',
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginTop: 12,
-                            gap: 6,
-                              opacity: groupId ? (pressed ? 0.8 : 1) : 0.6,
+                              backgroundColor: groupId ? THEME.accent : THEME.cardAlt,
+                              padding: 14,
+                              borderRadius: 20,
+                              borderWidth: 1,
+                              borderColor: groupId ? THEME.accent : THEME.cardBorder,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginTop: 12,
+                              gap: 6,
+                              shadowColor: groupId ? THEME.accent : 'transparent',
+                              shadowOffset: { width: 0, height: 4 },
+                              shadowOpacity: groupId ? 0.3 : 0,
+                              shadowRadius: 8,
+                              elevation: groupId ? 8 : 0,
+                              opacity: groupId ? (pressed ? 0.85 : 1) : 0.7,
                             },
                             Platform.OS === 'web' && { cursor: groupId ? 'pointer' : 'not-allowed' }
                           ]}
                         >
                           <Text style={{ fontSize: 16 }}>👋</Text>
-                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                          <Text style={{ color: groupId ? THEME.ink : THEME.text, fontWeight: '800', fontSize: 14 }}>
                             Inviter un joueur du groupe
                           </Text>
                         </Pressable>
@@ -13129,19 +13322,25 @@ const HourSlotRow = ({ item }) => {
                             }
                           }}
                           style={{
-                            backgroundColor: '#2dc149',
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
+                            backgroundColor: THEME.accent,
+                            padding: 14,
+                            borderRadius: 20,
+                            borderWidth: 1,
+                            borderColor: THEME.accent,
                             flexDirection: 'row',
                             alignItems: 'center',
                             justifyContent: 'center',
                             marginTop: 12,
                             gap: 6,
+                            shadowColor: THEME.accent,
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 8,
+                            elevation: 8,
                           }}
                         >
                           <Text style={{ fontSize: 16 }}>✅</Text>
-                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>
+                          <Text style={{ color: THEME.ink, fontWeight: '800', fontSize: 14 }}>
                             Me rendre dispo
                           </Text>
                         </Pressable>
@@ -13161,10 +13360,10 @@ const HourSlotRow = ({ item }) => {
           console.log('[HotMatch] Modale rendue, visible:', inviteHotMatchModalVisible, 'loading:', loadingHotMatchMembers, 'membres:', hotMatchMembers.length);
           return null;
         })()}
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '90%', maxWidth: 500, backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%', elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(6, 26, 43, 0.85)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{ width: '90%', maxWidth: 500, backgroundColor: THEME.card, borderRadius: 32, padding: 24, maxHeight: '80%', borderWidth: 1, borderColor: THEME.cardBorder, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.4, shadowRadius: 30 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <Text style={{ fontWeight: '900', fontSize: 18, color: '#0b2240' }}>Inviter un joueur</Text>
+              <Text style={{ fontWeight: '900', fontSize: 18, color: THEME.accent }}>Inviter un joueur</Text>
               <Pressable onPress={() => {
                 console.log('[HotMatch] Fermeture modale');
                 setInviteHotMatchModalVisible(false);
@@ -13177,8 +13376,8 @@ const HourSlotRow = ({ item }) => {
                 setHotMatchGeoCitySuggestions([]);
                 setHotMatchGeoRadiusKm(null);
                 setHotMatchGeoFilterVisible(false); // Masquer la zone de configuration
-              }} style={{ padding: 8 }}>
-                <Ionicons name="close" size={24} color="#111827" />
+              }} style={{ padding: 8, borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}>
+                <Ionicons name="close" size={24} color={THEME.text} />
               </Pressable>
             </View>
             
@@ -13187,8 +13386,8 @@ const HourSlotRow = ({ item }) => {
               if (loadingHotMatchMembers) {
                 return (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <ActivityIndicator size="large" color="#156bc9" />
-                <Text style={{ marginTop: 12, color: '#6b7280' }}>Chargement des membres...</Text>
+                <ActivityIndicator size="large" color={THEME.accent} />
+                <Text style={{ marginTop: 12, color: THEME.text, fontWeight: '700' }}>Chargement des membres...</Text>
               </View>
                 );
               }
@@ -13261,10 +13460,10 @@ const HourSlotRow = ({ item }) => {
               if (hotMatchMembers.length === 0) {
                 return (
               <View style={{ padding: 20 }}>
-                <Text style={{ color: '#6b7280', textAlign: 'center' }}>
+                <Text style={{ color: THEME.text, textAlign: 'center' }}>
                       Aucun membre dans ce groupe.
                     </Text>
-                    <Text style={{ color: '#9ca3af', textAlign: 'center', fontSize: 12, marginTop: 8 }}>
+                    <Text style={{ color: THEME.muted, textAlign: 'center', fontSize: 12, marginTop: 8 }}>
                       (loading: {loadingHotMatchMembers ? 'true' : 'false'}, count: {hotMatchMembers.length})
                 </Text>
               </View>
@@ -13276,17 +13475,17 @@ const HourSlotRow = ({ item }) => {
                   <>
                     <TextInput
                       placeholder="Rechercher un joueur (nom, email, niveau)..."
-                      placeholderTextColor="#9ca3af"
+                      placeholderTextColor="rgba(255,255,255,0.5)"
                       value={hotMatchSearchQuery}
                       onChangeText={setHotMatchSearchQuery}
                       style={{
-                        backgroundColor: '#f9fafb',
+                        backgroundColor: THEME.cardAlt,
                         borderWidth: 1,
-                        borderColor: '#e5e7eb',
-                        borderRadius: 10,
+                        borderColor: THEME.cardBorder,
+                        borderRadius: 999,
                         paddingHorizontal: 12,
                         paddingVertical: 10,
-                        color: '#111827',
+                        color: THEME.text,
                         marginBottom: 12,
                         fontSize: 14,
                       }}
@@ -13303,17 +13502,25 @@ const HourSlotRow = ({ item }) => {
                           }
                           setHotMatchLevelFilterVisible(!hotMatchLevelFilterVisible);
                         }}
-                        style={{
-                          padding: 10,
-                          backgroundColor: 'transparent',
-                        }}
+                      style={{
+                        padding: 10,
+                        backgroundColor: hotMatchLevelFilter.length > 0 ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.75)',
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.7)',
+                        shadowColor: '#0b2240',
+                        shadowOpacity: 0.12,
+                        shadowRadius: 8,
+                        shadowOffset: { width: 0, height: 2 },
+                        elevation: 3,
+                      }}
                       >
                         <Image 
                           source={racketIcon}
                           style={{
                             width: 20,
                             height: 20,
-                            tintColor: hotMatchLevelFilter.length > 0 ? '#ff751d' : '#374151',
+                          tintColor: hotMatchLevelFilter.length > 0 ? '#ff751d' : '#374151',
                             shadowColor: '#000',
                             shadowOffset: { width: 0, height: 2 },
                             shadowOpacity: 0.3,
@@ -13325,11 +13532,11 @@ const HourSlotRow = ({ item }) => {
                       </Pressable>
                       
                       <Text style={{ 
-                        color: '#111827', 
-                        fontWeight: '700', 
+                        color: '#374151', 
+                        fontWeight: '800', 
                         fontSize: 14 
                       }}>
-                        Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                        Filtres
                       </Text>
                       
                       <Pressable
@@ -13339,15 +13546,23 @@ const HourSlotRow = ({ item }) => {
                           }
                           setHotMatchGeoFilterVisible(!hotMatchGeoFilterVisible);
                         }}
-                        style={{
-                          padding: 10,
-                          backgroundColor: 'transparent',
-                        }}
+                      style={{
+                        padding: 10,
+                        backgroundColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.75)',
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.7)',
+                        shadowColor: '#0b2240',
+                        shadowOpacity: 0.12,
+                        shadowRadius: 8,
+                        shadowOffset: { width: 0, height: 2 },
+                        elevation: 3,
+                      }}
                       >
                         <Ionicons 
                           name="location" 
                           size={20} 
-                          color={(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#ff751d' : '#374151'}
+                        color={(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#ff751d' : '#374151'}
                           style={{
                             shadowColor: '#000',
                             shadowOffset: { width: 0, height: 2 },
@@ -13362,14 +13577,14 @@ const HourSlotRow = ({ item }) => {
                     {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
                     {hotMatchLevelFilterVisible && (
                       <View style={{ 
-                        backgroundColor: '#f3f4f6', 
-                        borderRadius: 12, 
+                        backgroundColor: THEME.cardAlt, 
+                        borderRadius: 16, 
                         padding: 12,
                         borderWidth: 1,
-                        borderColor: hotMatchLevelFilter.length > 0 ? '#15803d' : '#d1d5db',
+                        borderColor: hotMatchLevelFilter.length > 0 ? THEME.accent : THEME.cardBorder,
                         marginBottom: 12,
                       }}>
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '900', color: THEME.text, marginBottom: 12 }}>
                           Sélectionnez les niveaux à afficher
                         </Text>
                         
@@ -13392,9 +13607,9 @@ const HourSlotRow = ({ item }) => {
                                   paddingVertical: 3.3,
                                   paddingHorizontal: 8.8,
                                   borderRadius: 999,
-                                  backgroundColor: isSelected ? lv.color : '#ffffff',
+                                  backgroundColor: isSelected ? lv.color : 'rgba(255,255,255,0.85)',
                                   borderWidth: isSelected ? 2 : 1,
-                                  borderColor: isSelected ? lv.color : '#d1d5db',
+                                  borderColor: isSelected ? lv.color : THEME.cardBorder,
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                 }}
@@ -13402,7 +13617,7 @@ const HourSlotRow = ({ item }) => {
                                 <Text style={{ 
                                   fontSize: 12, 
                                   fontWeight: isSelected ? '900' : '800', 
-                                  color: '#111827' 
+                                  color: THEME.ink 
                                 }}>
                                   {lv.v}
                                 </Text>
@@ -13412,7 +13627,7 @@ const HourSlotRow = ({ item }) => {
                         </View>
                         
                         {hotMatchLevelFilter.length > 0 && (
-                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.accent, marginTop: 8 }}>
                             ✓ Filtre actif : {hotMatchLevelFilter.length} niveau{hotMatchLevelFilter.length > 1 ? 'x' : ''} sélectionné{hotMatchLevelFilter.length > 1 ? 's' : ''}
                           </Text>
                         )}
@@ -13422,20 +13637,20 @@ const HourSlotRow = ({ item }) => {
                     {/* Zone de configuration du filtre géographique (masquée par défaut) */}
                     {hotMatchGeoFilterVisible && (
                       <View style={{ 
-                        backgroundColor: '#f3f4f6', 
-                        borderRadius: 12, 
+                        backgroundColor: THEME.cardAlt, 
+                        borderRadius: 16, 
                         padding: 12,
                         borderWidth: 1,
-                        borderColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#15803d' : '#d1d5db',
+                        borderColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? THEME.accent : THEME.cardBorder,
                         marginBottom: 12,
                       }}>
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: THEME.text, marginBottom: 12 }}>
                           Filtrer par distance
                         </Text>
                         
                         {/* Sélection du type de position */}
                         <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: THEME.text, marginBottom: 8 }}>
                             Position de référence
                           </Text>
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -13628,10 +13843,18 @@ const HourSlotRow = ({ item }) => {
                         }
                         setHotMatchLevelFilterVisible(!hotMatchLevelFilterVisible);
                       }}
-                      style={{
-                        padding: 10,
-                        backgroundColor: 'transparent',
-                      }}
+                        style={{
+                          padding: 10,
+                          backgroundColor: hotMatchLevelFilter.length > 0 ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.75)',
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255,255,255,0.7)',
+                          shadowColor: '#0b2240',
+                          shadowOpacity: 0.12,
+                          shadowRadius: 8,
+                          shadowOffset: { width: 0, height: 2 },
+                          elevation: 3,
+                        }}
                     >
                       <Image 
                         source={racketIcon}
@@ -13650,11 +13873,11 @@ const HourSlotRow = ({ item }) => {
                     </Pressable>
                     
                     <Text style={{ 
-                      color: '#111827', 
+                      color: '#374151', 
                       fontWeight: '700', 
                       fontSize: 14 
                     }}>
-                      Filtres {filteredMembers.length > 0 && `(${filteredMembers.length})`}
+                      Filtres
                     </Text>
                     
                     <Pressable
@@ -13666,7 +13889,15 @@ const HourSlotRow = ({ item }) => {
                       }}
                       style={{
                         padding: 10,
-                        backgroundColor: 'transparent',
+                        backgroundColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.75)',
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.7)',
+                        shadowColor: '#0b2240',
+                        shadowOpacity: 0.12,
+                        shadowRadius: 8,
+                        shadowOffset: { width: 0, height: 2 },
+                        elevation: 3,
                       }}
                     >
                       <Ionicons 
@@ -13792,16 +14023,16 @@ const HourSlotRow = ({ item }) => {
                                 style={{
                                   paddingVertical: 8,
                                   paddingHorizontal: 12,
-                                  borderRadius: 8,
-                                  backgroundColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#ffffff',
+                                  borderRadius: 999,
+                                  backgroundColor: (isSelected && hotMatchGeoRefPoint) ? THEME.accent : THEME.card,
                                   borderWidth: 1,
-                                  borderColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#d1d5db',
+                                  borderColor: (isSelected && hotMatchGeoRefPoint) ? THEME.accent : THEME.cardBorder,
                                 }}
                               >
                                 <Text style={{ 
                                   fontSize: 13, 
                                   fontWeight: (isSelected && hotMatchGeoRefPoint) ? '800' : '700', 
-                                  color: (isSelected && hotMatchGeoRefPoint) ? '#ffffff' : '#111827' 
+                                  color: (isSelected && hotMatchGeoRefPoint) ? THEME.ink : THEME.text 
                                 }}>
                                   {label}
                                 </Text>
@@ -13814,7 +14045,7 @@ const HourSlotRow = ({ item }) => {
                       {/* Recherche de ville si type = 'city' */}
                       {hotMatchGeoLocationType === 'city' && (
                         <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: THEME.text, marginBottom: 8 }}>
                             Rechercher une ville
                           </Text>
                           <TextInput
@@ -13825,16 +14056,17 @@ const HourSlotRow = ({ item }) => {
                               searchHotMatchGeoCity(text);
                             }}
                             style={{
-                              backgroundColor: '#ffffff',
-                              borderRadius: 8,
+                              backgroundColor: THEME.card,
+                              borderRadius: 999,
                               padding: 12,
                               borderWidth: 1,
-                              borderColor: '#d1d5db',
+                              borderColor: THEME.cardBorder,
                               fontSize: 14,
+                              color: THEME.text,
                             }}
                           />
                           {hotMatchGeoCitySuggestions.length > 0 && (
-                            <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
+                              <View style={{ marginTop: 8, backgroundColor: THEME.card, borderRadius: 16, borderWidth: 1, borderColor: THEME.cardBorder, maxHeight: 150 }}>
                               <ScrollView>
                                 {hotMatchGeoCitySuggestions.map((suggestion, idx) => (
                                   <Pressable
@@ -13849,8 +14081,8 @@ const HourSlotRow = ({ item }) => {
                                       borderBottomWidth: idx < hotMatchGeoCitySuggestions.length - 1 ? 1 : 0,
                                       borderBottomColor: '#e5e7eb',
                                     }}
-                                  >
-                                    <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
+                                      >
+                                        <Text style={{ fontSize: 14, color: THEME.text }}>{suggestion.name}</Text>
                                   </Pressable>
                                 ))}
                               </ScrollView>
@@ -13861,7 +14093,7 @@ const HourSlotRow = ({ item }) => {
                       
                       {/* Sélection du rayon */}
                       <View style={{ marginBottom: 12 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: THEME.text, marginBottom: 8 }}>
                           Rayon : {hotMatchGeoRadiusKm ? `${hotMatchGeoRadiusKm} km` : 'non sélectionné'}
                         </Text>
                         <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
@@ -13881,10 +14113,10 @@ const HourSlotRow = ({ item }) => {
                                   flex: 1,
                                   paddingVertical: 6,
                                   paddingHorizontal: 8,
-                                  borderRadius: 8,
-                                  backgroundColor: isSelected ? '#15803d' : '#ffffff',
+                                  borderRadius: 999,
+                                  backgroundColor: isSelected ? THEME.accent : THEME.card,
                                   borderWidth: 1,
-                                  borderColor: isSelected ? '#15803d' : '#d1d5db',
+                                  borderColor: isSelected ? THEME.accent : THEME.cardBorder,
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                 }}
@@ -13892,7 +14124,7 @@ const HourSlotRow = ({ item }) => {
                                 <Text style={{ 
                                   fontSize: 12, 
                                   fontWeight: isSelected ? '800' : '700', 
-                                  color: isSelected ? '#ffffff' : '#111827' 
+                                  color: isSelected ? THEME.ink : THEME.text 
                                 }}>
                                   {km} km
                                 </Text>
@@ -13902,19 +14134,19 @@ const HourSlotRow = ({ item }) => {
                         </View>
                       </View>
                       
-                      {(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) && (
-                        <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
+                    {(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) && (
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.accent, marginTop: 8 }}>
                           ✓ Filtre actif : {hotMatchGeoRadiusKm} km autour de {hotMatchGeoRefPoint.address || 'la position sélectionnée'}
                         </Text>
                       )}
                     </View>
                   )}
                   
-                  <Text style={{ color: '#6b7280', fontSize: 12, marginBottom: 8, fontWeight: '700' }}>
+                  <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 8, fontWeight: '700' }}>
                     {filteredMembers.length} membre{filteredMembers.length > 1 ? 's' : ''} trouvé{filteredMembers.length > 1 ? 's' : ''}
                     {(hotMatchSearchQuery.trim() || hotMatchLevelFilter.length > 0 || (hotMatchGeoRefPoint && hotMatchGeoRadiusKm)) && filteredMembers.length !== hotMatchMembers.length && ` sur ${hotMatchMembers.length}`}
                   </Text>
-                  <ScrollView style={{ maxHeight: 400, minHeight: 200 }} showsVerticalScrollIndicator={true}>
+                  <ScrollView style={{ maxHeight: 400, minHeight: 200, backgroundColor: THEME.cardAlt, borderRadius: 24, padding: 8, borderWidth: 1, borderColor: THEME.cardBorder }} showsVerticalScrollIndicator={true}>
                     {filteredMembers.map((member) => (
                   <Pressable
                     key={member.id}
@@ -14067,15 +14299,19 @@ const HourSlotRow = ({ item }) => {
                       }
                     }}
                     style={({ pressed }) => ({
-                      paddingVertical: 12,
-                      paddingHorizontal: 12,
-                      borderRadius: 10,
-                      backgroundColor: pressed ? '#f3f4f6' : '#ffffff',
+                      padding: 12,
+                      borderRadius: 20,
+                      backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : THEME.cardAlt,
                       borderWidth: 1,
-                      borderColor: '#e5e7eb',
+                      borderColor: THEME.cardBorder,
                       marginBottom: 8,
                       flexDirection: 'row',
                       alignItems: 'center',
+                      shadowColor: '#000',
+                      shadowOpacity: 0.15,
+                      shadowRadius: 8,
+                      shadowOffset: { width: 0, height: 4 },
+                      elevation: 3,
                     })}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
@@ -14088,11 +14324,11 @@ const HourSlotRow = ({ item }) => {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: '800', color: '#111827', fontSize: 15, marginBottom: 4 }}>
+                      <Text style={{ fontWeight: '800', color: THEME.text, fontSize: 16, marginBottom: 4 }}>
                         {member.display_name || member.email || 'Joueur'}
                       </Text>
                     </View>
-                    <Ionicons name="person-add" size={24} color="#15803d" />
+                    <Ionicons name="person-add" size={24} color={THEME.accent} />
                   </Pressable>
                 ))}
               </ScrollView>
@@ -14574,14 +14810,14 @@ const HourSlotRow = ({ item }) => {
             flexDirection: 'row',
             alignItems: 'stretch',
             justifyContent: 'center',
-            gap: 4,
+            gap: 0,
             flexWrap: 'nowrap',
           }}
         >
           <Pressable
             onPress={() => setGroupSelectorOpen(true)}
             style={{
-              width: 280,
+              flex: 0.6,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
@@ -14616,7 +14852,10 @@ const HourSlotRow = ({ item }) => {
                 textShadowRadius: 2,
               }}
             >
-              {activeGroup?.name || 'Sélectionner un groupe'}
+              {(() => {
+                const label = activeGroup?.name || 'Sélectionner un groupe';
+                return label.length > 15 ? `${label.slice(0, 15)}…` : label;
+              })()}
             </Text>
             <Ionicons name="chevron-down" size={18} color={THEME.accent} style={{ marginLeft: 4 }} />
           </Pressable>
@@ -14624,9 +14863,8 @@ const HourSlotRow = ({ item }) => {
           {activeGroup?.club_id ? (
             <Pressable
               onPress={() => router.push(`/clubs/${activeGroup.club_id}`)}
-              style={{
-                flexBasis: '50%',
-                minWidth: 120,
+            style={{
+              flex: 0.4,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',

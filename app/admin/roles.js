@@ -35,6 +35,7 @@ export default function RolesManagementScreen() {
   const [editingUser, setEditingUser] = useState(null);
   const [editRole, setEditRole] = useState("player");
   const [editClubId, setEditClubId] = useState(null);
+  const [clubSearchQuery, setClubSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Vérifier les permissions (attendre que le rôle soit chargé)
@@ -68,13 +69,25 @@ export default function RolesManagementScreen() {
       setUsers(usersData || []);
 
       // Charger les clubs
-      const { data: clubsData, error: clubsError } = await supabase
-        .from('clubs')
-        .select('id, name')
-        .order('name');
+      const clubsData = [];
+      const pageSize = 1000;
+      let from = 0;
+      let fetched = 0;
+      do {
+        const { data: page, error: clubsError } = await supabase
+          .from('clubs')
+          .select('id, name')
+          .order('name')
+          .range(from, from + pageSize - 1);
 
-      if (clubsError) throw clubsError;
-      setClubs(clubsData || []);
+        if (clubsError) throw clubsError;
+        const pageData = page || [];
+        clubsData.push(...pageData);
+        fetched = pageData.length;
+        from += pageSize;
+      } while (fetched === pageSize);
+
+      setClubs(clubsData);
 
     } catch (e) {
       console.error('Erreur chargement données:', e);
@@ -102,11 +115,27 @@ export default function RolesManagementScreen() {
     return matchesSearch && matchesRole;
   });
 
+  const normalizeSearch = (value) =>
+    (value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+  const filteredClubs = clubs.filter((club) => {
+    if (!clubSearchQuery.trim()) return true;
+    const query = normalizeSearch(clubSearchQuery);
+    const name = normalizeSearch(club.name);
+    return name.includes(query);
+  });
+
   // Ouvrir le modal d'édition
   const handleEditUser = (user) => {
     setEditingUser(user);
     setEditRole(user.role || "player");
     setEditClubId(user.club_id || null);
+    setClubSearchQuery("");
   };
 
   // Sauvegarder les modifications
@@ -313,6 +342,16 @@ export default function RolesManagementScreen() {
                   {editRole === 'club_manager' && (
                     <View style={styles.modalSection}>
                       <Text style={styles.modalLabel}>Club</Text>
+                      <TextInput
+                        style={styles.clubSearchInput}
+                        placeholder="Rechercher un club..."
+                        value={clubSearchQuery}
+                        onChangeText={setClubSearchQuery}
+                        placeholderTextColor="#999"
+                      />
+                      <Text style={styles.clubCountText}>
+                        {filteredClubs.length} club{filteredClubs.length > 1 ? 's' : ''} trouvé{filteredClubs.length > 1 ? 's' : ''} sur {clubs.length}
+                      </Text>
                       <ScrollView 
                         style={styles.clubPicker} 
                         nestedScrollEnabled={true}
@@ -334,7 +373,12 @@ export default function RolesManagementScreen() {
                             <Ionicons name="checkmark" size={20} color={BRAND} />
                           )}
                         </TouchableOpacity>
-                        {clubs.map(club => (
+                        {filteredClubs.length === 0 && (
+                          <View style={styles.clubEmptyState}>
+                            <Text style={styles.clubEmptyText}>Aucun club trouvé</Text>
+                          </View>
+                        )}
+                        {filteredClubs.map(club => (
                           <TouchableOpacity
                             key={club.id}
                             style={[
@@ -584,6 +628,28 @@ const styles = StyleSheet.create({
   },
   clubPicker: {
     maxHeight: 200,
+  },
+  clubCountText: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginBottom: 8,
+  },
+  clubEmptyState: {
+    paddingVertical: 10,
+  },
+  clubEmptyText: {
+    fontSize: 12,
+    color: "#6b7280",
+    textAlign: "center",
+  },
+  clubSearchInput: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 12,
+    backgroundColor: "#fff",
   },
   clubOption: {
     flexDirection: "row",
