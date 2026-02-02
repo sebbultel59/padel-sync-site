@@ -1,3 +1,10 @@
+function formatShortDate(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short" });
+}
+
 function renderMessage(
     kind: string,
     ctx: { actor_name?: string; starts_at?: string; ends_at?: string; group_name?: string; payload?: any }
@@ -26,6 +33,15 @@ function renderMessage(
       // --- seuils de dispo (NOUVEAU)
       case "group_slot_hot_3":      return { title: "Ça se chauffe à 3 🔥", body: "Un créneau atteint 3 joueurs disponibles." };
       case "group_slot_ready_4":    return { title: "Match possible ✅", body: "Un créneau atteint 4 joueurs disponibles." };
+      case "availability_reminder": {
+        const weekStart = ctx.payload?.week_start;
+        const weekLabel = weekStart ? `Semaine du ${formatShortDate(weekStart)}` : "";
+        const title = ctx.group_name ? `Ajoute tes dispos — ${ctx.group_name}` : "Ajoute tes dispos";
+        const body = weekLabel
+          ? `${weekLabel}. 2–3 créneaux suffisent pour lancer les matchs.`
+          : "Ajoute 2–3 créneaux pour lancer les matchs.";
+        return { title, body };
+      }
   
       // --- notifications de club (NOUVEAU)
       case "club_notification":     

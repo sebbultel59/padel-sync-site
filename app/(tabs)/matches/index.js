@@ -18,6 +18,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  Share,
   ScrollView,
   SectionList,
   StyleSheet,
@@ -1900,6 +1901,138 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 14,
   },
+  emptyStateWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 24,
+  },
+  emptyStateCard: {
+    backgroundColor: 'rgba(14, 34, 56, 0.75)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+  },
+  emptyStateTitle: {
+    color: THEME.text,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    color: THEME.muted,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  emptyStateButtons: {
+    width: '100%',
+    marginTop: 16,
+    gap: 10,
+  },
+  emptyStatePrimary: {
+    backgroundColor: THEME.accent,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStatePrimaryText: {
+    color: THEME.ink,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  emptyStateSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  emptyStateSecondaryText: {
+    color: THEME.text,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  emptyStateButtonPressed: {
+    opacity: 0.9,
+  },
+  emptyStateTip: {
+    color: THEME.muted,
+    fontSize: 12,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  partnerSlotsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    columnGap: 10,
+    rowGap: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  partnerSlot: {
+    flex: 1,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  partnerSlotCircleEmpty: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#6d6aff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(109,106,255,0.08)',
+  },
+  partnerSlotLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 6,
+  },
+  partnerSlotName: {
+    color: THEME.text,
+    fontWeight: '700',
+    fontSize: 12,
+    maxWidth: 78,
+  },
+  partnerSlotLevelBadge: {
+    backgroundColor: '#f59e0b',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  partnerSlotLevelText: {
+    color: '#111827',
+    fontWeight: '900',
+    fontSize: 11,
+  },
+  partnerSlotEmptyText: {
+    color: '#6d6aff',
+    fontWeight: '700',
+    fontSize: 12,
+    marginTop: 6,
+  },
+  partnerPickerRow: {
+    marginTop: 6,
+  },
+  partnerPickerLabel: {
+    color: THEME.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
   filtersBar: {
     position: 'absolute',
     left: 16,
@@ -2287,7 +2420,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     borderRadius: size / 2,
         backgroundColor: '#d1d5db',
         borderWidth: selected ? 4 : (rsvpStatus === undefined ? 0 : 2),
-        borderColor: selected ? '#10b981' : borderColor,
+        borderColor: selected ? '#e0ff00' : borderColor,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -2311,6 +2444,44 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
     </Text>
       )}
     </Pressable>
+  );
+};
+
+const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
+  return (
+    <View style={styles.emptyStateWrap}>
+      <View style={styles.emptyStateCard}>
+        <Text style={styles.emptyStateTitle}>Pas encore de matchs possibles</Text>
+        <Text style={styles.emptyStateText}>
+          Les matchs se créent à partir des disponibilités des joueurs. Ajoute les tiennes pour lancer la dynamique.
+        </Text>
+        <View style={styles.emptyStateButtons}>
+          <Pressable
+            onPress={onAddAvailability}
+            accessibilityRole="button"
+            accessibilityLabel="Ajouter mes disponibilités"
+            style={({ pressed }) => [
+              styles.emptyStatePrimary,
+              pressed ? styles.emptyStateButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.emptyStatePrimaryText}>Ajouter mes disponibilités</Text>
+          </Pressable>
+          <Pressable
+            onPress={onInvitePlayers}
+            accessibilityRole="button"
+            accessibilityLabel="Inviter des joueurs"
+            style={({ pressed }) => [
+              styles.emptyStateSecondary,
+              pressed ? styles.emptyStateButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.emptyStateSecondaryText}>Inviter des joueurs</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.emptyStateTip}>Astuce : invite 3 amis → tu multiplies les chances de match.</Text>
+      </View>
+    </View>
   );
 };
 
@@ -3492,6 +3663,78 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   useEffect(() => {
     if (meId) loadMyGroups();
   }, [meId, loadMyGroups]);
+
+  const getInviteCodeForShare = useCallback(async () => {
+    if (!activeGroup?.id) return null;
+    try {
+      if (activeGroup.visibility === 'private') {
+        const { data, error } = await supabase.rpc('get_or_create_group_invite_code', {
+          p_group_id: activeGroup.id,
+        });
+        if (error) throw error;
+        return data || null;
+      }
+
+      const { data: existingInvite, error: fetchError } = await supabase
+        .from('invitations')
+        .select('code')
+        .eq('group_id', activeGroup.id)
+        .eq('used', false)
+        .eq('reusable', false)
+        .limit(1)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+      if (existingInvite?.code) return existingInvite.code;
+
+      if (!meId) return null;
+      const { data: newInvite, error: createError } = await supabase
+        .from('invitations')
+        .insert({
+          group_id: activeGroup.id,
+          code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+          created_by: meId,
+          reusable: false,
+        })
+        .select('code')
+        .single();
+      if (createError) throw createError;
+      return newInvite?.code || null;
+    } catch (e) {
+      console.warn('[EmptyMatches] invite code error:', e?.message || String(e));
+      return null;
+    }
+  }, [activeGroup?.id, activeGroup?.visibility, meId]);
+
+  const onAddAvailability = useCallback(() => {
+    router.push('/(tabs)/semaine');
+  }, [router]);
+
+  const onInvitePlayers = useCallback(async () => {
+    if (!activeGroup?.id) {
+      Alert.alert('Groupe requis', 'Sélectionne un groupe pour inviter des joueurs.');
+      return;
+    }
+    try {
+      const inviteCode = await getInviteCodeForShare();
+      const codeLine = inviteCode || 'CODE_INDISPONIBLE';
+      const groupLabel = activeGroup?.name ? `(${activeGroup.name})` : '';
+      const message =
+        `Code d'invitation\n\n` +
+        `Pour rejoindre ce groupe ${groupLabel}, utilisez le code suivant :\n\n` +
+        `${codeLine}\n\n` +
+        `1. Installe l'application PADEL SYNC\n` +
+        `2. Ouvre l'app Padel Sync\n` +
+        `3. Va dans "Groupes" → "Rejoindre un groupe"\n` +
+        `4. Entre le code ci-dessus\n\n` +
+        `Padel Sync — Ton match en 3 clics 🎾`;
+
+      await Share.share({ message });
+    } catch (e) {
+      console.error('[EmptyMatches] share error:', e);
+      Alert.alert('Partage impossible', e?.message || String(e));
+    }
+  }, [activeGroup?.id, activeGroup?.name, getInviteCodeForShare]);
 
   // Activer un groupe
   const onSelectGroup = useCallback(async (g) => {
@@ -5992,6 +6235,16 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     const fallback = formatPlayerName(profile?.display_name || profile?.email || 'Joueur');
     const phone = profile?.phone || null;
     const level = profile?.niveau ?? profile?.level ?? null; // supporte `niveau` ou `level`
+    const sidePref = String(profile?.cote || '').toLowerCase();
+    const hasLeft = sidePref.includes('gauche') || sidePref.includes('left');
+    const hasRight = sidePref.includes('droite') || sidePref.includes('right');
+    const hasBoth =
+      sidePref.includes('both') ||
+      sidePref.includes('deux') ||
+      sidePref.includes('ambid') ||
+      sidePref.includes('2') ||
+      (hasLeft && hasRight);
+    const sideDir = hasBoth ? 'both' : hasLeft ? 'left' : hasRight ? 'right' : null;
   
     const handleLongPress = () => {
       if (profile?.id && onLongPressProfile) {
@@ -6036,6 +6289,35 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             >
               {String(level)}
             </Text>
+          </View>
+        )}
+        {sideDir && (
+          <View
+            style={{
+              position: 'absolute',
+              left: -3,
+              bottom: -3,
+              width: Math.max(17, Math.round(size * 0.30)),
+              height: Math.max(17, Math.round(size * 0.30)),
+              borderRadius: Math.max(9, Math.round(size * 0.15)),
+              backgroundColor: '#6d6aff',
+              borderWidth: 1,
+              borderColor: '#ffffff',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons
+              name={
+                sideDir === 'both'
+                  ? 'swap-horizontal'
+                  : sideDir === 'left'
+                    ? 'arrow-back'
+                    : 'arrow-forward'
+              }
+              size={Math.max(9, Math.round(size * 0.19))}
+              color="#ffffff"
+            />
           </View>
         )}
       </View>
@@ -6165,7 +6447,9 @@ const LongSlotRow = ({ item }) => {
   const myProfile = meId ? profileOf(profilesById, meId) : null;
   const isMeAvailable = meId && allUserIds.some(uid => String(uid) === String(meId));
   const maxAvatars = 8;
+  const [showAllPlayers, setShowAllPlayers] = React.useState(false);
   const limitedOtherIds = otherUserIds.slice(0, maxAvatars);
+  const displayedOtherIds = showAllPlayers ? otherUserIds : limitedOtherIds;
   const extraCount = Math.max(0, otherUserIds.length - limitedOtherIds.length);
 
   // Selection state and helpers
@@ -6186,6 +6470,15 @@ const LongSlotRow = ({ item }) => {
 
   const enter = useEnterAnim(!matchCreatedUndoVisible);
   const ctaScale = useRef(new Animated.Value(1)).current;
+  const slotEntries = [];
+  if (isMeAvailable && myProfile) {
+    slotEntries.push({ key: `me-${meId}`, id: meId, profile: myProfile, isMe: true });
+  }
+  selectedIds.forEach((id) => {
+    const p = profileOf(profilesById, id) || { id, display_name: 'Joueur' };
+    slotEntries.push({ key: `sel-${id}`, id, profile: p, isMe: false });
+  });
+  const emptySlots = Math.max(0, 4 - slotEntries.length);
 
   return (
     <Animated.View style={[styles.matchCardGlow, enter.style]}>
@@ -6245,45 +6538,55 @@ const LongSlotRow = ({ item }) => {
           </Animated.View>
         )}
 
-        <View style={styles.avatarRow}>
-          {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
-          {isMeAvailable && myProfile ? (
-            <>
-              <View style={styles.avatarItem}>
-                <LevelAvatar
-                  key={`me-${meId}`}
-                  profile={myProfile}
-                  onPress={undefined}
-                  onLongPressProfile={openProfile}
-                  selected={false}
-                  size={48}
-                />
-              </View>
-              {otherUserIds.length > 0 ? (
-                <Text style={styles.avatarPlus}>+</Text>
-              ) : null}
-            </>
-          ) : null}
-          {limitedOtherIds.map((uid) => {
-            const p = profileOf(profilesById, uid);
-            console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
-            return (
-              <View key={String(uid)} style={styles.avatarItem}>
-                <LevelAvatar
-                  profile={p}
-                  onPress={() => toggleSelect(uid)}
-                  onLongPressProfile={openProfile}
-                  selected={selectedIds.includes(String(uid))}
-                  size={48}
-                />
-              </View>
-            );
-          })}
-          {extraCount > 0 ? (
-            <View style={styles.avatarOverflow}>
-              <Text style={styles.avatarOverflowText}>+{extraCount}</Text>
+        <View style={styles.partnerSlotsRow}>
+          {slotEntries.map((slot) => (
+            <View key={slot.key} style={styles.partnerSlot}>
+              <LevelAvatar
+                profile={slot.profile}
+                onPress={!slot.isMe ? () => toggleSelect(slot.id) : undefined}
+                onLongPressProfile={openProfile}
+                selected={!slot.isMe && selectedIds.includes(String(slot.id))}
+                size={64}
+              />
             </View>
-          ) : null}
+          ))}
+          {Array.from({ length: emptySlots }).map((_, idx) => (
+            <View key={`empty-${idx}`} style={styles.partnerSlot}>
+              <View style={styles.partnerSlotCircleEmpty}>
+                <Ionicons name="add" size={26} color="#6d6aff" />
+              </View>
+            </View>
+          ))}
+        </View>
+        <View style={styles.partnerPickerRow}>
+          <Text style={styles.partnerPickerLabel}>Choisir ses partenaires</Text>
+          <View style={styles.avatarRow}>
+            {displayedOtherIds.map((uid) => {
+              const p = profileOf(profilesById, uid);
+              console.log('[LongSlotRow] User:', uid, 'profile exists:', !!p?.id);
+              return (
+                <View key={String(uid)} style={styles.avatarItem}>
+                  <LevelAvatar
+                    profile={p}
+                    onPress={() => toggleSelect(uid)}
+                    onLongPressProfile={openProfile}
+                    selected={selectedIds.includes(String(uid))}
+                    size={48}
+                  />
+                </View>
+              );
+            })}
+            {extraCount > 0 && !showAllPlayers ? (
+              <Pressable
+                onPress={() => setShowAllPlayers(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Afficher ${extraCount} joueurs supplémentaires`}
+                style={styles.avatarOverflow}
+              >
+                <Text style={styles.avatarOverflowText}>+{extraCount}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       </View>
     </Animated.View>
@@ -6298,7 +6601,9 @@ const HourSlotRow = ({ item }) => {
   const myProfile = meId ? profileOf(profilesById, meId) : null;
   const isMeAvailable = meId && allUserIds.some(uid => String(uid) === String(meId));
   const maxAvatars = 8;
+  const [showAllPlayers, setShowAllPlayers] = React.useState(false);
   const limitedOtherIds = otherUserIds.slice(0, maxAvatars);
+  const displayedOtherIds = showAllPlayers ? otherUserIds : limitedOtherIds;
   const extraCount = Math.max(0, otherUserIds.length - limitedOtherIds.length);
 
   // Selection state and helpers
@@ -6314,9 +6619,20 @@ const HourSlotRow = ({ item }) => {
   };
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
+  const remainingToSelect = Math.max(0, 3 - selectedIds.length);
+  const selectLabel = `Sélectionner ${remainingToSelect} joueur${remainingToSelect > 1 ? 's' : ''}`;
 
   const enter = useEnterAnim(!matchCreatedUndoVisible);
   const ctaScale = useRef(new Animated.Value(1)).current;
+  const slotEntries = [];
+  if (isMeAvailable && myProfile) {
+    slotEntries.push({ key: `me-${meId}`, id: meId, profile: myProfile, isMe: true });
+  }
+  selectedIds.forEach((id) => {
+    const p = profileOf(profilesById, id) || { id, display_name: 'Joueur' };
+    slotEntries.push({ key: `sel-${id}`, id, profile: p, isMe: false });
+  });
+  const emptySlots = Math.max(0, 4 - slotEntries.length);
 
   return (
     <Animated.View style={[styles.matchCardGlow, enter.style]}>
@@ -6376,44 +6692,55 @@ const HourSlotRow = ({ item }) => {
           </Animated.View>
         )}
 
-        <View style={styles.avatarRow}>
-          {isMeAvailable && myProfile ? (
-            <>
-              <View style={styles.avatarItem}>
-                <LevelAvatar
-                  key={`me-${meId}`}
-                  profile={myProfile}
-                  onPress={undefined}
-                  onLongPressProfile={openProfile}
-                  selected={false}
-                  size={48}
-                />
-              </View>
-              {otherUserIds.length > 0 ? (
-                <Text style={styles.avatarPlus}>+</Text>
-              ) : null}
-            </>
-          ) : null}
-          {limitedOtherIds.map((uid) => {
-            const p = profileOf(profilesById, uid);
-            console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
-            return (
-              <View key={String(uid)} style={styles.avatarItem}>
-                <LevelAvatar
-                  profile={p}
-                  onPress={() => toggleSelect(uid)}
-                  onLongPressProfile={openProfile}
-                  selected={selectedIds.includes(String(uid))}
-                  size={48}
-                />
-              </View>
-            );
-          })}
-          {extraCount > 0 ? (
-            <View style={styles.avatarOverflow}>
-              <Text style={styles.avatarOverflowText}>+{extraCount}</Text>
+        <View style={styles.partnerSlotsRow}>
+          {slotEntries.map((slot) => (
+            <View key={slot.key} style={styles.partnerSlot}>
+              <LevelAvatar
+                profile={slot.profile}
+                onPress={!slot.isMe ? () => toggleSelect(slot.id) : undefined}
+                onLongPressProfile={openProfile}
+                selected={!slot.isMe && selectedIds.includes(String(slot.id))}
+                size={64}
+              />
             </View>
-          ) : null}
+          ))}
+          {Array.from({ length: emptySlots }).map((_, idx) => (
+            <View key={`empty-${idx}`} style={styles.partnerSlot}>
+              <View style={styles.partnerSlotCircleEmpty}>
+                <Ionicons name="add" size={26} color="#6d6aff" />
+              </View>
+            </View>
+          ))}
+        </View>
+        <View style={styles.partnerPickerRow}>
+          <Text style={styles.partnerPickerLabel}>Choisir ses partenaires</Text>
+          <View style={styles.avatarRow}>
+            {displayedOtherIds.map((uid) => {
+              const p = profileOf(profilesById, uid);
+              console.log('[HourSlotRow] User:', uid, 'profile exists:', !!p?.id);
+              return (
+                <View key={String(uid)} style={styles.avatarItem}>
+                  <LevelAvatar
+                    profile={p}
+                    onPress={() => toggleSelect(uid)}
+                    onLongPressProfile={openProfile}
+                    selected={selectedIds.includes(String(uid))}
+                    size={48}
+                  />
+                </View>
+              );
+            })}
+            {extraCount > 0 && !showAllPlayers ? (
+              <Pressable
+                onPress={() => setShowAllPlayers(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Afficher ${extraCount} joueurs supplémentaires`}
+                style={styles.avatarOverflow}
+              >
+                <Text style={styles.avatarOverflowText}>+{extraCount}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       </View>
     </Animated.View>
@@ -9019,7 +9346,14 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
 
-        {mode === 'long' ? (
+        {(!loadingWeek &&
+          (renderLongSections || []).length === 0 &&
+          (renderHourReady || []).length === 0) ? (
+          <EmptyMatchesState
+            onAddAvailability={onAddAvailability}
+            onInvitePlayers={onInvitePlayers}
+          />
+        ) : mode === 'long' ? (
           <>
             {(renderLongSections || []).length === 0 ? (
               <Text style={{ color: THEME.muted, marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
@@ -9074,6 +9408,8 @@ const HourSlotRow = ({ item }) => {
       listKeySeed,
       longListExtraData,
       hourListExtraData,
+      onAddAvailability,
+      onInvitePlayers,
     ]
   );
 
