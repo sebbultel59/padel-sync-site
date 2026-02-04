@@ -8,25 +8,25 @@ import * as Location from "expo-location";
 import { router, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActionSheetIOS,
-  ActivityIndicator,
-  Alert,
-  Clipboard,
-  DeviceEventEmitter,
-  Image,
-  KeyboardAvoidingView,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Vibration,
-  View
+    ActionSheetIOS,
+    ActivityIndicator,
+    Alert,
+    Clipboard,
+    DeviceEventEmitter,
+    Image,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    Share,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    Vibration,
+    View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Leaderboard from "../../components/Leaderboard";
@@ -289,6 +289,7 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
   const [contactVisible, setContactVisible] = useState(false);
   const [profileProfile, setProfileProfile] = useState(null);
   const [profileVisible, setProfileVisible] = useState(false);
+  const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
 
   const [qrVisible, setQrVisible] = useState(false);
   const [qrCode, setQrCode] = useState(""); // Code d'invitation affiché
@@ -2729,21 +2730,19 @@ Padel Sync — Ton match en 3 clics 🎾`;
               </Pressable>
             </View>
 
-            {/* Classement du groupe */}
+            {/* Lien vers le classement */}
             {activeGroup?.id && meId && (
-              <View style={{ marginTop: 16, backgroundColor: "#fff", borderRadius: 12, padding: 12 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <Ionicons name="trophy" size={20} color="#ff8c00" />
-                  <Text style={{ color: "#ff8c00", fontWeight: "800", fontSize: 20 }}>Classement du groupe</Text>
-                </View>
-                <Leaderboard
-                  scope="group"
-                  groupId={activeGroup.id}
-                  currentUserId={meId}
-                  variant="compact"
-                  highlightCurrentUser={true}
-                />
-              </View>
+              <Pressable
+                onPress={press("open-leaderboard-modal", () => setLeaderboardModalVisible(true))}
+                style={[
+                  s.btn,
+                  { backgroundColor: "#fff", marginTop: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+                  Platform.OS === "web" && { cursor: "pointer" }
+                ]}
+              >
+                <Ionicons name="trophy" size={18} color="#ff8c00" />
+                <Text style={[s.btnTxt, { color: "#ff8c00", fontSize: 16 }]}>Voir le classement</Text>
+              </Pressable>
             )}
 
             <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
@@ -2818,11 +2817,17 @@ Padel Sync — Ton match en 3 clics 🎾`;
             <Text style={{ color: "#cbd5e1" }}>Tu n’as pas encore de groupe.</Text>
           </View>
         ) : (
-          <View style={{ gap: 8 }}>
-            {(groups.mine ?? []).map((g) => {
+          (() => {
+            const allMine = groups.mine ?? [];
+            const publicMine = allMine.filter(
+              (g) => String(g.visibility || "").toLowerCase() === "public"
+            );
+            const privateMine = allMine.filter(
+              (g) => String(g.visibility || "").toLowerCase() !== "public"
+            );
+            const renderGroupCard = (g) => {
               const isActive = activeGroup?.id === g.id;
-              
-              // Initialiser les valeurs d'édition et ouvrir la modale
+
               const startEditing = () => {
                 setEditingGroupId(g.id);
                 setEditingGroupName(g.name || "");
@@ -2859,7 +2864,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: "700", color: "#ffffff", textTransform: 'uppercase' }}>{g.name}</Text>
                       <Text style={{ color: "#b0d4fb", marginTop: 2, fontWeight: "700" }}>
-                        {g.visibility === 'public'
+                        {String(g.visibility || "").toLowerCase() === 'public'
                           ? `Public · ${g.join_policy === 'open' ? 'Ouvert' : 'Sur demande'}`
                           : 'Privé'}
                       </Text>
@@ -2872,9 +2877,7 @@ Padel Sync — Ton match en 3 clics 🎾`;
                           e.stopPropagation();
                           startEditing();
                         }}
-                        style={{
-                          padding: 10,
-                        }}
+                        style={{ padding: 10 }}
                         accessibilityRole="button"
                         accessibilityLabel="Modifier le groupe"
                       >
@@ -2889,8 +2892,25 @@ Padel Sync — Ton match en 3 clics 🎾`;
                   </View>
                 </Pressable>
               );
-            })}
-          </View>
+            };
+
+            return (
+              <View style={{ gap: 12 }}>
+                {publicMine.length > 0 && (
+                  <View style={{ gap: 8 }}>
+                    <Text style={{ color: "#ff8c00", fontWeight: "800", fontSize: 14 }}>Public</Text>
+                    {publicMine.map(renderGroupCard)}
+                  </View>
+                )}
+                {privateMine.length > 0 && (
+                  <View style={{ gap: 8 }}>
+                    <Text style={{ color: "#ff8c00", fontWeight: "800", fontSize: 14 }}>Privé</Text>
+                    {privateMine.map(renderGroupCard)}
+                  </View>
+                )}
+              </View>
+            );
+          })()
         )}
 
         {/* Groupes publics */}
@@ -4258,6 +4278,34 @@ Padel Sync — Ton match en 3 clics 🎾`;
               ))}
             </ScrollView>
             <Pressable onPress={press("close-members", () => setMembersModalVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
+              <Text style={s.btnTxt}>Fermer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal classement */}
+      <Modal visible={leaderboardModalVisible} transparent animationType="slide" onRequestClose={() => setLeaderboardModalVisible(false)}>
+        <View style={s.qrWrap}>
+          <View style={[s.qrCard, { width: 360, alignItems: "stretch" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="trophy" size={20} color="#ff8c00" />
+              <Text style={{ fontWeight: "800" }}>Classement du groupe</Text>
+            </View>
+            {activeGroup?.id && meId ? (
+              <ScrollView style={{ maxHeight: 420 }}>
+                <Leaderboard
+                  scope="group"
+                  groupId={activeGroup.id}
+                  currentUserId={meId}
+                  variant="full"
+                  highlightCurrentUser={true}
+                />
+              </ScrollView>
+            ) : (
+              <Text style={{ color: "#6b7280" }}>Classement indisponible.</Text>
+            )}
+            <Pressable onPress={press("close-leaderboard", () => setLeaderboardModalVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
           </View>

@@ -7,18 +7,18 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingModal } from "../../components/OnboardingModal";
@@ -30,11 +30,11 @@ import { usePlayerStats } from "../../hooks/usePlayerStats";
 import { usePlayerWinStreak } from "../../hooks/usePlayerWinStreak";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
+import { getBadgeImage } from "../../lib/badgeImages";
 import { isProfileComplete } from "../../lib/profileCheck";
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
-import { getBadgeImage } from "../../lib/badgeImages";
 // Imports directs de Reanimated (maintenant que worklets est à jour)
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -2120,7 +2120,7 @@ export default function ProfilScreen() {
             </View>
           </View>
 
-          {/* Ligne 4 : Club favori à 100% */}
+          {/* Ligne 4 : Club favori */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="business" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Club favori</Text>
@@ -2142,7 +2142,7 @@ export default function ProfilScreen() {
               ]}
             >
               <Text style={{ fontSize: 14, color: '#ffffff', flex: 1 }}>
-                {club || "Sélectionner un club favori"}
+                {club || "Aucun club favori"}
               </Text>
               <Ionicons name="chevron-down" size={18} color="#ffffff" />
             </Pressable>

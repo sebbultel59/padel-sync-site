@@ -25,6 +25,15 @@ const colorForLevel = (n: number): string => {
   return level?.color || '#9ca3af';
 };
 
+const initialsForName = (name: string): string => {
+  if (!name) return 'J';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0][0] || 'J'}${parts[1][0] || ''}`.toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+};
+
 interface LeaderboardListProps {
   entries: LeaderboardEntry[];
   isLoading: boolean;
@@ -161,9 +170,14 @@ export default function LeaderboardList({
               )}
             </View>
 
-            {/* Badge niveau */}
-            <View style={[styles.levelBadge, { borderColor: levelColor }]}>
-              <Text style={[styles.levelText, { color: levelColor }]}>{entry.level}</Text>
+            {/* Avatar + pastille niveau */}
+            <View style={styles.avatarWrap}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>{initialsForName(entry.pseudo)}</Text>
+                <View style={[styles.avatarLevelBadge, { backgroundColor: levelColor }]}>
+                  <Text style={styles.avatarLevelText}>{entry.level}</Text>
+                </View>
+              </View>
             </View>
 
             {/* Infos joueur */}
@@ -181,19 +195,6 @@ export default function LeaderboardList({
                   <Text style={styles.statText}>{entry.matches_count} matchs</Text>
                 </View>
               </View>
-            </View>
-
-            {/* Barre XP */}
-            <View style={styles.xpContainer}>
-              <View style={styles.xpBarBackground}>
-                <View
-                  style={[
-                    styles.xpBarFill,
-                    { width: `${entry.xp}%`, backgroundColor: levelColor },
-                  ]}
-                />
-              </View>
-              <Text style={styles.xpText}>{entry.xp.toFixed(0)}%</Text>
             </View>
           </Pressable>
         );
@@ -282,6 +283,39 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
   },
+  avatarWrap: {
+    marginRight: 12,
+  },
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#0f172a',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  avatarLevelBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLevelText: {
+    color: '#000000',
+    fontWeight: '900',
+    fontSize: 10,
+  },
   playerInfo: {
     flex: 1,
     gap: 4,
@@ -306,27 +340,6 @@ const styles = StyleSheet.create({
   },
   statText: {
     fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '600',
-  },
-  xpContainer: {
-    width: 80,
-    alignItems: 'center',
-    gap: 4,
-  },
-  xpBarBackground: {
-    width: '100%',
-    height: 8,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  xpBarFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  xpText: {
-    fontSize: 10,
     color: '#6b7280',
     fontWeight: '600',
   },
