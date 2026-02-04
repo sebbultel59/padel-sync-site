@@ -1206,6 +1206,13 @@ export default function ProfilScreen() {
 
     try {
       setSaving(true);
+      // Détecter si c'est la première complétion du profil
+      let wasComplete = true;
+      try {
+        wasComplete = await isProfileComplete(me.id);
+      } catch (e) {
+        console.warn('[Profil] Error checking profile completeness before save:', e);
+      }
       const patch = {
         display_name: name,
         niveau: niveau,
@@ -1244,16 +1251,33 @@ export default function ProfilScreen() {
         const savedGroupId = await AsyncStorage.getItem("active_group_id");
         
         if (savedGroupId) {
-          // Groupe existe, vérifier les disponibilités
-          const hasAvail = await hasAvailabilityForGroup(me.id, savedGroupId);
-          if (hasAvail) {
+          if (!wasComplete) {
+            // Première complétion: aller sur matches même sans dispos
             router.replace("/(tabs)/matches");
           } else {
-            router.replace("/(tabs)/semaine");
+            // Groupe existe, vérifier les disponibilités
+            const hasAvail = await hasAvailabilityForGroup(me.id, savedGroupId);
+            if (hasAvail) {
+              router.replace("/(tabs)/matches");
+            } else {
+              router.replace("/(tabs)/semaine");
+            }
           }
         } else {
-          // Pas de groupe, rediriger vers groupes
-          router.replace("/(tabs)/groupes");
+          // Pas de groupe: auto-join France et activer par défaut
+          const { data: franceGroup } = await supabase
+            .from("groups")
+            .select("id, name")
+            .ilike("name", "%padel sync%france%")
+            .maybeSingle();
+          if (franceGroup?.id) {
+            await supabase.rpc("join_group_by_id", { p_group_id: franceGroup.id });
+            await AsyncStorage.setItem("active_group_id", String(franceGroup.id));
+            router.replace("/(tabs)/matches");
+          } else {
+            // Pas de groupe, rediriger vers groupes
+            router.replace("/(tabs)/groupes");
+          }
         }
       } catch (e) {
         console.warn('[Profil] Error checking group/availability after save:', e);
@@ -1721,7 +1745,7 @@ export default function ProfilScreen() {
             <Ionicons name="location" size={22} color="#ffffff" />
             <Text style={[s.tileTitle, { color: '#ffffff' }]}>Adresses</Text>
             <Pressable onPress={() => setEditingAddresses(true)}>
-              <Ionicons name="create" size={18} color="#ffffff" />
+              <Ionicons name="create" size={18} color="#e0ff00" />
             </Pressable>
           </View>
           <Text style={{ fontSize: 14, fontWeight: '400', color: '#ffffff', marginBottom: 8 }}>(pour trouver des matchs à proximité)</Text>
@@ -1760,7 +1784,7 @@ export default function ProfilScreen() {
                 <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>Domicile <Text style={{ color: '#dc2626' }}>*</Text></Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
-                <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                <Ionicons name="create" size={18} color="#e0ff00" style={{ marginRight: 8 }} />
                 <TextInput
                   value={addressHomeInput}
                   onChangeText={(text) => {
@@ -1847,7 +1871,7 @@ export default function ProfilScreen() {
                 <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>Travail</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
-                <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                <Ionicons name="create" size={18} color="#e0ff00" style={{ marginRight: 8 }} />
                 <TextInput
                   value={addressWorkInput}
                   onChangeText={(text) => {
@@ -2152,7 +2176,8 @@ export default function ProfilScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="mail" size={22} color="#e0ff00" />
             <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Email</Text>
-            </View>
+            <Ionicons name="create" size={18} color="#e0ff00" />
+          </View>
           <View style={[s.tile, s.tileFull]}>
             <Text style={[s.tileValue, { color: '#9ca3af' }]}>{me?.email ?? '—'}</Text>
           </View>

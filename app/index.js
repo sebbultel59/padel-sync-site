@@ -8,6 +8,14 @@ import { validateActiveGroup } from '../lib/groupValidation';
 import { isProfileComplete } from '../lib/profileCheck';
 import { supabase } from '../lib/supabase';
 
+const normalizeGroupName = (name) =>
+  (name || '')
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+const AUTO_JOIN_KEY = 'auto_joined_france_group';
+
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuth();
   const [profileComplete, setProfileComplete] = useState(null);
@@ -57,7 +65,45 @@ export default function Index() {
                 setHasAvailability(false);
               }
             } else {
-              setHasAvailability(false);
+              // Pas de groupe actif -> auto-join France si possible, puis sélectionner
+              const alreadyAutoJoined = await AsyncStorage.getItem(AUTO_JOIN_KEY);
+              const { data: franceGroup } = await supabase
+                .from('groups')
+                .select('id, name')
+                .ilike('name', '%padel sync%france%')
+                .maybeSingle();
+
+              if (franceGroup?.id && !alreadyAutoJoined) {
+                // Tenter de rejoindre automatiquement le groupe public
+                await supabase.rpc('join_group_by_id', { p_group_id: franceGroup.id });
+                await AsyncStorage.setItem(AUTO_JOIN_KEY, '1');
+              }
+
+              const { data: memberships } = await supabase
+                .from('group_members')
+                .select('group_id')
+                .eq('user_id', userId);
+              const myIds = [...new Set((memberships || []).map((r) => r.group_id))];
+              if (myIds.length) {
+                const { data: groups } = await supabase
+                  .from('groups')
+                  .select('id, name')
+                  .in('id', myIds);
+                const france = (groups || []).find(
+                  (g) => normalizeGroupName(g.name) === 'padel sync - france'
+                );
+                const picked = france || groups?.[0] || null;
+                if (picked?.id) {
+                  await AsyncStorage.setItem('active_group_id', String(picked.id));
+                  hasGroup = true;
+                  const hasAvail = await hasAvailabilityForGroup(userId, picked.id);
+                  setHasAvailability(hasAvail);
+                } else {
+                  setHasAvailability(false);
+                }
+              } else {
+                setHasAvailability(false);
+              }
             }
             
             setHasActiveGroup(hasGroup);
