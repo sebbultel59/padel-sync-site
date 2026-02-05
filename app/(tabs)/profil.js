@@ -287,7 +287,7 @@ export default function ProfilScreen() {
   const CACHE_MAX_SIZE = 50;
   
   // Groupe actif (pour les classements de groupe via PlayerRankSummary)
-  const { activeGroup } = useActiveGroup();
+  const { activeGroup, setActiveGroup } = useActiveGroup();
   
   // Zoom et pan pour l'image des niveaux (désactivé en Expo Go à cause des problèmes Worklets)
   const gesturesEnabled = !isExpoGo && Gesture && typeof Gesture.Pinch === 'function' && typeof Gesture.Pan === 'function' && Animated;
@@ -1251,6 +1251,16 @@ export default function ProfilScreen() {
         const savedGroupId = await AsyncStorage.getItem("active_group_id");
         
         if (savedGroupId) {
+          if (!activeGroup?.id) {
+            const { data: savedGroup } = await supabase
+              .from("groups")
+              .select("id, name, avatar_url, visibility, join_policy, club_id")
+              .eq("id", savedGroupId)
+              .maybeSingle();
+            if (savedGroup?.id) {
+              setActiveGroup(savedGroup);
+            }
+          }
           if (!wasComplete) {
             // Première complétion: aller sur matches même sans dispos
             router.replace("/(tabs)/matches");
@@ -1267,12 +1277,29 @@ export default function ProfilScreen() {
           // Pas de groupe: auto-join France et activer par défaut
           const { data: franceGroup } = await supabase
             .from("groups")
-            .select("id, name")
+            .select("id, name, avatar_url, visibility, join_policy, club_id")
             .ilike("name", "%padel sync%france%")
             .maybeSingle();
           if (franceGroup?.id) {
-            await supabase.rpc("join_group_by_id", { p_group_id: franceGroup.id });
+            let joinError = null;
+            try {
+              const { error: rpcError } = await supabase.rpc("join_public_group", {
+                p_group_id: franceGroup.id
+              });
+              if (rpcError) joinError = rpcError;
+            } catch (e) {
+              joinError = e;
+            }
+            if (joinError) {
+              const { error: fallbackError } = await supabase.rpc("join_group_by_id", {
+                p_group_id: franceGroup.id
+              });
+              if (fallbackError && !/duplicate|already/i.test(fallbackError.message || "")) {
+                throw fallbackError;
+              }
+            }
             await AsyncStorage.setItem("active_group_id", String(franceGroup.id));
+            setActiveGroup(franceGroup);
             router.replace("/(tabs)/matches");
           } else {
             // Pas de groupe, rediriger vers groupes

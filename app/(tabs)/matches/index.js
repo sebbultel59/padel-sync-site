@@ -6,27 +6,27 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ActionSheetIOS,
-  ActivityIndicator,
-  Alert,
-  Animated,
-  DeviceEventEmitter,
-  FlatList,
-  Image,
-  InteractionManager,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  Share,
-  ScrollView,
-  SectionList,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  Vibration,
-  View
+    ActionSheetIOS,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    DeviceEventEmitter,
+    FlatList,
+    Image,
+    InteractionManager,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    SectionList,
+    Share,
+    StyleSheet,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    Vibration,
+    View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
@@ -9346,6 +9346,109 @@ const HourSlotRow = ({ item }) => {
           </View>
         </View>
 
+        {/* Sélecteur de groupe + Lien page club (sous 1h / 1h30) */}
+        <View style={{ paddingHorizontal: 16, marginTop: 4, marginBottom: 8 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'stretch',
+              justifyContent: 'center',
+              gap: 0,
+              flexWrap: 'nowrap',
+            }}
+          >
+            <Pressable
+              onPress={() => setGroupSelectorOpen(true)}
+              style={{
+                flex: activeGroup?.club_id ? 0.5 : 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 4,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.22)',
+                backgroundColor: 'rgba(255,255,255,0.16)',
+                shadowColor: '#000000',
+                shadowOpacity: 0.25,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 3,
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+              }}
+            >
+              <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{
+                  fontWeight: '700',
+                  color: THEME.accent,
+                  fontSize: 14,
+                  textAlign: 'center',
+                  textAlignVertical: 'center',
+                  includeFontPadding: false,
+                  maxWidth: 260,
+                  textShadowColor: 'rgba(0,0,0,0.6)',
+                  textShadowOffset: { width: 0, height: 1 },
+                  textShadowRadius: 2,
+                }}
+              >
+                {(() => {
+                  const label = activeGroup?.name || 'Sélectionner un groupe';
+                  const maxLen = activeGroup?.club_id ? 15 : 28;
+                  return label.length > maxLen ? `${label.slice(0, maxLen)}…` : label;
+                })()}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={THEME.accent} style={{ marginLeft: 4 }} />
+            </Pressable>
+
+            {activeGroup?.club_id ? (
+              <Pressable
+                onPress={() => router.push(`/clubs/${activeGroup.club_id}`)}
+                style={{
+                  flex: 0.5,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 0,
+                  paddingHorizontal: 4,
+                  borderRadius: 10,
+                  borderWidth: 0,
+                  backgroundColor: 'transparent',
+                  ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                }}
+              >
+                <Ionicons
+                  name="home"
+                  size={16}
+                  color="#cfe9ff"
+                  style={{
+                    marginRight: 4,
+                    textShadowColor: 'rgba(207, 233, 255, 0.75)',
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: 6,
+                  }}
+                />
+                <Text
+                  style={{
+                    fontWeight: '700',
+                    color: '#cfe9ff',
+                    fontSize: 16,
+                    textAlign: 'center',
+                    textShadowColor: 'rgba(207, 233, 255, 0.75)',
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: 6,
+                  }}
+                >
+                  Page club
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
         {(!loadingWeek &&
           (renderLongSections || []).length === 0 &&
           (renderHourReady || []).length === 0) ? (
@@ -9528,6 +9631,7 @@ const HourSlotRow = ({ item }) => {
         </View>
       </View>
       <View style={{ height: matchTabsHeight + 1 }} />
+
       
       {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
       {tab === 'proposes' && (
@@ -15124,122 +15228,6 @@ const HourSlotRow = ({ item }) => {
         </Pressable>
       </View>
 
-      {/* Sélecteur de groupe + Lien page club */}
-      <View
-        onLayout={updateMeasuredHeight(setButtonBarMeasuredHeight, BUTTON_BAR_HEIGHT)}
-        style={{
-          position: 'absolute',
-          bottom: buttonBarBottom - 8,
-          left: 0,
-          right: 0,
-          paddingTop: 4,
-          paddingBottom: safeBottomInset > 0 ? safeBottomInset : 0,
-          paddingHorizontal: 6,
-          backgroundColor: 'transparent',
-          zIndex: 998,
-          elevation: 8,
-          marginTop: 0,
-        }}
-      >
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'stretch',
-            justifyContent: 'center',
-            gap: 0,
-            flexWrap: 'nowrap',
-          }}
-        >
-          <Pressable
-            onPress={() => setGroupSelectorOpen(true)}
-            style={{
-              flex: 0.6,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingVertical: 4,
-              paddingHorizontal: 12,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.22)',
-              backgroundColor: 'rgba(255,255,255,0.16)',
-              shadowColor: '#000000',
-              shadowOpacity: 0.25,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 3,
-              ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-            }}
-          >
-            <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
-            <Text
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              style={{ 
-                fontWeight: '700', 
-                color: THEME.accent, 
-                fontSize: 14, 
-                textAlign: 'center', 
-                textAlignVertical: 'center', 
-                includeFontPadding: false, 
-                maxWidth: 260,
-                textShadowColor: 'rgba(0,0,0,0.6)',
-                textShadowOffset: { width: 0, height: 1 },
-                textShadowRadius: 2,
-              }}
-            >
-              {(() => {
-                const label = activeGroup?.name || 'Sélectionner un groupe';
-                return label.length > 15 ? `${label.slice(0, 15)}…` : label;
-              })()}
-            </Text>
-            <Ionicons name="chevron-down" size={18} color={THEME.accent} style={{ marginLeft: 4 }} />
-          </Pressable>
-
-          {activeGroup?.club_id ? (
-            <Pressable
-              onPress={() => router.push(`/clubs/${activeGroup.club_id}`)}
-            style={{
-              flex: 0.4,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 0,
-                paddingHorizontal: 4,
-                borderRadius: 10,
-                borderWidth: 0,
-                backgroundColor: 'transparent',
-                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-              }}
-            >
-              <Ionicons
-                name="home"
-                size={16}
-                color="#cfe9ff"
-                style={{
-                  marginRight: 4,
-                  textShadowColor: 'rgba(207, 233, 255, 0.75)',
-                  textShadowOffset: { width: 0, height: 0 },
-                  textShadowRadius: 6,
-                }}
-              />
-              <Text
-                style={{
-                  fontWeight: '700',
-                  color: '#cfe9ff',
-                  fontSize: 16,
-                  textAlign: 'center',
-                  textShadowColor: 'rgba(207, 233, 255, 0.75)',
-                  textShadowOffset: { width: 0, height: 0 },
-                  textShadowRadius: 6,
-                }}
-              >
-                Page club
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
 
       {/* Popup pas de groupe sélectionné */}
       <OnboardingModal
