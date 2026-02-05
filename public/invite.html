@@ -1,76 +1,102 @@
-// app/join.js
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Text, TextInput, View } from "react-native";
-import { supabase } from "../lib/supabase";
-
-export default function Join() {
-  const { code, group_id } = useLocalSearchParams(); // lit /join?code=ABC123 ou /join?group_id=...
-  const [inviteCode, setInviteCode] = useState(code ?? "");
-  const router = useRouter();
-
-  const handleJoinByGroupId = useCallback(async (groupId) => {
-    try {
-      // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
-        p_group_id: groupId
-      });
-      
-      if (!rpcError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-        router.replace("/(tabs)/matches");
-        return;
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Invitation Padel Sync</title>
+    <style>
+      :root {
+        color-scheme: dark;
       }
-      
-      // Fallback: Essayer avec join_public_group pour les groupes publics
-      const { data: publicData, error: publicError } = await supabase.rpc('join_public_group', {
-        p_group_id: groupId
-      });
-      
-      if (!publicError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-        router.replace("/(tabs)/matches");
-        return;
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b2240;
+        color: #fff;
       }
-      
-      // Si tout échoue, afficher un message d'erreur clair
-      console.error('[Join] Erreurs:', { rpcError: rpcError?.message, publicError: publicError?.message });
-      Alert.alert("Impossible de rejoindre", rpcError?.message || publicError?.message || "Ce groupe nécessite une invitation valide.");
-    } catch (e) {
-      console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
-      Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
-    }
-  }, [router]);
+      .card {
+        max-width: 520px;
+        margin: 64px auto;
+        background: #122a4f;
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 16px;
+        color: #cfe9ff;
+        line-height: 1.4;
+      }
+      .code {
+        font-size: 22px;
+        letter-spacing: 2px;
+        font-weight: 800;
+        background: rgba(255, 255, 255, 0.12);
+        padding: 10px 14px;
+        border-radius: 10px;
+        display: inline-block;
+      }
+      .btn {
+        display: inline-block;
+        margin-top: 14px;
+        padding: 12px 18px;
+        border-radius: 999px;
+        background: #e0ff00;
+        color: #001831;
+        font-weight: 800;
+        text-decoration: none;
+      }
+      .btn.secondary {
+        background: transparent;
+        color: #cfe9ff;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .small {
+        font-size: 13px;
+        color: #9bb6d6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Rejoins Padel Sync 🎾</h1>
+      <p>Installe l'app si besoin, puis rouvre ce lien pour rejoindre automatiquement le groupe.</p>
+      <p>Code d'invitation :</p>
+      <div class="code" id="invite-code">—</div>
 
-  useEffect(() => {
-    if (code) {
-      setInviteCode(code);
-    } else if (group_id) {
-      // Si on a un group_id, on essaie de rejoindre directement le groupe
-      console.log('[Join] Group ID reçu:', group_id);
-      handleJoinByGroupId(group_id);
-    }
-  }, [code, group_id, handleJoinByGroupId]);
+      <div class="stack" style="margin-top: 18px;">
+        <a class="btn" href="https://apps.apple.com/app/padel-sync/id6754223924">Télécharger sur l’App Store</a>
+        <a class="btn" href="https://play.google.com/store/apps/details?id=com.padelsync.app">Télécharger sur Google Play</a>
+        <a class="btn secondary" id="open-link" href="#">Ouvrir l’app</a>
+      </div>
+      <p class="small">Si l’app est déjà installée, clique sur “Ouvrir l’app” ou rouvre ce lien après installation.</p>
+    </div>
 
-  async function acceptInvite() {
-    if (!inviteCode) return Alert.alert("Code requis", "Entre un code d'invitation.");
-    const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode });
-    if (error) return Alert.alert("Erreur", error.message);
-    Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-    router.replace("/(tabs)/matches");
-  }
-
-  return (
-    <View style={{ padding: 16, gap: 12 }}>
-      <Text style={{ fontSize: 20, fontWeight: "600" }}>Rejoindre un groupe</Text>
-      <TextInput
-        placeholder="Code d’invitation"
-        value={inviteCode}
-        onChangeText={setInviteCode}
-        autoCapitalize="characters"
-        style={{ borderWidth: 1, borderRadius: 8, padding: 12 }}
-      />
-      <Button title="Rejoindre" onPress={acceptInvite} />
-    </View>
-  );
-}
+    <script>
+      (function () {
+        var path = window.location.pathname || "";
+        var code = "";
+        var match = path.match(/\/invite\/([A-Za-z0-9]+)/);
+        if (match && match[1]) {
+          code = match[1].toUpperCase();
+        }
+        var params = new URLSearchParams(window.location.search || "");
+        if (!code && params.get("code")) {
+          code = String(params.get("code")).toUpperCase();
+        }
+        document.getElementById("invite-code").textContent = code || "CODE MANQUANT";
+        var openLink = document.getElementById("open-link");
+        openLink.href = code ? "https://syncpadel.app/invite/" + code : "https://syncpadel.app/invite";
+      })();
+    </script>
+  </body>
+</html>
