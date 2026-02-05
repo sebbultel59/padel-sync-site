@@ -885,77 +885,21 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
         }
         inviteCode = code;
       } else {
-        // Pour les groupes publics : créer ou récupérer un code d'invitation à usage unique
-      const { data: existingInvite, error: fetchError } = await supabase
-        .from('invitations')
-        .select('code')
-        .eq('group_id', activeGroup.id)
-        .eq('used', false)
-          .eq('reusable', false)  // S'assurer qu'on ne récupère pas un code réutilisable
-        .limit(1)
-        .maybeSingle();
-      
-      if (existingInvite?.code) {
-        inviteCode = existingInvite.code;
-      } else {
-          // Créer un nouveau code d'invitation à usage unique
-        const { data: newInvite, error: createError } = await supabase
-          .from('invitations')
-          .insert({
-            group_id: activeGroup.id,
-            code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-              created_by: meId,
-              reusable: false  // Code à usage unique pour les groupes publics
-          })
-          .select('code')
-          .single();
-        
-        if (createError) {
-          throw createError;
+        const { data: code, error: rpcError } = await supabase.rpc('get_or_create_group_invite_code', {
+          p_group_id: activeGroup.id
+        });
+        if (rpcError) {
+          throw rpcError;
         }
-        inviteCode = newInvite.code;
-        }
+        inviteCode = code;
       }
       
-      // Liens de téléchargement de l'app
-      const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
-      const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
-      
-      const message = `🎾 Rejoins mon groupe Padel Sync !
-
-Organise tes matchs en 3 clics avec l'app Padel Sync 📱
-
-
-
-🔑 CODE DU GROUPE
-
-${inviteCode}
-
-
-
-➡️ Une fois l'app installée
-
-1️⃣ Ouvre l'app Padel Sync
-
-2️⃣ Va dans l'onglet "Groupes"
-
-3️⃣ Clique sur "Rejoindre un groupe"
-
-4️⃣ Entre le code ci-dessus
-
-
-
-📲 Installe l'app ici
-
-🍎 iOS
-${iosAppLink}
-
-🤖 Android
-${androidAppLink}
-
-
-
-Padel Sync — Ton match en 3 clics 🎾`;
+      const inviteLink = inviteCode ? `https://syncpadel.app/invite/${inviteCode}` : null;
+      const groupLabel = activeGroup?.name ? ` (${activeGroup.name})` : '';
+      const message =
+        `Rejoins notre groupe Padel Sync${groupLabel} 🎾\n` +
+        `👉 ${inviteLink || 'Lien indisponible'}\n` +
+        `(ou avec le code : ${inviteCode || 'CODE_INDISPONIBLE'})`;
       
       await Share.share({ message });
     } catch (e) {
@@ -4022,45 +3966,12 @@ Padel Sync — Ton match en 3 clics 🎾`;
               <Pressable 
                 onPress={press("share-invite-code", async () => {
                   try {
-                    // Liens de téléchargement de l'app
-                    const iosAppLink = "https://apps.apple.com/app/padel-sync/id6754223924";
-                    const androidAppLink = "https://play.google.com/store/apps/details?id=com.padelsync.app";
-                    
-                    const message = `🎾 Rejoins mon groupe Padel Sync !
-
-Organise tes matchs en 3 clics avec l'app Padel Sync 📱
-
-
-
-🔑 CODE DU GROUPE
-
-${qrCode}
-
-
-
-➡️ Une fois l'app installée
-
-1️⃣ Ouvre l'app Padel Sync
-
-2️⃣ Va dans l'onglet "Groupes"
-
-3️⃣ Clique sur "Rejoindre un groupe"
-
-4️⃣ Entre le code ci-dessus
-
-
-
-📲 Installe l'app ici
-
-🍎 iOS
-${iosAppLink}
-
-🤖 Android
-${androidAppLink}
-
-
-
-Padel Sync — Ton match en 3 clics 🎾`;
+                    const inviteLink = qrCode ? `https://syncpadel.app/invite/${qrCode}` : null;
+                    const groupLabel = activeGroup?.name ? ` (${activeGroup.name})` : '';
+                    const message =
+                      `Rejoins notre groupe Padel Sync${groupLabel} 🎾\n` +
+                      `👉 ${inviteLink || 'Lien indisponible'}\n` +
+                      `(ou avec le code : ${qrCode || 'CODE_INDISPONIBLE'})`;
                     
                     await Share.share({ message });
                   } catch (e) {
