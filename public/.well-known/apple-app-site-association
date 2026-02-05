@@ -1,10 +1,12 @@
 {
   "applinks": {
+    "apps": [],
     "details": [
       {
-        "appIDs": ["TEAMID.com.padelsync.app"],
-        "paths": ["/invite/*", "/*"]
+        "appID": "F2MNK9R7Q8.app.syncpadel.mobile",
+        "paths": [
+          "/invite/*"
+        ]
       }
     ]
   }
-}
