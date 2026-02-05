@@ -3,8 +3,10 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../context/auth';
+import { useActiveGroup } from '../lib/activeGroup';
 import { hasAvailabilityForGroup } from '../lib/availabilityCheck';
 import { validateActiveGroup } from '../lib/groupValidation';
+import { acceptInviteCode, clearPendingInvite, getPendingInviteCode, setInviteJoinedBanner } from '../lib/invite';
 import { isProfileComplete } from '../lib/profileCheck';
 import { supabase } from '../lib/supabase';
 
@@ -18,6 +20,7 @@ const AUTO_JOIN_KEY = 'auto_joined_france_group';
 
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { setActiveGroup } = useActiveGroup();
   const [profileComplete, setProfileComplete] = useState(null);
   const [hasActiveGroup, setHasActiveGroup] = useState(null);
   const [hasAvailability, setHasAvailability] = useState(null);
@@ -46,6 +49,31 @@ export default function Index() {
             // Vérifier si le profil est complet
             const complete = await isProfileComplete(userId);
             setProfileComplete(complete);
+
+            const pendingInvite = await getPendingInviteCode();
+            if (complete && pendingInvite) {
+              try {
+                const groupId = await acceptInviteCode(pendingInvite);
+                const { data: invitedGroup } = await supabase
+                  .from('groups')
+                  .select('id, name, avatar_url, visibility, join_policy, club_id')
+                  .eq('id', groupId)
+                  .maybeSingle();
+                if (invitedGroup?.id) {
+                  await AsyncStorage.setItem('active_group_id', String(invitedGroup.id));
+                  setActiveGroup(invitedGroup);
+                  await setInviteJoinedBanner({ groupName: invitedGroup.name });
+                }
+                await clearPendingInvite();
+                setHasActiveGroup(true);
+                const hasAvail = await hasAvailabilityForGroup(userId, groupId);
+                setHasAvailability(hasAvail);
+                return;
+              } catch (e) {
+                console.warn('[Index] Pending invite failed:', e?.message || e);
+                await clearPendingInvite();
+              }
+            }
             
             // Vérifier si un groupe est sélectionné et valide
             const savedGroupId = await AsyncStorage.getItem("active_group_id");

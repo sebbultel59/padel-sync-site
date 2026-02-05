@@ -1,7 +1,7 @@
 // app/join.js
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Text, TextInput, View, Clipboard, Platform } from "react-native";
+import { Alert, Button, Clipboard, Text, TextInput, View } from "react-native";
 import { supabase } from "../lib/supabase";
 
 export default function Join() {
@@ -43,8 +43,14 @@ export default function Join() {
   }, [router]);
 
   const acceptInvite = useCallback(async (codeToUse?: string) => {
-    const codeToProcess = codeToUse || inviteCode;
+    let codeToProcess = codeToUse || inviteCode;
     if (!codeToProcess) return Alert.alert("Code requis", "Entre un code d'invitation.");
+
+    // Support du lien web https://syncpadel.app/invite/{CODE}
+    const webInviteMatch = String(codeToProcess).match(/syncpadel\.app\/invite\/([A-Z0-9]+)/i);
+    if (webInviteMatch?.[1]) {
+      codeToProcess = webInviteMatch[1];
+    }
     
     // Vérifier si c'est un deep link ou une URL
     if (codeToProcess.includes('syncpadel://join?group_id=') || codeToProcess.includes('group_id=')) {

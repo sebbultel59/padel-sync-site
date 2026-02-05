@@ -11,6 +11,7 @@ export default {
       bundleIdentifier: "app.syncpadel.mobile",
       supportsTablet: false,
       buildNumber: "67",
+      associatedDomains: ["applinks:syncpadel.app"],
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription:
@@ -27,6 +28,19 @@ export default {
       package: "com.padelsync.app",
       versionCode: 67,
       newArchEnabled: true,
+      intentFilters: [
+        {
+          action: "VIEW",
+          data: [
+            {
+              scheme: "https",
+              host: "syncpadel.app",
+              pathPrefix: "/invite"
+            }
+          ],
+          category: ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png", // chemin corrigé
         backgroundColor: "#001831"

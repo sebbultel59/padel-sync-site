@@ -31,6 +31,7 @@ import { usePlayerWinStreak } from "../../hooks/usePlayerWinStreak";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { getBadgeImage } from "../../lib/badgeImages";
+import { acceptInviteCode, clearPendingInvite, getPendingInviteCode, setInviteJoinedBanner } from "../../lib/invite";
 import { isProfileComplete } from "../../lib/profileCheck";
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
@@ -1248,6 +1249,29 @@ export default function ProfilScreen() {
       
       // Après sauvegarde, vérifier groupe et dispos puis rediriger
       try {
+        const pendingInvite = await getPendingInviteCode();
+        if (pendingInvite) {
+          try {
+            const groupId = await acceptInviteCode(pendingInvite);
+            const { data: invitedGroup } = await supabase
+              .from("groups")
+              .select("id, name, avatar_url, visibility, join_policy, club_id")
+              .eq("id", groupId)
+              .maybeSingle();
+            if (invitedGroup?.id) {
+              await AsyncStorage.setItem("active_group_id", String(invitedGroup.id));
+              setActiveGroup(invitedGroup);
+              await setInviteJoinedBanner({ groupName: invitedGroup.name });
+            }
+            await clearPendingInvite();
+            router.replace("/(tabs)/matches");
+            return true;
+          } catch (e) {
+            await clearPendingInvite();
+            Alert.alert("Invitation invalide", e?.message ?? String(e));
+          }
+        }
+
         const savedGroupId = await AsyncStorage.getItem("active_group_id");
         
         if (savedGroupId) {

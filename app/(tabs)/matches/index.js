@@ -35,6 +35,7 @@ import { Step, useCopilot } from '../../../components/AppCopilot';
 import { OnboardingModal } from '../../../components/OnboardingModal';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
+import { popInviteJoinedBanner } from "../../../lib/invite";
 import { supabase } from "../../../lib/supabase";
 import { formatPlayerName, press } from "../../../lib/uiSafe";
 
@@ -479,6 +480,7 @@ export default function MatchesScreen() {
   const filterConfigBottom = filterButtonsBottom + filterBarMeasuredHeight + STACK_SPACING;
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
+  const [inviteBanner, setInviteBanner] = useState(null);
 
   // États principaux
   const [meId, setMeId] = useState(null);
@@ -3615,6 +3617,25 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
     })();
   }, [groupId]);
 
+  // Afficher le bandeau "Groupe rejoint" une seule fois
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      let timer;
+      (async () => {
+        const banner = await popInviteJoinedBanner();
+        if (mounted && banner) {
+          setInviteBanner(banner);
+          timer = setTimeout(() => setInviteBanner(null), 5000);
+        }
+      })();
+      return () => {
+        mounted = false;
+        if (timer) clearTimeout(timer);
+      };
+    }, [])
+  );
+
   // Vérifier si un groupe est sélectionné au focus
   useFocusEffect(
     useCallback(() => {
@@ -3667,44 +3688,16 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
   const getInviteCodeForShare = useCallback(async () => {
     if (!activeGroup?.id) return null;
     try {
-      if (activeGroup.visibility === 'private') {
-        const { data, error } = await supabase.rpc('get_or_create_group_invite_code', {
-          p_group_id: activeGroup.id,
-        });
-        if (error) throw error;
-        return data || null;
-      }
-
-      const { data: existingInvite, error: fetchError } = await supabase
-        .from('invitations')
-        .select('code')
-        .eq('group_id', activeGroup.id)
-        .eq('used', false)
-        .eq('reusable', false)
-        .limit(1)
-        .maybeSingle();
-
-      if (fetchError) throw fetchError;
-      if (existingInvite?.code) return existingInvite.code;
-
-      if (!meId) return null;
-      const { data: newInvite, error: createError } = await supabase
-        .from('invitations')
-        .insert({
-          group_id: activeGroup.id,
-          code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-          created_by: meId,
-          reusable: false,
-        })
-        .select('code')
-        .single();
-      if (createError) throw createError;
-      return newInvite?.code || null;
+      const { data, error } = await supabase.rpc('get_or_create_group_invite_code', {
+        p_group_id: activeGroup.id,
+      });
+      if (error) throw error;
+      return data || null;
     } catch (e) {
       console.warn('[EmptyMatches] invite code error:', e?.message || String(e));
       return null;
     }
-  }, [activeGroup?.id, activeGroup?.visibility, meId]);
+  }, [activeGroup?.id]);
 
   const onAddAvailability = useCallback(() => {
     router.push('/(tabs)/semaine');
@@ -3718,16 +3711,12 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
     try {
       const inviteCode = await getInviteCodeForShare();
       const codeLine = inviteCode || 'CODE_INDISPONIBLE';
-      const groupLabel = activeGroup?.name ? `(${activeGroup.name})` : '';
+      const inviteLink = inviteCode ? `https://syncpadel.app/invite/${inviteCode}` : null;
+      const groupLabel = activeGroup?.name ? ` (${activeGroup.name})` : '';
       const message =
-        `Code d'invitation\n\n` +
-        `Pour rejoindre ce groupe ${groupLabel}, utilisez le code suivant :\n\n` +
-        `${codeLine}\n\n` +
-        `1. Installe l'application PADEL SYNC\n` +
-        `2. Ouvre l'app Padel Sync\n` +
-        `3. Va dans "Groupes" → "Rejoindre un groupe"\n` +
-        `4. Entre le code ci-dessus\n\n` +
-        `Padel Sync — Ton match en 3 clics 🎾`;
+        `Rejoins notre groupe Padel Sync${groupLabel} 🎾\n` +
+        `👉 ${inviteLink || 'Lien indisponible'}\n` +
+        `(ou avec le code : ${codeLine})`;
 
       await Share.share({ message });
     } catch (e) {
@@ -9538,6 +9527,29 @@ const HourSlotRow = ({ item }) => {
           <Text style={styles.networkNoticeText}>{networkNotice}</Text>
         </View>
       )}
+
+      {inviteBanner?.groupName ? (
+        <View
+          style={{
+            marginHorizontal: 16,
+            marginTop: 6,
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            borderRadius: 10,
+            backgroundColor: THEME.accent,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Text style={{ color: THEME.ink, fontWeight: '800' }}>
+            Groupe rejoint : {inviteBanner.groupName}
+          </Text>
+          <Pressable onPress={() => setInviteBanner(null)} hitSlop={8}>
+            <Ionicons name="close" size={18} color={THEME.ink} />
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.header}>
         <View />
