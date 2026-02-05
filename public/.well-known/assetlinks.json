@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.padelsync.app",
+      "sha256_cert_fingerprints": [
+        "D6:3B:76:94:2A:26:FA:1D:F1:03:C0:F4:11:8E:80:54:28:95:07:60:8D:DE:40:69:3B:23:63:A2:9E:DC:D4:62"
+      ]
+    }
+  }
+]
