@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="apple-itunes-app" content="app-id=6754223924" />
     <title>Invitation Padel Sync</title>
     <style>
       :root {
@@ -95,7 +96,7 @@
         }
         document.getElementById("invite-code").textContent = code || "CODE MANQUANT";
         var openLink = document.getElementById("open-link");
-        openLink.href = code ? "https://syncpadel.app/invite/" + code : "https://syncpadel.app/invite";
+        openLink.href = code ? "syncpadel://invite/" + code : "syncpadel://invite";
       })();
     </script>
   </body>
