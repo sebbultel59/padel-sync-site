@@ -15,16 +15,13 @@ import {
     Image,
     InteractionManager,
     Linking,
-    Modal,
-    Platform,
-    Pressable,
+    Modal, Platform, Pressable,
     ScrollView,
     SectionList,
     Share,
     StyleSheet,
     Text,
-    TextInput,
-    useWindowDimensions,
+    TextInput, UIManager, useWindowDimensions,
     Vibration,
     View
 } from "react-native";
@@ -38,6 +35,12 @@ import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../
 import { popInviteJoinedBanner } from "../../../lib/invite";
 import { supabase } from "../../../lib/supabase";
 import { formatPlayerName, press } from "../../../lib/uiSafe";
+let NativeSlider = null;
+try {
+  NativeSlider = require("@react-native-community/slider").default;
+} catch {}
+const hasNativeSlider = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RNCSlider");
+const GEO_PREFS_KEY = (groupId) => `geo_filter_prefs:${groupId}`;
 
 const THEME = {
   bg: '#061A2B',
@@ -329,6 +332,39 @@ export default function MatchesScreen() {
     setIsConfirmOpen(false);
   }, []);
 
+  const changeZone = useCallback(async (zone, options = {}) => {
+    if (!zone?.is_active || !meId) return;
+    if (String(zone.id) === String(myZoneId)) return;
+    const { skipConfirm = false } = options || {};
+    const applyZone = async () => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ zone_id: zone.id, comfort_radius_km: zone.default_radius_km })
+        .eq("id", meId);
+      if (error) {
+        Alert.alert("Erreur", error.message);
+        return;
+      }
+      setMyZoneId(zone.id);
+      setComfortRadiusKm(zone.default_radius_km);
+      persistGeoPrefs(activeGroup?.id, { zone_id: zone.id, comfort_radius_km: zone.default_radius_km });
+      Alert.alert("Zone mise à jour", "Sélectionne maintenant tes clubs acceptés.");
+      router.replace("/clubs/select");
+    };
+    if (skipConfirm) {
+      applyZone();
+      return;
+    }
+    Alert.alert(
+      "Changer de zone",
+      "Changer de zone ne met pas à jour tes clubs. Continuer ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Continuer", onPress: applyZone }
+      ]
+    );
+  }, [meId, myZoneId, activeGroup?.id, persistGeoPrefs]);
+
   const openConfirm = useCallback(({ startsAt, endsAt, selectedUserIds }) => {
     const snapshot = {
       startsAt,
@@ -481,6 +517,9 @@ export default function MatchesScreen() {
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
   const [inviteBanner, setInviteBanner] = useState(null);
+  const [acceptedClubsByUser, setAcceptedClubsByUser] = useState({});
+  const [myAcceptedClubs, setMyAcceptedClubs] = useState(new Set());
+  const [myZoneId, setMyZoneId] = useState(null);
 
   // États principaux
   const [meId, setMeId] = useState(null);
@@ -598,6 +637,18 @@ export default function MatchesScreen() {
   const [cityQuery, setCityQuery] = useState('');
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [radiusKm, setRadiusKm] = useState(20);
+  const [zonesList, setZonesList] = useState([]);
+  const [comfortRadiusKm, setComfortRadiusKm] = useState(null);
+  const [geoZonePickerOpen, setGeoZonePickerOpen] = useState(false);
+  const [geoClubsModalOpen, setGeoClubsModalOpen] = useState(false);
+  const [geoClubsLoading, setGeoClubsLoading] = useState(false);
+  const [geoClubsList, setGeoClubsList] = useState([]);
+  const [geoClubsSelected, setGeoClubsSelected] = useState(new Set());
+  const [restoringGeoPrefs, setRestoringGeoPrefs] = useState(false);
+  const currentZone = React.useMemo(
+    () => (zonesList || []).find((z) => String(z.id) === String(myZoneId)),
+    [zonesList, myZoneId]
+  );
   const [levelRange, setLevelRange] = useState(['1/2']); // Array of selected ranges: ['1/2', '3/4', etc.]
   const [geoStart, setGeoStart] = useState(() => {
     const now = new Date();
@@ -872,6 +923,11 @@ const longReadyWeek = React.useMemo(
         });
         console.log('[longReadyWeek] Après filtrage géographique:', finalFiltered.length, 'sur', (sorted || []).length);
       }
+
+      // Filtrer par zone + clubs acceptés
+      finalFiltered = finalFiltered
+        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId))
+        .filter(Boolean);
       
       // Log les créneaux valides
       finalFiltered.slice(0, 5).forEach(it => {
@@ -880,7 +936,7 @@ const longReadyWeek = React.useMemo(
       console.log('[longReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', longReady?.length || 0);
       return finalFiltered;
     },
-    [longReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId]
+    [longReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId, myZoneId, acceptedClubsByUser, myAcceptedClubs]
   );
   
 const hourReadyWeek = React.useMemo(
@@ -1046,6 +1102,11 @@ const hourReadyWeek = React.useMemo(
         });
         console.log('[hourReadyWeek] Après filtrage géographique:', finalFiltered.length, 'sur', (sorted || []).length);
       }
+
+      // Filtrer par zone + clubs acceptés
+      finalFiltered = finalFiltered
+        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId))
+        .filter(Boolean);
       
       // Log les créneaux valides
       finalFiltered.forEach(it => {
@@ -1055,7 +1116,7 @@ const hourReadyWeek = React.useMemo(
       // Forcer une nouvelle référence pour garantir que React détecte le changement
       return finalFiltered.map(item => ({ ...item }));
     },
-  [hourReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId]
+  [hourReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId, myZoneId, acceptedClubsByUser, myAcceptedClubs]
 );
   
 // Fonction helper pour vérifier si un match n'est pas périmé
@@ -2118,6 +2179,54 @@ function computeAvailableUsersForInterval(startsAt, endsAt, availabilityData) {
   return intersection ? [...intersection] : [];
 }
 
+function hasCommonAcceptedClub(userIds, acceptedMap, myAccepted) {
+  if (!Array.isArray(userIds) || userIds.length < 4) return false;
+  if (!myAccepted || myAccepted.size === 0) return false;
+  const counts = new Map();
+  for (const uidRaw of userIds) {
+    const uid = String(uidRaw);
+    const clubs = acceptedMap[uid] || [];
+    for (const clubId of clubs) {
+      if (!myAccepted.has(clubId)) continue;
+      counts.set(clubId, (counts.get(clubId) || 0) + 1);
+    }
+  }
+  for (const cnt of counts.values()) {
+    if (cnt >= 4) return true;
+  }
+  return false;
+}
+
+function getCommonAcceptedClubs(userIds, acceptedMap) {
+  if (!Array.isArray(userIds) || userIds.length === 0) return [];
+  let common = null;
+  for (const uidRaw of userIds) {
+    const uid = String(uidRaw);
+    const clubs = new Set(acceptedMap[uid] || []);
+    if (common === null) {
+      common = clubs;
+    } else {
+      common = new Set([...common].filter((c) => clubs.has(c)));
+    }
+    if (common.size === 0) return [];
+  }
+  return Array.from(common || []);
+}
+
+function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, myAccepted, meId) {
+  if (!slot) return null;
+  if (!myZoneId) return slot;
+  const userIds = slot.ready_user_ids || [];
+  const filtered = userIds.filter((uid) => {
+    const profile = profilesById[String(uid)];
+    return profile?.zone_id && String(profile.zone_id) === String(myZoneId);
+  });
+  const hasMe = meId ? filtered.some((id) => String(id) === String(meId)) : true;
+  if (!hasMe) return null;
+  if (!hasCommonAcceptedClub(filtered, acceptedMap, myAccepted)) return null;
+  return { ...slot, ready_user_ids: filtered };
+}
+
 async function computeAvailableUserIdsForInterval(groupId, startsAt, endsAt) {
   try {
     console.log('[computeAvailableUserIdsForInterval] Querying availability for:', { groupId, startsAt, endsAt });
@@ -2449,7 +2558,7 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   );
 };
 
-const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
+const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClubs }) => {
   return (
     <View style={styles.emptyStateWrap}>
       <View style={styles.emptyStateCard}>
@@ -2457,6 +2566,11 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
         <Text style={styles.emptyStateText}>
           Les matchs se créent à partir des disponibilités des joueurs. Ajoute les tiennes pour lancer la dynamique.
         </Text>
+        {showMissingClubs ? (
+          <Text style={[styles.emptyStateText, { marginTop: 6, fontWeight: '700', color: '#e0ff00' }]}>
+            Sélectionne au moins 1 club accepté pour recevoir des propositions.
+          </Text>
+        ) : null}
         <View style={styles.emptyStateButtons}>
           <Pressable
             onPress={onAddAvailability}
@@ -3030,6 +3144,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
               profilesMap[key] = p;
               console.log('[Matches] Profile loaded:', key, p.display_name || p.name || p.email || 'sans nom');
             });
+              if (meId && profilesMap[String(meId)]) {
+                setMyZoneId(profilesMap[String(meId)]?.zone_id || null);
+              }
             
             // S'assurer que le profil du joueur authentifié est toujours inclus
             if (meId && !profilesMap[String(meId)]) {
@@ -3051,6 +3168,26 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
             
             console.log('[Matches] Loaded', Object.keys(profilesMap).length, 'profiles into map');
             setProfilesById(profilesMap);
+
+            try {
+              const { data: clubsData, error: clubsError } = await supabase
+                .from("user_clubs")
+                .select("user_id, club_id, is_preferred")
+                .in("user_id", memberIds)
+                .eq("is_accepted", true);
+              if (clubsError) throw clubsError;
+              const map = {};
+              (clubsData || []).forEach((row) => {
+                const uid = String(row.user_id);
+                if (!map[uid]) map[uid] = [];
+                map[uid].push(String(row.club_id));
+              });
+              setAcceptedClubsByUser(map);
+              const mine = map[String(meId)] || [];
+              setMyAcceptedClubs(new Set(mine));
+            } catch (e) {
+              console.warn('[Matches] user_clubs load error:', e?.message || e);
+            }
       } else {
             console.warn('[Matches] No profiles loaded for members');
           }
@@ -3617,6 +3754,186 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
     })();
   }, [groupId]);
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!meId || myZoneId) return;
+      const { data: p } = await supabase.from("profiles").select("zone_id").eq("id", meId).maybeSingle();
+      if (mounted) setMyZoneId(p?.zone_id || null);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [meId, myZoneId]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!meId) return;
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("zone_id, comfort_radius_km")
+          .eq("id", meId)
+          .maybeSingle();
+        if (mounted) {
+          if (profile?.zone_id && !myZoneId) setMyZoneId(profile.zone_id);
+          if (profile?.comfort_radius_km != null) setComfortRadiusKm(profile.comfort_radius_km);
+        }
+        if (!zonesList.length) {
+          const { data: z } = await supabase.from("zones").select("*").order("region").order("name");
+          if (mounted) setZonesList(z || []);
+        }
+      } catch (e) {
+        console.warn("[Matches] zones load error:", e?.message || e);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [meId, myZoneId, zonesList.length]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!geoClubsModalOpen || !meId || !myZoneId) return;
+      try {
+        setGeoClubsLoading(true);
+        const [{ data: clubsData }, { data: userClubs }] = await Promise.all([
+          supabase
+            .from("clubs")
+            .select("id, name, zone_id, is_active")
+            .eq("zone_id", myZoneId)
+            .eq("is_active", true)
+            .order("name"),
+          supabase
+            .from("user_clubs")
+            .select("club_id")
+            .eq("user_id", meId)
+            .eq("is_accepted", true)
+        ]);
+        const selected = new Set((userClubs || []).map((r) => String(r.club_id)));
+        if (mounted) {
+          setGeoClubsList(clubsData || []);
+          setGeoClubsSelected(selected);
+        }
+      } catch (e) {
+        Alert.alert("Erreur", "Impossible de charger les clubs.");
+      } finally {
+        if (mounted) setGeoClubsLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [geoClubsModalOpen, meId, myZoneId]);
+
+  const persistGeoPrefs = useCallback(async (groupId, patch) => {
+    if (!groupId) return;
+    try {
+      const key = GEO_PREFS_KEY(groupId);
+      const prevRaw = await AsyncStorage.getItem(key);
+      const prev = prevRaw ? JSON.parse(prevRaw) : {};
+      const next = { ...prev, ...patch, updated_at: Date.now() };
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!meId || !activeGroup?.id || activeGroup?.club_id) return;
+      setRestoringGeoPrefs(true);
+      try {
+        const raw = await AsyncStorage.getItem(GEO_PREFS_KEY(activeGroup.id));
+        if (!raw) return;
+        const prefs = JSON.parse(raw);
+        if (prefs?.zone_id) {
+          await supabase.from("profiles").update({ zone_id: prefs.zone_id }).eq("id", meId);
+          if (mounted) setMyZoneId(prefs.zone_id);
+        }
+        if (prefs?.comfort_radius_km != null) {
+          await supabase.from("profiles").update({ comfort_radius_km: prefs.comfort_radius_km }).eq("id", meId);
+          if (mounted) setComfortRadiusKm(prefs.comfort_radius_km);
+        }
+        if (Array.isArray(prefs?.club_ids)) {
+          await supabase.from("user_clubs").delete().eq("user_id", meId);
+          if (prefs.club_ids.length) {
+            const payload = prefs.club_ids.map((clubId) => ({
+              user_id: meId,
+              club_id: clubId,
+              is_accepted: true,
+              is_preferred: false
+            }));
+            await supabase.from("user_clubs").upsert(payload, { onConflict: "user_id,club_id" });
+            if (mounted) setMyAcceptedClubs(new Set(prefs.club_ids.map(String)));
+          } else if (mounted) {
+            setMyAcceptedClubs(new Set());
+          }
+        }
+      } catch (e) {
+        console.warn("[Matches] restore geo prefs failed:", e?.message || e);
+      } finally {
+        if (mounted) setRestoringGeoPrefs(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [activeGroup?.id, activeGroup?.club_id, meId]);
+
+  // Si le groupe actif est lié à un club, forcer clubs acceptés + zone
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!meId || !activeGroup?.id || !activeGroup?.club_id) return;
+      const syncKey = `${activeGroup.id}:${activeGroup.club_id}`;
+      try {
+        const prev = await AsyncStorage.getItem("last_group_club_sync");
+        if (prev === syncKey) return;
+
+        const { data: club } = await supabase
+          .from("clubs")
+          .select("id, zone_id")
+          .eq("id", activeGroup.club_id)
+          .maybeSingle();
+
+        await supabase
+          .from("user_clubs")
+          .delete()
+          .eq("user_id", meId);
+
+        await supabase
+          .from("user_clubs")
+          .upsert(
+            [{
+              user_id: meId,
+              club_id: activeGroup.club_id,
+              is_accepted: true,
+              is_preferred: true
+            }],
+            { onConflict: "user_id,club_id" }
+          );
+
+        if (club?.zone_id) {
+          await supabase
+            .from("profiles")
+            .update({ zone_id: club.zone_id })
+            .eq("id", meId);
+          if (mounted) setMyZoneId(club.zone_id);
+        }
+
+        if (mounted) setMyAcceptedClubs(new Set([String(activeGroup.club_id)]));
+        await AsyncStorage.setItem("last_group_club_sync", syncKey);
+      } catch (e) {
+        console.warn("[Matches] auto sync group club failed:", e?.message || e);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [activeGroup?.id, activeGroup?.club_id, meId]);
+
   // Afficher le bandeau "Groupe rejoint" une seule fois
   useFocusEffect(
     useCallback(() => {
@@ -3641,13 +3958,56 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
     useCallback(() => {
       let mounted = true;
       (async () => {
+        let zoneIdFromProfile = myZoneId;
+        if (mounted && meId) {
+          try {
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("zone_id")
+              .eq("id", meId)
+              .maybeSingle();
+            if (mounted && p?.zone_id) {
+              zoneIdFromProfile = p.zone_id;
+              setMyZoneId(p.zone_id);
+            }
+          } catch {}
+        }
+        if (mounted && meId && !zoneIdFromProfile) {
+          Alert.alert("Zone requise", "Choisis d'abord ta zone de jeu.");
+          router.replace("/zone");
+          return;
+        }
         if (mounted && !activeGroup?.id) {
           // Pas de groupe sélectionné, afficher popup
           setNoGroupModalVisible(true);
         }
       })();
       return () => { mounted = false; };
-    }, [activeGroup?.id])
+    }, [activeGroup?.id, meId, myZoneId])
+  );
+
+  // Rafraîchir les clubs acceptés au retour sur l'écran
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        if (!meId) return;
+        try {
+          const { data } = await supabase
+            .from("user_clubs")
+            .select("club_id")
+            .eq("user_id", meId)
+            .eq("is_accepted", true);
+          if (mounted) {
+            const ids = (data || []).map((r) => String(r.club_id));
+            setMyAcceptedClubs(new Set(ids));
+          }
+        } catch {}
+      })();
+      return () => {
+        mounted = false;
+      };
+    }, [meId])
   );
 
   // Charger les groupes de l'utilisateur
@@ -4138,7 +4498,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
       const memberIds = allMembers.map(m => m.id).filter(Boolean);
       const { data: profiles, error: profileError } = await supabase
         .from('profiles')
-        .select('id, display_name, name, niveau, email, avatar_url, address_home, address_work')
+        .select('id, display_name, name, niveau, email, avatar_url, address_home, address_work, zone_id')
         .in('id', memberIds);
 
       if (profileError) {
@@ -4146,9 +4506,35 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
         throw profileError;
       }
 
-      // Exclure uniquement l'utilisateur authentifié et mapper avec les profils complets
+      // Clubs acceptés des membres
+      const { data: memberClubs, error: clubsErr } = await supabase
+        .from("user_clubs")
+        .select("user_id, club_id, is_accepted")
+        .in("user_id", memberIds)
+        .eq("is_accepted", true);
+      if (clubsErr) {
+        console.warn("[FlashMatch] Erreur chargement clubs membres:", clubsErr);
+      }
+      const acceptedMap = {};
+      (memberClubs || []).forEach((row) => {
+        const id = String(row.user_id);
+        if (!acceptedMap[id]) acceptedMap[id] = [];
+        acceptedMap[id].push(String(row.club_id));
+      });
+
+      if (myAcceptedClubs?.size === 0) {
+        Alert.alert("Clubs requis", "Sélectionne au moins un club accepté pour inviter des joueurs.");
+      }
+
+      // Exclure l'utilisateur, filtrer zone + clubs acceptés
       let ms = (profiles || [])
-        .filter(p => !uid || String(p.id) !== String(uid))
+        .filter(p => (!uid || String(p.id) !== String(uid)))
+        .filter(p => !myZoneId || String(p.zone_id) === String(myZoneId))
+        .filter(p => {
+          if (!myAcceptedClubs || myAcceptedClubs.size === 0) return false;
+          const clubs = acceptedMap[String(p.id)] || [];
+          return clubs.some((cid) => myAcceptedClubs.has(String(cid)));
+        })
         .map(p => ({
           id: p.id,
           name: formatPlayerName(p.display_name || p.name || 'Joueur inconnu'),
@@ -4245,10 +4631,19 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
         let newMatchId = null;
         let rpcErr = null;
         try {
+          const playerIds = Array.from(
+            new Set((selectedUserIds || []).concat(meId).filter(Boolean).map(String))
+          );
+          const commonClubs = getCommonAcceptedClubs(playerIds, acceptedClubsByUser);
+          if (commonClubs.length === 0) {
+            Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
+            return;
+          }
           const { data, error } = await supabase.rpc('create_match_from_interval_safe', {
             p_group: groupId,
             p_starts_at: starts_at_iso,
             p_ends_at: ends_at_iso,
+            p_user_ids: playerIds,
           });
           console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
           // Ignorer les erreurs RLS sur availability car on va créer les RSVPs manuellement
@@ -4746,7 +5141,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers }) => {
         }
       }
     },
-    [groupId, fetchData, showMatchCreatedUndo]
+    [groupId, fetchData, showMatchCreatedUndo, meId, acceptedClubsByUser]
   );
 
   // Handler pour valider date/heure/durée et passer à la sélection des joueurs
@@ -5621,18 +6016,18 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         const playerIds = Array.from(
           new Set((selectedUserIds || []).concat(meId).filter(Boolean).map(String))
         );
+        const commonClubs = getCommonAcceptedClubs(playerIds, acceptedClubsByUser);
+        if (commonClubs.length === 0) {
+          Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
+          return;
+        }
         const { error } = await supabase.rpc("create_match_with_players", {
           p_group: groupId,
           p_time_slot: time_slot_id,
           p_user_ids: playerIds,
         });
         if (error) {
-          // Fallback: old RPC
-          const { error: fallbackError } = await supabase.rpc("create_match_from_slot", {
-            p_group: groupId,
-            p_time_slot: time_slot_id,
-          });
-          if (fallbackError) throw error;
+          throw error;
         }
         // Auto-confirm: inscrire automatiquement tous les joueurs sélectionnés en 'accepted'
         try {
@@ -9444,6 +9839,7 @@ const HourSlotRow = ({ item }) => {
           <EmptyMatchesState
             onAddAvailability={onAddAvailability}
             onInvitePlayers={onInvitePlayers}
+            showMissingClubs={!myAcceptedClubs || myAcceptedClubs.size === 0}
           />
         ) : mode === 'long' ? (
           <>
@@ -9689,7 +10085,7 @@ const HourSlotRow = ({ item }) => {
                 resizeMode="contain"
               />
               <Text style={{ 
-                color: filterByLevel ? THEME.accent : THEME.muted, 
+                color: (filterByLevel || filterConfigVisible) ? THEME.accent : THEME.muted, 
                 fontWeight: '700', 
                 fontSize: 12,
                 textShadowColor: 'rgba(0,0,0,0.6)',
@@ -9740,48 +10136,50 @@ const HourSlotRow = ({ item }) => {
               </Text>
             </Pressable>
             
-            <Pressable
-              onPress={() => {
-                if (!filterGeoVisible) {
-                  // Si on ouvre ce filtre, fermer l'autre
-                  setFilterConfigVisible(false);
-                }
-                setFilterGeoVisible(!filterGeoVisible);
-              }}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 3,
-                paddingHorizontal: 8,
-                borderRadius: 999,
-                backgroundColor: 'rgba(255,255,255,0.16)',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.22)',
-                shadowColor: '#000000',
-                shadowOpacity: 0.25,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
-                gap: 8,
-              }}
-            >
-              <Text style={{ 
-                color: filterByGeo ? THEME.accent : THEME.muted, 
-                fontWeight: '700', 
-                fontSize: 12,
-                textShadowColor: 'rgba(0,0,0,0.6)',
-                textShadowOffset: { width: 0, height: 1 },
-                textShadowRadius: 2,
-              }}>
-                {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
-              </Text>
-              <Ionicons 
-                name="location" 
-                size={20} 
-                color={filterByGeo ? THEME.accent : THEME.muted}
-              />
-            </Pressable>
+            {!activeGroup?.club_id ? (
+              <Pressable
+                onPress={() => {
+                  if (!filterGeoVisible) {
+                    // Si on ouvre ce filtre, fermer l'autre
+                    setFilterConfigVisible(false);
+                  }
+                  setFilterGeoVisible(!filterGeoVisible);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 3,
+                  paddingHorizontal: 8,
+                  borderRadius: 999,
+                  backgroundColor: 'rgba(255,255,255,0.16)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.22)',
+                  shadowColor: '#000000',
+                  shadowOpacity: 0.25,
+                  shadowRadius: 6,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 3,
+                  gap: 8,
+                }}
+              >
+                <Text style={{ 
+                  color: (filterByGeo || filterGeoVisible) ? THEME.accent : THEME.muted, 
+                  fontWeight: '700', 
+                  fontSize: 12,
+                  textShadowColor: 'rgba(0,0,0,0.6)',
+                  textShadowOffset: { width: 0, height: 1 },
+                  textShadowRadius: 2,
+                }}>
+                  {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
+                </Text>
+                <Ionicons 
+                  name="location" 
+                  size={20} 
+                  color={filterByGeo ? THEME.accent : THEME.muted}
+                />
+              </Pressable>
+            ) : null}
           </View>
           
           {/* Zone de configuration du filtre (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
@@ -9794,8 +10192,8 @@ const HourSlotRow = ({ item }) => {
               backgroundColor: THEME.card, 
               borderRadius: 12, 
               padding: 12,
-              borderWidth: 1,
-              borderColor: filterByLevel ? THEME.accent : THEME.cardBorder,
+              borderWidth: 2,
+              borderColor: THEME.accent,
               zIndex: 1002,
               elevation: 11,
               maxHeight: 300,
@@ -9858,136 +10256,66 @@ const HourSlotRow = ({ item }) => {
               bottom: filterConfigBottom,
               left: 16,
               right: 16,
-              backgroundColor: THEME.card, 
+              backgroundColor: 'rgba(10, 32, 56, 0.95)', 
               borderRadius: 12, 
               padding: 12,
-              borderWidth: 1,
-              borderColor: filterByGeo ? THEME.accent : THEME.cardBorder,
+              borderWidth: 2,
+              borderColor: THEME.accent,
               zIndex: 1002,
               elevation: 11,
               maxHeight: 400,
             }}>
-              {/* Sélection du type de position */}
-              <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.text, marginBottom: 8 }}>
-                  Position de référence
+              <View style={{ marginBottom: 14 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.accent, marginBottom: 8 }}>
+                  Zone active
                 </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {[
-                    { key: 'current', label: '📍 Position actuelle' },
-                    { key: 'home', label: '🏠 Domicile' },
-                    { key: 'work', label: '💼 Travail' },
-                    { key: 'city', label: '🏙️ Ville' },
-                  ].map(({ key, label }) => {
-                    const isSelected = filterGeoLocationType === key;
-                    return (
-                      <Pressable
-                        key={key}
-                        onPress={() => {
-                          // Si cette position est déjà sélectionnée, désélectionner (annuler le filtre)
-                          if (isSelected) {
-                            setFilterGeoRefPoint(null);
-                            setFilterGeoCityQuery('');
-                            setFilterGeoCitySuggestions([]);
-                            setFilterGeoLocationType(null); // Réinitialiser à null pour permettre la resélection
-                            // Le rayon sera automatiquement réinitialisé à null par l'useEffect
-                          } else {
-                            // Sinon, sélectionner cette position
-                            setFilterGeoLocationType(key);
-                            if (key === 'city') {
-                              setFilterGeoRefPoint(null);
-                              setFilterGeoCityQuery('');
-                            }
-                          }
-                        }}
-                        style={{
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderRadius: 8,
-                          backgroundColor: (isSelected && filterByGeo) ? THEME.accent : 'rgba(255,255,255,0.06)',
-                          borderWidth: 1,
-                          borderColor: (isSelected && filterByGeo) ? THEME.accent : THEME.cardBorder,
-                        }}
-                      >
-                        <Text style={{ 
-                          fontSize: 14, 
-                          fontWeight: (isSelected && filterByGeo) ? '800' : '700', 
-                          color: (isSelected && filterByGeo) ? THEME.ink : THEME.text 
-                        }}>
-                          {label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-              
-              {/* Recherche de ville si type = 'city' */}
-              {filterGeoLocationType && filterGeoLocationType === 'city' && (
-                <View style={{ marginBottom: 12 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                    Rechercher une ville
+                <Pressable
+                  onPress={() => setGeoZonePickerOpen(true)}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: 10,
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    borderWidth: 1,
+                    borderColor: THEME.cardBorder,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.text, flexShrink: 1 }} numberOfLines={1}>
+                    {currentZone?.name || 'Sélectionner une zone'}
                   </Text>
-                  <TextInput
-                    placeholder="Tapez le nom d'une ville..."
-                    value={filterGeoCityQuery}
-                    onChangeText={(text) => {
-                      setFilterGeoCityQuery(text);
-                      searchFilterGeoCity(text);
-                    }}
-                    style={{
-                      backgroundColor: 'rgba(255,255,255,0.06)',
-                      borderRadius: 8,
-                      padding: 12,
-                      borderWidth: 1,
-                      borderColor: THEME.cardBorder,
-                      fontSize: 14,
-                      color: THEME.text,
-                    }}
-                  />
-                  {filterGeoCitySuggestions.length > 0 && (
-                    <View style={{ marginTop: 8, backgroundColor: THEME.cardAlt, borderRadius: 8, borderWidth: 1, borderColor: THEME.cardBorder }}>
-                      {filterGeoCitySuggestions.map((suggestion, idx) => (
-                        <Pressable
-                          key={idx}
-                          onPress={() => {
-                            setFilterGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
-                            setFilterGeoCityQuery(suggestion.name);
-                            setFilterGeoCitySuggestions([]);
-                          }}
-                          style={{
-                            padding: 12,
-                            borderBottomWidth: idx < filterGeoCitySuggestions.length - 1 ? 1 : 0,
-                            borderBottomColor: THEME.cardBorder,
-                          }}
-                        >
-                          <Text style={{ fontSize: 14, color: THEME.text }}>{suggestion.name}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              )}
-              
-              {/* Sélection du rayon */}
+                  <Ionicons name="chevron-down" size={16} color={THEME.muted} />
+                </Pressable>
+                <Text style={{ fontSize: 11, color: THEME.muted, marginTop: 6 }}>
+                  Changer de zone ne met pas à jour tes clubs acceptés.
+                </Text>
+              </View>
+
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.text, marginBottom: 8 }}>
-                  Rayon : {filterGeoRadiusKm ? `${filterGeoRadiusKm} km` : 'non sélectionné'}
+                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.accent, marginBottom: 8 }}>
+                  Rayon en km (non bloquant)
+                </Text>
+                <Text style={{ fontSize: 12, color: THEME.muted, marginBottom: 6 }}>
+                  {Math.round(comfortRadiusKm ?? currentZone?.default_radius_km ?? 30)} km
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
-                  {[10, 20, 30, 40, 50].map((km) => {
-                    const isSelected = filterGeoRadiusKm === km;
+                  {[10, 20, 30, 40, 50, 60].map((km) => {
+                    const isSelected = Math.round(comfortRadiusKm ?? currentZone?.default_radius_km ?? 30) === km;
                     return (
                       <Pressable
                         key={km}
-                        onPress={() => {
-                          // Si ce rayon est déjà sélectionné, désélectionner (mettre à null)
-                          if (isSelected) {
-                            setFilterGeoRadiusKm(null);
-                          } else {
-                            // Sinon, sélectionner ce rayon
-                            setFilterGeoRadiusKm(km);
-                          }
+                        onPress={async () => {
+                          setComfortRadiusKm(km);
+                          if (!meId) return;
+                          const { error } = await supabase
+                            .from("profiles")
+                            .update({ comfort_radius_km: km })
+                            .eq("id", meId);
+                          if (error) Alert.alert("Erreur", error.message);
+                          persistGeoPrefs(activeGroup?.id, { comfort_radius_km: km });
                         }}
                         style={{
                           flex: 1,
@@ -10006,15 +10334,286 @@ const HourSlotRow = ({ item }) => {
                           fontWeight: isSelected ? '800' : '700', 
                           color: isSelected ? THEME.ink : THEME.text 
                         }}>
-                          {km} km
+                          {km}
                         </Text>
                       </Pressable>
                     );
                   })}
                 </View>
               </View>
+
+              <Pressable
+                onPress={() => setGeoClubsModalOpen(true)}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  borderWidth: 1,
+                  borderColor: THEME.cardBorder,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: (() => {
+                      let count = 0;
+                      if (geoClubsModalOpen && geoClubsSelected?.size != null) {
+                        count = geoClubsSelected.size;
+                      } else if (geoClubsList?.length) {
+                        const ids = new Set(geoClubsList.map((c) => String(c.id)));
+                        count = Array.from(myAcceptedClubs || []).filter((id) => ids.has(String(id))).length;
+                      } else {
+                        count = myAcceptedClubs?.size || 0;
+                      }
+                      return count > 0 ? THEME.text : '#f59e0b';
+                    })(),
+                  }}
+                >
+                  {(() => {
+                    let count = 0;
+                    if (geoClubsModalOpen && geoClubsSelected?.size != null) {
+                      count = geoClubsSelected.size;
+                    } else if (geoClubsList?.length) {
+                      const ids = new Set(geoClubsList.map((c) => String(c.id)));
+                      count = Array.from(myAcceptedClubs || []).filter((id) => ids.has(String(id))).length;
+                    } else {
+                      count = myAcceptedClubs?.size || 0;
+                    }
+                    return count > 0
+                      ? `${count} clubs acceptés`
+                      : 'Sélectionner les clubs acceptés';
+                  })()}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={THEME.muted} />
+              </Pressable>
+
             </View>
           )}
+
+          <Modal visible={geoZonePickerOpen} transparent animationType="fade" onRequestClose={() => setGeoZonePickerOpen(false)}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', padding: 24, justifyContent: 'center' }}>
+              <Pressable style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }} onPress={() => setGeoZonePickerOpen(false)} />
+              <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.accent, marginBottom: 10 }}>Ma zone active</Text>
+                <View style={{ marginBottom: 12 }}>
+                  {(() => {
+                    const active = (zonesList || []).find((z) => String(z.id) === String(myZoneId));
+                    if (!active) return null;
+                    return (
+                      <View
+                        style={{
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          backgroundColor: THEME.accentSoft,
+                          borderWidth: 1,
+                          borderColor: THEME.accent,
+                          marginBottom: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <Text style={{ color: THEME.accent, fontWeight: '800' }}>{active.name}</Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+
+                <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.accent, marginBottom: 10 }}>Changer de zone</Text>
+                <ScrollView style={{ maxHeight: 320 }}>
+                  {(() => {
+                    const orderedActiveNames = [
+                      "NORD – Lille et alentours",
+                      "NORD – Dunkerque · Calais · Boulogne · Audomarois",
+                      "GIRONDE – Bordeaux et métropole"
+                    ];
+                    const active = (zonesList || []).filter((z) => z.is_active);
+                    const inactive = (zonesList || []).filter((z) => !z.is_active);
+                    active.sort((a, b) => {
+                      const ia = orderedActiveNames.indexOf(a.name);
+                      const ib = orderedActiveNames.indexOf(b.name);
+                      if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+                      return (a.name || "").localeCompare(b.name || "");
+                    });
+                    inactive.sort((a, b) => {
+                      const ra = a.region || "";
+                      const rb = b.region || "";
+                      if (ra !== rb) return ra.localeCompare(rb);
+                      return (a.name || "").localeCompare(b.name || "");
+                    });
+                    return (
+                      <>
+                        {active.map((z) => {
+                          if (String(z.id) === String(myZoneId)) return null;
+                          const isSelected = false;
+                          return (
+                            <Pressable
+                              key={z.id}
+                              onPress={() => {
+                                Alert.alert(
+                                  "Changer de zone",
+                                  "Changer de zone modifie les joueurs et matchs visibles.",
+                                  [
+                                    { text: "Annuler", style: "cancel" },
+                                    { text: "Continuer", onPress: () => changeZone(z, { skipConfirm: true }) }
+                                  ]
+                                );
+                                setGeoZonePickerOpen(false);
+                              }}
+                              style={{
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                borderRadius: 8,
+                                marginBottom: 8,
+                                backgroundColor: isSelected ? THEME.accentSoft : 'rgba(255,255,255,0.06)',
+                                borderWidth: 1,
+                                borderColor: isSelected ? THEME.accent : THEME.cardBorder,
+                              }}
+                            >
+                              <Text style={{ color: isSelected ? THEME.accent : THEME.text, fontWeight: '700' }}>{z.name}</Text>
+                            </Pressable>
+                          );
+                        })}
+                        {inactive.map((z) => (
+                          <Pressable
+                            key={z.id}
+                            onPress={() => Alert.alert(
+                              "Zone pas encore active",
+                              "Cette zone n’est pas encore disponible.",
+                              [
+                                { text: "OK" },
+                                {
+                                  text: "Être alerté",
+                                  onPress: async () => {
+                                    try {
+                                      const { data: u } = await supabase.auth.getUser();
+                                      const uid = u?.user?.id;
+                                      if (uid) {
+                                        await supabase.from("zone_interest").upsert({ user_id: uid, zone_id: z.id });
+                                      }
+                                      const key = "zone_interest";
+                                      const raw = await AsyncStorage.getItem(key);
+                                      const prev = raw ? JSON.parse(raw) : [];
+                                      const next = Array.isArray(prev) ? [...prev] : [];
+                                      if (!next.find((zz) => String(zz?.id) === String(z.id))) {
+                                        next.push({ id: z.id, name: z.name, region: z.region, at: Date.now() });
+                                      }
+                                      await AsyncStorage.setItem(key, JSON.stringify(next));
+                                    } catch {}
+                                  }
+                                }
+                              ]
+                            )}
+                            style={{
+                              paddingVertical: 10,
+                              paddingHorizontal: 12,
+                              borderRadius: 8,
+                              marginBottom: 8,
+                              backgroundColor: 'rgba(255,255,255,0.04)',
+                              borderWidth: 1,
+                              borderColor: THEME.cardBorder,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}
+                          >
+                            <Text style={{ color: THEME.text, fontWeight: '700', flexShrink: 1 }}>{z.name}</Text>
+                            <Text style={{ color: '#fbbf24', fontWeight: '700' }}>Bientôt</Text>
+                          </Pressable>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </ScrollView>
+                <Pressable
+                  onPress={() => setGeoZonePickerOpen(false)}
+                  style={{ marginTop: 10, paddingVertical: 10, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center' }}
+                >
+                  <Text style={{ color: THEME.text, fontWeight: '800' }}>Annuler</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
+
+          <Modal visible={geoClubsModalOpen} transparent animationType="fade" onRequestClose={() => setGeoClubsModalOpen(false)}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', padding: 24, justifyContent: 'center' }}>
+              <Pressable style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }} onPress={() => setGeoClubsModalOpen(false)} />
+              <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.text, marginBottom: 10 }}>Clubs acceptés</Text>
+                {geoClubsLoading ? (
+                  <ActivityIndicator size="small" color={THEME.accent} />
+                ) : (
+                  <ScrollView style={{ maxHeight: 360 }}>
+                    {(geoClubsList || []).map((club) => {
+                      const isSelected = geoClubsSelected.has(String(club.id));
+                      return (
+                        <Pressable
+                          key={club.id}
+                          onPress={() => {
+                            setGeoClubsSelected((prev) => {
+                              const next = new Set(prev);
+                              const key = String(club.id);
+                              if (next.has(key)) next.delete(key);
+                              else next.add(key);
+                              return next;
+                            });
+                          }}
+                          style={{
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            marginBottom: 8,
+                            backgroundColor: isSelected ? THEME.accentSoft : 'rgba(255,255,255,0.06)',
+                            borderWidth: 1,
+                            borderColor: isSelected ? THEME.accent : THEME.cardBorder,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}
+                        >
+                          <Text style={{ color: THEME.text, fontWeight: '700', flexShrink: 1 }}>{club.name}</Text>
+                          {isSelected ? <Ionicons name="checkmark" size={18} color={THEME.accent} /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+                <Pressable
+                  onPress={async () => {
+                    if (!meId) return;
+                    const selected = Array.from(geoClubsSelected);
+                    const inZoneIds = new Set((geoClubsList || []).map((c) => String(c.id)));
+                    const toDelete = Array.from(inZoneIds).filter((id) => !geoClubsSelected.has(id));
+                    if (toDelete.length) {
+                      await supabase.from("user_clubs").delete().eq("user_id", meId).in("club_id", toDelete);
+                    }
+                    if (selected.length) {
+                      const payload = selected.map((clubId) => ({
+                        user_id: meId,
+                        club_id: clubId,
+                        is_accepted: true,
+                        is_preferred: false
+                      }));
+                      await supabase.from("user_clubs").upsert(payload, { onConflict: "user_id,club_id" });
+                    }
+                    setMyAcceptedClubs(new Set(selected));
+                    persistGeoPrefs(activeGroup?.id, { club_ids: selected });
+                    setGeoClubsModalOpen(false);
+                  }}
+                  style={{ marginTop: 8, paddingVertical: 10, borderRadius: 999, backgroundColor: THEME.accent, alignItems: 'center' }}
+                >
+                  <Text style={{ color: THEME.ink, fontWeight: '900' }}>Enregistrer</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
         </>
       )}
       

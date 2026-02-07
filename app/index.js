@@ -23,6 +23,7 @@ export default function Index() {
   const { setActiveGroup } = useActiveGroup();
   const [profileComplete, setProfileComplete] = useState(null);
   const [hasActiveGroup, setHasActiveGroup] = useState(null);
+  const [hasZone, setHasZone] = useState(null);
   const [hasAvailability, setHasAvailability] = useState(null);
   const [checking, setChecking] = useState(false);
 
@@ -75,6 +76,15 @@ export default function Index() {
               }
             }
             
+            // Vérifier si une zone est sélectionnée
+            const { data: profileData } = await supabase
+              .from("profiles")
+              .select("zone_id")
+              .eq("id", userId)
+              .maybeSingle();
+            const zoneOk = !!profileData?.zone_id;
+            setHasZone(zoneOk);
+
             // Vérifier si un groupe est sélectionné et valide
             const savedGroupId = await AsyncStorage.getItem("active_group_id");
             let hasGroup = false;
@@ -139,12 +149,14 @@ export default function Index() {
             setProfileComplete(false);
             setHasActiveGroup(false);
             setHasAvailability(false);
+            setHasZone(false);
           }
         } catch (e) {
           console.warn('[Index] Error checking:', e);
           setProfileComplete(false);
           setHasActiveGroup(false);
           setHasAvailability(false);
+          setHasZone(false);
         } finally {
           setChecking(false);
         }
@@ -169,6 +181,11 @@ export default function Index() {
       return;
     }
     
+    if (profileComplete === true && hasZone === false) {
+      router.replace('/zone');
+      return;
+    }
+
     if (profileComplete === true && hasActiveGroup === false) {
       // Profil OK mais pas de groupe -> groupes
       router.replace('/(tabs)/groupes');
@@ -181,7 +198,7 @@ export default function Index() {
       router.replace('/(tabs)/matches');
       return;
     }
-  }, [isLoading, checking, profileComplete, hasActiveGroup, hasAvailability]);
+  }, [isLoading, checking, profileComplete, hasActiveGroup, hasAvailability, hasZone]);
 
   // Afficher un loader pendant la vérification
   if (isLoading || checking || profileComplete === null) {

@@ -4,17 +4,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  useWindowDimensions,
-  View
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    Share,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
@@ -37,6 +38,7 @@ export default function RolesManagementScreen() {
   const [editClubId, setEditClubId] = useState(null);
   const [clubSearchQuery, setClubSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [exportingZones, setExportingZones] = useState(false);
 
   // Vérifier les permissions (attendre que le rôle soit chargé)
   const { role, loading: roleLoading } = useUserRole();
@@ -173,6 +175,38 @@ export default function RolesManagementScreen() {
     }
   }, [editingUser, editRole, editClubId, loadData]);
 
+  const exportZoneInterest = useCallback(async () => {
+    try {
+      setExportingZones(true);
+      const { data, error } = await supabase
+        .from("zone_interest")
+        .select("zone_id, zones(name, region)");
+      if (error) throw error;
+      const counts = new Map();
+      (data || []).forEach((row) => {
+        const id = row.zone_id;
+        const zone = row.zones || {};
+        if (!counts.has(id)) {
+          counts.set(id, { zone_id: id, name: zone?.name || "", region: zone?.region || "", count: 0 });
+        }
+        counts.get(id).count += 1;
+      });
+      const rows = Array.from(counts.values()).sort((a, b) => b.count - a.count);
+      const csv = [
+        "zone_id,region,name,count",
+        ...rows.map((r) => `${r.zone_id},${(r.region || "").replace(/,/g, " ")},${(r.name || "").replace(/,/g, " ")},${r.count}`)
+      ].join("\n");
+      await Share.share({
+        title: "Intérêts par zone",
+        message: csv
+      });
+    } catch (e) {
+      Alert.alert("Erreur", e?.message || "Export impossible");
+    } finally {
+      setExportingZones(false);
+    }
+  }, []);
+
   if (!isSuperAdmin) {
     return null;
   }
@@ -214,6 +248,18 @@ export default function RolesManagementScreen() {
 
       {/* Filtres */}
       <View style={styles.filters}>
+        <Pressable
+          onPress={exportZoneInterest}
+          disabled={exportingZones}
+          style={[
+            styles.exportButton,
+            exportingZones && { opacity: 0.6 }
+          ]}
+        >
+          <Text style={styles.exportButtonText}>
+            {exportingZones ? "Export..." : "Exporter intérêts zones"}
+          </Text>
+        </Pressable>
         <TextInput
           style={styles.searchInput}
           placeholder="Rechercher un utilisateur..."
@@ -492,6 +538,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#374151",
     fontWeight: "500",
+  },
+  exportButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: BRAND,
+    marginBottom: 10,
+  },
+  exportButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
   },
   roleFilterTextActive: {
     color: "#fff",

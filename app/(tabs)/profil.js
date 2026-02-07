@@ -71,6 +71,7 @@ const LEVELS = [
   { v: 7, label: "Expert", color: "#fb7185" },
   { v: 8, label: "Elite", color: "#a78bfa" },
 ];
+const SHOW_ADDRESS_SECTION = false;
 const colorForLevel = (n) => (LEVELS.find(x => x.v === Number(n))?.color) || '#9ca3af';
 const levelMeta = (n) => LEVELS.find((x) => x.v === n) ?? null;
 
@@ -245,6 +246,10 @@ export default function ProfilScreen() {
   const [main, setMain] = useState(null);     // "droite" | "gauche"
   const [cote, setCote] = useState(null);     // "droite" | "gauche" | "les_deux"
   const [club, setClub] = useState("");
+  const [zoneId, setZoneId] = useState(null);
+  const [zoneInfo, setZoneInfo] = useState(null);
+  const [acceptedClubsCount, setAcceptedClubsCount] = useState(0);
+  const [preferredClubName, setPreferredClubName] = useState(null);
   const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
   const [phone, setPhone] = useState("");
   
@@ -406,13 +411,15 @@ export default function ProfilScreen() {
       let allClubs = [];
       
       while (true) {
-        const { data: page, error } = await supabase
+        let query = supabase
           .from('clubs')
-          .select('id, name, address, lat, lng')
+          .select('id, name, address, lat, lng, zone_id')
           .not('lat', 'is', null)
           .not('lng', 'is', null)
           .order('name', { ascending: true })
           .range(from, to);
+        if (zoneId) query = query.eq('zone_id', zoneId);
+        const { data: page, error } = await query;
         
         if (error) throw error;
         
@@ -449,7 +456,7 @@ export default function ProfilScreen() {
     } finally {
       setLoadingClubs(false);
     }
-  }, [addressHome, haversineKm]);
+  }, [addressHome, haversineKm, zoneId]);
 
   // Charger les clubs quand on ouvre le picker
   useEffect(() => {
@@ -471,7 +478,7 @@ export default function ProfilScreen() {
 
         const { data: p, error } = await supabase
           .from("profiles")
-          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work, classement")
+          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work, classement, zone_id")
           .eq("id", id)
           .maybeSingle();
         if (error) throw error;
@@ -498,6 +505,7 @@ export default function ProfilScreen() {
           setMain(init.main);
           setCote(init.cote);
           setClub(init.club);
+          setZoneId(p?.zone_id || null);
           setRayonKm(init.rayonKm);
           setPhone(init.phone);
           setAddressHome(init.addressHome);
@@ -535,6 +543,51 @@ export default function ProfilScreen() {
 
     setCity(userCity || null);
   }, [addressHome, addressWork]);
+
+  // Charger infos zone + clubs acceptés
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!me?.id) return;
+      try {
+        if (zoneId) {
+          const { data: z } = await supabase
+            .from("zones")
+            .select("id, name, default_radius_km, is_active")
+            .eq("id", zoneId)
+            .maybeSingle();
+          if (mounted) setZoneInfo(z || null);
+        } else if (mounted) {
+          setZoneInfo(null);
+        }
+
+        const { data: uc } = await supabase
+          .from("user_clubs")
+          .select("club_id, is_preferred")
+          .eq("user_id", me.id)
+          .eq("is_accepted", true);
+        const count = (uc || []).length;
+        const pref = (uc || []).find((r) => r.is_preferred)?.club_id || null;
+        if (mounted) setAcceptedClubsCount(count);
+
+        if (pref) {
+          const { data: prefClub } = await supabase
+            .from("clubs")
+            .select("name")
+            .eq("id", pref)
+            .maybeSingle();
+          if (mounted) setPreferredClubName(prefClub?.name || null);
+        } else if (mounted) {
+          setPreferredClubName(null);
+        }
+      } catch (e) {
+        console.warn("[Profil] Zone/clubs load error:", e?.message || e);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [me?.id, zoneId]);
 
   // Récupérer le club_id depuis le nom du club favori
   useEffect(() => {
@@ -1201,9 +1254,13 @@ export default function ProfilScreen() {
     const clubTrimmed = (club || "").trim() || null;
     // Téléphone est facultatif
     const phoneTrimmed = (phone || "").trim() || null;
-    if (!addressHome || !addressHome.address) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de domicile."); return false; }
-    // Adresse travail est facultative
     if (rayonKm === null || rayonKm === undefined) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre rayon de jeu possible."); return false; }
+    if (SHOW_ADDRESS_SECTION && (!addressHome || !addressHome.address)) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de domicile."); return false; }
+    if (!zoneId) { Alert.alert("Champ obligatoire", "La zone de jeu est obligatoire et n'est pas renseignée."); return false; }
+    if (!acceptedClubsCount || acceptedClubsCount <= 0) {
+      Alert.alert("Champ obligatoire", "Les clubs acceptés sont obligatoires et ne sont pas renseignés.");
+      return false;
+    }
 
     try {
       setSaving(true);
@@ -1791,6 +1848,50 @@ export default function ProfilScreen() {
             )}
           </View>
 
+          {/* Zone + Clubs */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
+            <Ionicons name="earth" size={22} color="#e0ff00" />
+            <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Où je joue</Text>
+          </View>
+          <View style={[s.card, { gap: 12, marginTop: 0, backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, marginBottom: 8 }]}>
+            <View>
+              <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>
+                Zone de jeu <Text style={{ color: '#ef4444' }}>*</Text>
+              </Text>
+              <Text style={{ fontSize: 14, color: zoneId ? '#cfe9ff' : '#fbbf24', marginTop: 4 }}>
+                {zoneInfo?.name || (zoneId ? 'Zone sélectionnée' : 'Choisis une zone pour continuer')}
+              </Text>
+              <Pressable
+                onPress={() => router.push('/zone')}
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+              >
+                <Text style={{ color: '#e0ff00', fontWeight: '700' }}>{zoneId ? 'Changer de zone' : 'Choisir ma zone'}</Text>
+              </Pressable>
+            </View>
+            <View>
+              <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>
+                Clubs où j’accepte de jouer <Text style={{ color: '#ef4444' }}>*</Text>
+              </Text>
+              <Text style={{ fontSize: 14, color: '#cfe9ff', marginTop: 4 }}>
+                {acceptedClubsCount > 0 ? `${acceptedClubsCount} club${acceptedClubsCount > 1 ? 's' : ''} sélectionné${acceptedClubsCount > 1 ? 's' : ''}` : 'Aucun club sélectionné'}
+              </Text>
+              {preferredClubName ? (
+                <Text style={{ fontSize: 13, color: '#e0ff00', marginTop: 4 }}>⭐ {preferredClubName}</Text>
+              ) : null}
+              <Pressable
+                onPress={() => router.push('/clubs/select')}
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+              >
+                <Text style={{ color: '#e0ff00', fontWeight: '700' }}>Choisir mes clubs</Text>
+              </Pressable>
+              <Text style={{ fontSize: 12, color: '#9bb6d6', marginTop: 6 }}>
+                Les matchs ne seront proposés que dans les clubs que tu sélectionnes.
+              </Text>
+            </View>
+          </View>
+
+          {SHOW_ADDRESS_SECTION ? (
+          <>
           {/* Ligne 2 : Adresses */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
             <Ionicons name="location" size={22} color="#ffffff" />
@@ -2011,71 +2112,112 @@ export default function ProfilScreen() {
               <Text style={{ fontSize: 13, color: '#E0FF00', fontWeight: '700' }}>Valider</Text>
             </Pressable>
           ) : null}
+          </>
+          ) : null}
 
-          {/* Ligne 3 : Niveau à 100% */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-            <Ionicons name="flame" size={22} color="#e0ff00" />
-            <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Niveau <Text style={{ color: '#dc2626' }}>*</Text></Text>
+          {/* Ligne 3 : Titres Niveau + Classement FFT */}
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, marginBottom: 8 }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Ionicons name="flame" size={20} color="#e0ff00" />
+              <Text style={[s.tileTitle, { color: '#e0ff00' }]}>
+                Niveau <Text style={{ color: '#dc2626' }}>*</Text>
+              </Text>
               <Pressable
                 onPress={() => setNiveauInfoModalVisible(true)}
                 style={{ 
-                  marginLeft: 6, 
+                  marginLeft: 4, 
                   padding: 4,
                   backgroundColor: '#e0f2fe',
                   borderRadius: 12,
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}
               >
-                <Ionicons name="information-circle" size={16} color="#0284c7" />
+                <Ionicons name="information-circle" size={14} color="#0284c7" />
               </Pressable>
             </View>
-          <View style={[s.tile, s.tileFull]}>
-            <View style={s.levelRow}>
-              {LEVELS.map((lv) => {
-                const active = niveau === lv.v;
-                return (
-                  <Pressable
-                    key={lv.v}
-                    onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
-                    style={[
-                      s.pill,
-                      {
-                        backgroundColor: lv.color,
-                        borderColor: active ? '#dcff13' : 'transparent',
-                        borderWidth: active ? 4 : 1,
-                        transform: active ? [{ scale: 1.06 }] : [],
-                      },
-                      Platform.OS === 'web' && { cursor: 'pointer' },
-                    ]}
-                  >
-                    <Text style={[s.pillTxt, { color: '#06305D', fontWeight: active ? '900' : '800' }]}>{lv.v}</Text>
-                  </Pressable>
-                );
-              })}
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Ionicons name="trophy" size={20} color="#e0ff00" />
+              <Text style={[s.tileTitle, { color: '#e0ff00' }]}>CLASSEMENT FFT</Text>
             </View>
-            {niveau && levelInfo?.label && (
-              <Text style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                {levelInfo.label}
-              </Text>
-            )}
           </View>
 
-          {/* Ligne 3 : Classement à 100% */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-            <Ionicons name="trophy" size={22} color="#e0ff00" />
-            <Text style={[s.tileTitle, { color: '#e0ff00' }]}>CLASSEMENT FFT</Text>
+          {/* Ligne 3 : Niveau + Classement FFT sur la même ligne */}
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={[s.tile, { flex: 1, aspectRatio: 1, padding: 12 }]}>
+              <View style={{ gap: 6 }}>
+                <View style={[s.levelRow, { justifyContent: 'center' }]}>
+                  {LEVELS.slice(0, 4).map((lv) => {
+                    const active = niveau === lv.v;
+                    return (
+                      <Pressable
+                        key={lv.v}
+                        onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
+                        style={[
+                          s.pill,
+                          {
+                            backgroundColor: lv.color,
+                            borderColor: active ? '#dcff13' : 'transparent',
+                            borderWidth: active ? 4 : 1,
+                            transform: active ? [{ scale: 1.06 }] : [],
+                            width: 28,
+                            height: 28,
+                            borderRadius: 999,
+                            paddingVertical: 0,
+                            paddingHorizontal: 0,
+                          },
+                          Platform.OS === 'web' && { cursor: 'pointer' },
+                        ]}
+                      >
+                        <Text style={[s.pillTxt, { color: '#06305D', fontWeight: active ? '900' : '800', fontSize: 11 }]}>{lv.v}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={[s.levelRow, { justifyContent: 'center' }]}>
+                  {LEVELS.slice(4, 8).map((lv) => {
+                    const active = niveau === lv.v;
+                    return (
+                      <Pressable
+                        key={lv.v}
+                        onPress={press(`level-${lv.v}`, () => setNiveau(lv.v))}
+                        style={[
+                          s.pill,
+                          {
+                            backgroundColor: lv.color,
+                            borderColor: active ? '#dcff13' : 'transparent',
+                            borderWidth: active ? 4 : 1,
+                            transform: active ? [{ scale: 1.06 }] : [],
+                            width: 28,
+                            height: 28,
+                            borderRadius: 999,
+                            paddingVertical: 0,
+                            paddingHorizontal: 0,
+                          },
+                          Platform.OS === 'web' && { cursor: 'pointer' },
+                        ]}
+                      >
+                        <Text style={[s.pillTxt, { color: '#06305D', fontWeight: active ? '900' : '800', fontSize: 11 }]}>{lv.v}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              {niveau && levelInfo?.label ? (
+                <Text style={{ color: "#6b7280", fontSize: 11, marginTop: 6, textAlign: 'center' }}>
+                  {levelInfo.label}
+                </Text>
+              ) : null}
             </View>
-          <View style={[s.tile, s.tileFull, { padding: 16 }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
-              {/* Classement FFT */}
-              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+
+            <View style={[s.tile, { flex: 1, aspectRatio: 1, padding: 12 }]}>
+              <View style={{ alignItems: 'center', justifyContent: 'center', flex: 1 }}>
                 {classement && classement.trim() ? (
                   <>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ fontSize: 32, fontWeight: '900', color: '#E0FF00' }}>
+                      <Text style={{ fontSize: 28, fontWeight: '900', color: '#E0FF00' }}>
                         {classement}
                       </Text>
                       {!editingClassement ? (
@@ -2084,7 +2226,7 @@ export default function ProfilScreen() {
                         </Pressable>
                       ) : null}
                     </View>
-                    <Text style={{ fontSize: 12, color: '#9ca3af', textTransform: 'lowercase' }}>
+                    <Text style={{ fontSize: 11, color: '#9ca3af', textTransform: 'lowercase' }}>
                       Classement FFT
                     </Text>
                   </>
@@ -2100,18 +2242,15 @@ export default function ProfilScreen() {
                         </Pressable>
                       ) : null}
                     </View>
-                    <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                    <Text style={{ fontSize: 11, color: '#6b7280' }}>
                       Non renseigné
                     </Text>
                   </>
                 )}
               </View>
-            </View>
-            
-            {/* Mode lecture / édition */}
-            <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#1f2937' }}>
+
               {!editingClassement ? null : (
-                <>
+                <View style={{ marginTop: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 8, backgroundColor: '#032344', paddingHorizontal: 10, paddingVertical: 6 }}>
                     <Ionicons name="create" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                     <TextInput
@@ -2127,11 +2266,11 @@ export default function ProfilScreen() {
                   </View>
                   <Pressable
                     onPress={() => setEditingClassement(false)}
-                    style={{ alignSelf: 'center', marginTop: 10, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+                    style={{ alignSelf: 'center', marginTop: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
                   >
                     <Text style={{ fontSize: 13, color: '#E0FF00', fontWeight: '700' }}>Valider</Text>
                   </Pressable>
-                </>
+                </View>
               )}
             </View>
           </View>
@@ -2149,78 +2288,73 @@ export default function ProfilScreen() {
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <View style={[s.tile, s.tileHalf]}>
-              <Pressable
-                onPress={() => setMainPickerVisible(true)}
-                style={[
-                  s.tileInput,
-                  {
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginTop: 4,
-                    backgroundColor: '#032344',
-                    borderColor: '#032344',
-                  },
-                  Platform.OS === 'web' && { cursor: 'pointer' }
-                ]}
-              >
-                <Text style={{ fontSize: 14, color: '#ffffff' }}>
-                  {main === "droite" ? "Droite" : main === "gauche" ? "Gauche" : "Sélectionner"}
-                </Text>
-                <Ionicons name="chevron-down" size={18} color="#ffffff" />
-              </Pressable>
+              <View style={{ flexDirection: 'column', gap: 6, marginTop: 4, width: '100%' }}>
+                {[
+                  { value: "gauche", label: "Gauche" },
+                  { value: "droite", label: "Droite" },
+                ].map((opt) => {
+                  const active = main === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setMain(opt.value)}
+                      style={[
+                        {
+                          flex: 1,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: active ? '#E0FF00' : '#032344',
+                          borderWidth: 1,
+                          borderColor: active ? '#E0FF00' : '#032344',
+                        },
+                        Platform.OS === 'web' && { cursor: 'pointer' },
+                      ]}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: active ? '800' : '700', color: active ? '#06305D' : '#ffffff' }}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
             <View style={[s.tile, s.tileHalf]}>
-              <Pressable
-                onPress={() => setCotePickerVisible(true)}
-                style={[
-                  s.tileInput,
-                  {
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginTop: 4,
-                    backgroundColor: '#032344',
-                    borderColor: '#032344',
-                  },
-                  Platform.OS === 'web' && { cursor: 'pointer' }
-                ]}
-              >
-                <Text style={{ fontSize: 14, color: '#ffffff' }}>
-                  {cote === "droite" ? "Droite" : cote === "gauche" ? "Gauche" : cote === "les_deux" ? "Les 2" : "Sélectionner"}
-                </Text>
-                <Ionicons name="chevron-down" size={18} color="#ffffff" />
-              </Pressable>
+              <View style={{ flexDirection: 'column', gap: 6, marginTop: 4, width: '100%' }}>
+                {[
+                  { value: "gauche", label: "Gauche" },
+                  { value: "droite", label: "Droite" },
+                  { value: "les_deux", label: "Les 2" },
+                ].map((opt) => {
+                  const active = cote === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setCote(opt.value)}
+                      style={[
+                        {
+                          flex: 1,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: active ? '#E0FF00' : '#032344',
+                          borderWidth: 1,
+                          borderColor: active ? '#E0FF00' : '#032344',
+                        },
+                        Platform.OS === 'web' && { cursor: 'pointer' },
+                      ]}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: active ? '800' : '700', color: active ? '#06305D' : '#ffffff' }}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-          </View>
-
-          {/* Ligne 4 : Club favori */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-            <Ionicons name="business" size={22} color="#e0ff00" />
-            <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Club favori</Text>
-            </View>
-          <View style={[s.tile, s.tileFull]}>
-            <Pressable
-              onPress={() => setClubPickerVisible(true)}
-              style={[
-                s.tileInput,
-                {
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginTop: 4,
-                  backgroundColor: '#032344',
-                  borderColor: '#032344',
-                },
-                Platform.OS === 'web' && { cursor: 'pointer' }
-              ]}
-            >
-              <Text style={{ fontSize: 14, color: '#ffffff', flex: 1 }}>
-                {club || "Aucun club favori"}
-              </Text>
-              <Ionicons name="chevron-down" size={18} color="#ffffff" />
-            </Pressable>
           </View>
 
           {/* Ligne 5 : Email à 100% */}
@@ -2251,32 +2385,6 @@ export default function ProfilScreen() {
                 maxLength={20}
               />
             </View>
-          </View>
-        </View>
-
-        {/* Ligne 8 : Rayon à 100% */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
-          <Ionicons name="car" size={22} color="#e0ff00" />
-          <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Rayon de jeu possible <Text style={{ color: '#dc2626' }}>*</Text></Text>
-          </View>
-        <View style={[s.tile, s.tileFull]}>
-          <View style={s.rayonRow}>
-            {RAYONS.map((r) => {
-              const active = rayonKm === r.v;
-              return (
-                <Pressable
-                  key={r.v}
-                  onPress={press(`rayon-${r.v}`, () => setRayonKm(r.v))}
-                  style={[
-                    s.pill,
-                    active && { backgroundColor: "#dcff13", borderColor: BRAND },
-                    Platform.OS === "web" && { cursor: "pointer" }
-                  ]}
-                >
-                  <Text style={[s.pillTxt, { color: active ? '#06305d' : '#9ca3af', fontWeight: active ? "800" : "600" }]}>{r.label}</Text>
-                </Pressable>
-              );
-            })}
           </View>
         </View>
 
@@ -2816,9 +2924,9 @@ const s = StyleSheet.create({
 
   // Tiles
   tile: {
-    backgroundColor: "rgba(10, 32, 56, 0.6)",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.2)",
     borderRadius: 26,
     padding: 12,
     minWidth: 0,
