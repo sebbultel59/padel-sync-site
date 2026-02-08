@@ -15706,12 +15706,6 @@ const HourSlotRow = ({ item }) => {
                   >
                     <Text style={{ color: THEME.text, fontWeight: '700', fontSize: 12 }}>Changer un joueur</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() => Alert.alert('Bientôt', 'La proposition de club sera disponible prochainement.')}
-                    style={{ flex: 1, backgroundColor: THEME.accent, paddingVertical: 10, borderRadius: 10, alignItems: 'center' }}
-                  >
-                    <Text style={{ color: THEME.ink, fontWeight: '800', fontSize: 12 }}>Proposer un club</Text>
-                  </Pressable>
                 </View>
               </View>
             ) : (
