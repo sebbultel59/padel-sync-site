@@ -480,11 +480,9 @@ export default function MatchesScreen() {
   }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(',')]);
 
   const qConfirm = (confirmClubSearch ?? '').trim().toLowerCase();
-  const listToRender = useMemo(() => {
-    const base = confirmCommonClubs ?? [];
-    if (!qConfirm) return base;
-    return base.filter((c) => (c?.name ?? '').toLowerCase().includes(qConfirm));
-  }, [confirmCommonClubs, qConfirm]);
+  const listToRender = !qConfirm
+    ? (confirmCommonClubs ?? [])
+    : (confirmCommonClubs ?? []).filter((c) => (c?.name ?? '').toLowerCase().includes(qConfirm));
 
 
 
@@ -15682,6 +15680,7 @@ const HourSlotRow = ({ item }) => {
           const ids = pendingCreate?.commonClubIds ?? [];
           console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
           console.log('[HotMatch] listToRender', { common: confirmCommonClubs?.length ?? 0, list: listToRender?.length ?? 0, qConfirm });
+          console.log('[HotMatch] listToRender HARD', { common: confirmCommonClubs?.length ?? 0, list: listToRender.length, qConfirm });
           return null;
         })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
