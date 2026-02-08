@@ -142,22 +142,27 @@
                     // Détecter la plateforme
                     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
                     const isAndroid = /Android/.test(navigator.userAgent);
+                    const hasAccessToken = hash && hash.includes('access_token');
+                    const deepLink = `syncpadel://auth/callback${hash || ''}`;
                     
                     let downloadLinks = '';
                     
                     if (isIOS) {
                         downloadLinks = `
                             <a href="https://apps.apple.com/app/id6754223924" class="button" style="margin-top: 1rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Télécharger sur l'App Store</a>
+                            <a href="${deepLink}" class="button" style="margin-top: 0.75rem; display: inline-block; padding: 12px 24px; background: #ffffff; color: #1a4b97; text-decoration: none; border-radius: 8px; font-weight: 700;">Ouvrir l'app</a>
                         `;
                     } else if (isAndroid) {
                         downloadLinks = `
                             <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" class="button" style="margin-top: 1rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Télécharger sur Google Play</a>
+                            <a href="${deepLink}" class="button" style="margin-top: 0.75rem; display: inline-block; padding: 12px 24px; background: #ffffff; color: #1a4b97; text-decoration: none; border-radius: 8px; font-weight: 700;">Ouvrir l'app</a>
                         `;
                     } else {
                         downloadLinks = `
                             <div style="margin-top: 1.5rem;">
                                 <a href="https://apps.apple.com/app/id6754223924" class="button" style="margin: 0.5rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">App Store</a>
                                 <a href="https://play.google.com/store/apps/details?id=com.padelsync.app" class="button" style="margin: 0.5rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Google Play</a>
+                                <a href="${deepLink}" class="button" style="margin: 0.5rem; display: inline-block; padding: 12px 24px; background: #ffffff; color: #1a4b97; text-decoration: none; border-radius: 8px; font-weight: 700;">Ouvrir l'app</a>
                             </div>
                         `;
                     }
@@ -165,6 +170,13 @@
                     container.innerHTML = `
                         <h1>Padel Sync</h1>
                         <p>Application mobile de gestion de matchs de padel</p>
+                        ${hasAccessToken ? `
+                          <div style="margin-top: 1rem;">
+                            <p style="font-weight: 800; margin: 0;">BRAVO ! Ton email a été confirmé</p>
+                            <p style="font-weight: 800; margin: 0.25rem 0 0;">BIENVENUE dans la team PADEL SYNC</p>
+                            <p style="margin: 0.5rem 0 0;">Tu peux retourner dans l'application pour t'authentifier</p>
+                          </div>
+                        ` : ``}
                         ${downloadLinks}
                     `;
                 }

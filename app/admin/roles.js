@@ -63,7 +63,7 @@ export default function RolesManagementScreen() {
       // Charger les utilisateurs
       const { data: usersData, error: usersError } = await supabase
         .from('profiles')
-        .select('id, email, display_name, name, role, club_id, clubs(id, name)')
+        .select('id, email, display_name, name, role, club_id, clubs!profiles_club_id_fkey(id, name)')
         .order('created_at', { ascending: false })
         .limit(100);
 

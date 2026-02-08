@@ -251,6 +251,11 @@ export default function SigninScreen() {
           "• Un caractère spécial\n\n" +
           "Caractères spéciaux acceptés :\n" + specialChars.split('').join(' ')
         );
+      } else if (errorMsg.toLowerCase().includes('invalid login credentials') || errorMsg.toLowerCase().includes('invalid auth credentials')) {
+        Alert.alert(
+          "Erreur",
+          "Identifiants et/ou mot de passe invalides. Si nécessaire clique sur mot de passe oublié ou crée un compte."
+        );
       } else {
         Alert.alert("Auth", errorMsg);
       }

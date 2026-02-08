@@ -2,19 +2,19 @@
 // Écran des statistiques du joueur
 
 import { Ionicons } from "@expo/vector-icons";
-import { Circle, Svg } from "react-native-svg";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Circle, Svg } from "react-native-svg";
 import { useAuth } from "../../context/auth";
 import { usePlayerBadges } from "../../hooks/usePlayerBadges";
 import { usePlayerRating } from "../../hooks/usePlayerRating";
@@ -1545,9 +1545,9 @@ export default function StatsScreen() {
 const s = StyleSheet.create({
   container: { padding: 16, gap: 12, backgroundColor: "#001831" },
   tile: {
-    backgroundColor: "rgba(10, 32, 56, 0.6)",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.2)",
     borderRadius: 26,
     padding: 12,
     minWidth: 0,
