@@ -406,26 +406,36 @@ export default function MatchesScreen() {
   const isConfirmOpen = !!pendingCreate;
 
   useEffect(() => {
+    const ids = pendingCreate?.commonClubIds ?? [];
+
+    console.log('[HotMatch] effect fired', { isConfirmOpen, idsLen: ids.length, ids });
+
+    if (!isConfirmOpen) return;
+
+    if (ids.length === 0) {
+      setConfirmCommonClubs([]);
+      setConfirmClubsLoading(false);
+      setConfirmClubId(null);
+      return;
+    }
+
     let mounted = true;
     (async () => {
-      const ids = pendingCreate?.commonClubIds ?? [];
-      if (!isConfirmOpen) return;
-      console.log('[HotMatch] payload.commonClubIds', ids);
-      if (!ids.length) {
-        if (mounted) {
-          setConfirmCommonClubs([]);
-          setConfirmClubId(null);
-        }
-        return;
-      }
       try {
         setConfirmClubsLoading(true);
+        console.log('[HotMatch] fetch clubs by ids', ids);
+
         const { data, error } = await supabase
           .from('clubs')
-          .select('id, name')
+          .select('id,name')
           .in('id', ids);
-        console.log('[HotMatch] fetch clubs by ids', ids, '->', data?.length, 'error:', error?.message);
-        if (error) throw error;
+
+        console.log('[HotMatch] fetch result', {
+          count: data?.length ?? 0,
+          error: error?.message ?? null,
+          sample: data?.[0] ?? null,
+        });
+
         if (mounted) {
           setConfirmCommonClubs(data ?? []);
           if ((data || []).length === 1) {
@@ -435,6 +445,7 @@ export default function MatchesScreen() {
           }
         }
       } catch (e) {
+        console.log('[HotMatch] fetch exception', e?.message ?? String(e));
         if (mounted) {
           setConfirmCommonClubs([]);
           setConfirmClubId(null);
@@ -443,10 +454,11 @@ export default function MatchesScreen() {
         if (mounted) setConfirmClubsLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
-  }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(",")]);
+  }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(',')]);
 
   const filteredConfirmClubs = useMemo(() => {
     const searchValue = (confirmClubSearch || '').trim();
@@ -15709,6 +15721,16 @@ const HourSlotRow = ({ item }) => {
               </View>
             ) : (
               <>
+                {!confirmClubsLoading && (confirmCommonClubs || []).length === 0 ? (
+                  <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10 }}>
+                    <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
+                      Aucun club trouvé pour ces IDs.
+                    </Text>
+                    <Text style={{ color: THEME.muted, fontSize: 12 }}>
+                      Vérifie la requête Supabase, la table 'clubs' ou les règles RLS.
+                    </Text>
+                  </View>
+                ) : null}
                 {(confirmCommonClubs || []).length >= 5 ? (
                   <View style={{ marginBottom: 10 }}>
                     <TextInput
