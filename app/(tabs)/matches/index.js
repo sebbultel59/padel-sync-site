@@ -405,51 +405,18 @@ export default function MatchesScreen() {
     return Array.from(new Set(base.filter(Boolean).map(String)));
   }, [pendingCreate, confirmCreatorId, meId]);
 
-  const confirmCommonClubIds = useMemo(() => {
-    if (!confirmPlayerIds.length) return [];
-    return getCommonAcceptedClubs(confirmPlayerIds, acceptedClubsByUser);
-  }, [confirmPlayerIds, acceptedClubsByUser]);
-
-  const modalClubIds = useMemo(() => {
-    if (Array.isArray(pendingCreate?.commonClubIds) && pendingCreate.commonClubIds.length > 0) {
-      return pendingCreate.commonClubIds;
-    }
-    return confirmCommonClubIds;
-  }, [pendingCreate, confirmCommonClubIds]);
+  const confirmPayload = pendingCreate || {};
+  const payloadCommonClubIds = Array.isArray(confirmPayload.commonClubIds)
+    ? confirmPayload.commonClubIds
+    : [];
+  const payloadCommonClubIdsKey = payloadCommonClubIds.join(',');
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!isConfirmOpen) return;
-      let effectiveCreatorId = confirmCreatorId || meId || null;
-      if (!effectiveCreatorId) {
-        const { data } = await supabase.auth.getUser();
-        effectiveCreatorId = data?.user?.id ?? null;
-        if (mounted) setConfirmCreatorId(effectiveCreatorId);
-      }
-      const effectiveIds = Array.from(
-        new Set([...(pendingCreate?.selectedUserIds || []), effectiveCreatorId].filter(Boolean).map(String))
-      );
-      let commonIds = modalClubIds;
-      if (!commonIds.length && effectiveIds.length) {
-        try {
-          const { data: uc, error: ucErr } = await supabase
-            .from('user_clubs')
-            .select('user_id, club_id')
-            .in('user_id', effectiveIds)
-            .eq('is_accepted', true);
-          if (!ucErr && Array.isArray(uc)) {
-            const map = {};
-            uc.forEach((row) => {
-              const uid = String(row.user_id);
-              if (!map[uid]) map[uid] = [];
-              map[uid].push(String(row.club_id));
-            });
-            commonIds = getCommonAcceptedClubs(effectiveIds, map);
-          }
-        } catch {}
-      }
-      if (!commonIds.length) {
+      console.log('[HotMatch] payload.commonClubIds', payloadCommonClubIds);
+      if (!payloadCommonClubIds.length) {
         if (mounted) {
           setConfirmCommonClubs([]);
           setConfirmClubId(null);
@@ -458,32 +425,22 @@ export default function MatchesScreen() {
       }
       try {
         setConfirmClubsLoading(true);
+        const ids = payloadCommonClubIds;
         const { data, error } = await supabase
           .from('clubs')
           .select('id, name')
-          .in('id', commonIds)
-          .order('name');
+          .in('id', ids);
+        console.log('[HotMatch] fetch clubs by ids', ids, '->', data?.length, 'error:', error?.message);
         if (error) throw error;
         if (mounted) {
-          let list = data || [];
-          if (list.length === 0 && Array.isArray(commonIds) && commonIds.length > 0) {
-            // Fallback: afficher des placeholders si la requête clubs ne retourne rien
-            list = commonIds.map((id) => ({
-              id,
-              name: `Club ${String(id).slice(0, 6)}`,
-            }));
-          }
-          setConfirmCommonClubs(list);
-          if (list.length === 1) {
-            setConfirmClubId(list[0].id);
-          } else if (confirmClubId && list.some((c) => String(c.id) === String(confirmClubId))) {
-            setConfirmClubId(confirmClubId);
+          setConfirmCommonClubs(data ?? []);
+          if ((data || []).length === 1) {
+            setConfirmClubId(data[0].id);
           } else {
             setConfirmClubId(null);
           }
         }
       } catch (e) {
-        console.warn('[MatchesConfirm] clubs load error:', e?.message || e);
         if (mounted) {
           setConfirmCommonClubs([]);
           setConfirmClubId(null);
@@ -495,7 +452,7 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
     };
-  }, [isConfirmOpen, modalClubIds, confirmClubId, confirmCreatorId, meId, pendingCreate]);
+  }, [isConfirmOpen, payloadCommonClubIdsKey]);
 
   const filteredConfirmClubs = useMemo(() => {
     const searchValue = (confirmClubSearch || '').trim();
@@ -15692,6 +15649,10 @@ const HourSlotRow = ({ item }) => {
 
       {/* Bottom sheet confirmation création match */}
       <Modal transparent animationType="slide" visible={isConfirmOpen} onRequestClose={() => closeConfirm('cancel')}>
+        {(() => {
+          console.log('[HotMatch] render visible:', isConfirmOpen, 'ids:', payloadCommonClubIds?.length, 'clubs:', confirmCommonClubs.length);
+          return null;
+        })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: THEME.bg, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -15730,7 +15691,7 @@ const HourSlotRow = ({ item }) => {
               <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={THEME.accent} />
               </View>
-            ) : (modalClubIds || []).length === 0 ? (
+            ) : payloadCommonClubIds.length === 0 ? (
               <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
                 <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
                   Aucun club en commun entre les 4 joueurs.
@@ -15845,7 +15806,7 @@ const HourSlotRow = ({ item }) => {
 
             <Pressable
               onPress={() => handleConfirmCreate('confirm')}
-              disabled={!confirmClubId || (modalClubIds || []).length === 0}
+              disabled={!confirmClubId || payloadCommonClubIds.length === 0}
               style={{
                 marginTop: 12,
                 backgroundColor: confirmClubId ? THEME.accent : 'rgba(255,255,255,0.12)',
