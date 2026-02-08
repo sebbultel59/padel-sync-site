@@ -364,7 +364,7 @@ export default function MatchesScreen() {
     );
   }, [meId, myZoneId, activeGroup?.id, persistGeoPrefs]);
 
-  const openConfirm = useCallback(({ startsAt, endsAt, selectedUserIds, commonClubIds }) => {
+  const openConfirm = useCallback(async ({ startsAt, endsAt, selectedUserIds, commonClubIds }) => {
     const snapshot = {
       startsAt,
       endsAt,
@@ -379,6 +379,25 @@ export default function MatchesScreen() {
     setConfirmClubSearch('');
     setConfirmCommonClubs([]);
     setConfirmCreatorId(meId || null);
+    try {
+      setConfirmClubsLoading(true);
+      console.log('[HotMatch] openConfirm fetch clubs by ids', snapshot.commonClubIds);
+      const { data, error } = await supabase
+        .from('clubs')
+        .select('id,name')
+        .in('id', snapshot.commonClubIds || []);
+      console.log('[HotMatch] openConfirm fetch result', {
+        count: data?.length ?? 0,
+        error: error?.message ?? null,
+        sample: data?.[0] ?? null,
+      });
+      setConfirmCommonClubs(data ?? []);
+    } catch (e) {
+      console.log('[HotMatch] openConfirm fetch exception', e?.message ?? String(e));
+      setConfirmCommonClubs([]);
+    } finally {
+      setConfirmClubsLoading(false);
+    }
   }, [meId]);
 
   const handleConfirmCreate = useCallback((source = 'confirm') => {
