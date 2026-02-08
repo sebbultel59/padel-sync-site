@@ -329,6 +329,7 @@ export default function MatchesScreen() {
     confirmFiredRef.current = false;
     pendingCreateRef.current = null;
     setPendingCreate(null);
+    setConfirmClubId(null);
   }, []);
 
   const changeZone = useCallback(async (zone, options = {}) => {
@@ -384,7 +385,7 @@ export default function MatchesScreen() {
       console.log('[HotMatch] openConfirm fetch clubs by ids', snapshot.commonClubIds);
       const { data, error } = await supabase
         .from('clubs')
-        .select('id,name')
+        .select('id,name,phone')
         .in('id', snapshot.commonClubIds || []);
       console.log('[HotMatch] openConfirm fetch result', {
         count: data?.length ?? 0,
@@ -402,6 +403,19 @@ export default function MatchesScreen() {
 
   const handleConfirmCreate = useCallback((source = 'confirm') => {
     if (confirmFiredRef.current) return;
+    const refClubId = pendingCreateRef.current?.clubId ?? null;
+    const selectedClubId = confirmClubId ?? refClubId ?? null;
+    console.log('[HotMatch] confirm pressed', {
+      confirmClubId,
+      refClubId,
+      selectedClubId,
+      confirmCommonClubsLen: (confirmCommonClubs ?? []).length,
+      pendingIds: pendingCreate?.commonClubIds?.length ?? 0,
+    });
+    if (!selectedClubId) {
+      Alert.alert('Aucun club commun sélectionné', 'Sélectionne un club pour confirmer.');
+      return;
+    }
     confirmFiredRef.current = true;
     const payload = pendingCreateRef.current;
     console.log('[MatchesConfirm] create', { source, pendingPlayers: payload?.selectedUserIds || [] });
@@ -409,10 +423,18 @@ export default function MatchesScreen() {
     if (payload?.startsAt && payload?.endsAt) {
       onCreateIntervalMatch(payload.startsAt, payload.endsAt, payload.selectedUserIds, 'confirmed', {
         skipPostCreateModal: true,
-        selectedClubId: confirmClubId,
+        selectedClubId: selectedClubId,
       });
     }
-  }, [closeConfirm, onCreateIntervalMatch, confirmClubId]);
+  }, [closeConfirm, onCreateIntervalMatch, confirmClubId, confirmCommonClubs, pendingCreate]);
+
+  const handleConfirmClubPress = useCallback((club) => {
+    const id = club?.id ?? null;
+    console.log('[HotMatch] select club', id, club?.name ?? '');
+    confirmClubIdRef.current = id;
+    setConfirmClubId(id);
+    pendingCreateRef.current = { ...(pendingCreateRef.current ?? {}), clubId: id };
+  }, []);
 
   const confirmPlayerIds = useMemo(() => {
     if (!pendingCreate?.selectedUserIds) return [];
@@ -421,6 +443,10 @@ export default function MatchesScreen() {
     if (creator) base.push(creator);
     return Array.from(new Set(base.filter(Boolean).map(String)));
   }, [pendingCreate, confirmCreatorId, meId]);
+
+  useEffect(() => {
+    confirmClubIdRef.current = confirmClubId;
+  }, [confirmClubId]);
 
   const isConfirmOpen = !!pendingCreate;
 
@@ -434,7 +460,6 @@ export default function MatchesScreen() {
     if (ids.length === 0) {
       setConfirmCommonClubs([]);
       setConfirmClubsLoading(false);
-      setConfirmClubId(null);
       return;
     }
 
@@ -446,7 +471,7 @@ export default function MatchesScreen() {
 
         const { data, error } = await supabase
           .from('clubs')
-          .select('id,name')
+          .select('id,name,phone')
           .in('id', ids);
 
         console.log('[HotMatch] fetch result', {
@@ -459,15 +484,12 @@ export default function MatchesScreen() {
           setConfirmCommonClubs(data ?? []);
           if ((data || []).length === 1) {
             setConfirmClubId(data[0].id);
-          } else {
-            setConfirmClubId(null);
           }
         }
       } catch (e) {
         console.log('[HotMatch] fetch exception', e?.message ?? String(e));
         if (mounted) {
           setConfirmCommonClubs([]);
-          setConfirmClubId(null);
         }
       } finally {
         if (mounted) setConfirmClubsLoading(false);
@@ -479,10 +501,7 @@ export default function MatchesScreen() {
     };
   }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(',')]);
 
-  const qConfirm = (confirmClubSearch ?? '').trim().toLowerCase();
-  const listToRender = !qConfirm
-    ? (confirmCommonClubs ?? [])
-    : (confirmCommonClubs ?? []).filter((c) => (c?.name ?? '').toLowerCase().includes(qConfirm));
+  // Filtre temporairement désactivé pour diagnostic
 
 
 
@@ -701,6 +720,7 @@ export default function MatchesScreen() {
   const handleConfirmCreateRef = useRef(null);
   const [confirmCommonClubs, setConfirmCommonClubs] = useState([]);
   const [confirmClubId, setConfirmClubId] = useState(null);
+  const confirmClubIdRef = useRef(null);
   const [confirmClubSearch, setConfirmClubSearch] = useState('');
   const [confirmClubsLoading, setConfirmClubsLoading] = useState(false);
   const [confirmCreatorId, setConfirmCreatorId] = useState(null);
@@ -2892,15 +2912,11 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     if (!skipLoadingState && !hasDataRef.current) {
       setLoading(true);
     } else if (skipLoadingState) {
-      if (hasDataRef.current) {
-        // Ne pas afficher l'overlay si on a déjà des données
-    } else {
       const nowWeek = Date.now();
       if (!loadingWeek) {
-      setLoadingWeek(true);
+        setLoadingWeek(true);
       }
       weekLoadingUntilRef.current = Math.max(weekLoadingUntilRef.current, nowWeek + 600);
-      }
     }
     try {
       setNetworkNotice(null);
@@ -3592,17 +3608,13 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       if (!skipLoadingState) {
         setLoading(false);
       } else {
-        if (hasDataRef.current) {
-          // Pas d'overlay à gérer si on a déjà des données
-        } else {
-          if (weekLoadingTimerRef.current) {
-            clearTimeout(weekLoadingTimerRef.current);
-          }
-          const waitMs = Math.max(0, weekLoadingUntilRef.current - Date.now());
-          weekLoadingTimerRef.current = setTimeout(() => {
-        setLoadingWeek(false);
-          }, waitMs);
+        if (weekLoadingTimerRef.current) {
+          clearTimeout(weekLoadingTimerRef.current);
         }
+        const waitMs = Math.max(0, weekLoadingUntilRef.current - Date.now());
+        weekLoadingTimerRef.current = setTimeout(() => {
+          setLoadingWeek(false);
+        }, waitMs);
       }
       isFetchingRef.current = false;
       if (!matchCreatedUndoVisibleRef.current) {
@@ -4768,11 +4780,12 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             new Set((selectedUserIds || []).concat(meId).filter(Boolean).map(String))
           );
           const commonClubs = getCommonAcceptedClubs(playerIds, acceptedClubsByUser);
-          if (commonClubs.length === 0) {
-            Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
-            return;
-          }
-          if (selectedClubId && !commonClubs.some((cid) => String(cid) === String(selectedClubId))) {
+          if (!selectedClubId) {
+            if (commonClubs.length === 0) {
+              Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
+              return;
+            }
+          } else if (commonClubs.length > 0 && !commonClubs.some((cid) => String(cid) === String(selectedClubId))) {
             Alert.alert("Club invalide", "Le club choisi n'est pas commun aux 4 joueurs.");
             return;
           }
@@ -7043,24 +7056,13 @@ const LongSlotRow = ({ item }) => {
                 accessibilityLabel="Créer un match pour ce créneau 1h30"
                 style={({ pressed }) => [
                   styles.ctaPrimary,
+                  { width: '100%' },
                   pressed ? styles.ctaButtonPressed : null,
                 ]}
               >
                 <Text style={styles.ctaPrimaryText}>Créer un match</Text>
               </Pressable>
             </Animated.View>
-            <Pressable
-              onPress={onContactClub}
-              accessibilityRole="button"
-              accessibilityLabel="Appeler un club"
-              style={({ pressed }) => [
-                styles.ctaSecondary,
-                pressed ? { opacity: 0.9 } : null,
-              ]}
-            >
-              <Ionicons name="call" size={18} color="#ffffff" style={{ marginRight: 6 }} />
-              <Text style={styles.ctaSecondaryText}>Appeler un club</Text>
-            </Pressable>
           </View>
         ) : (
           <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
@@ -7197,24 +7199,13 @@ const HourSlotRow = ({ item }) => {
                 accessibilityLabel="Créer un match pour ce créneau 1h"
                 style={({ pressed }) => [
                   styles.ctaPrimary,
+                  { width: '100%' },
                   pressed ? styles.ctaButtonPressed : null,
                 ]}
               >
                 <Text style={styles.ctaPrimaryText}>Créer un match</Text>
               </Pressable>
             </Animated.View>
-            <Pressable
-              onPress={onContactClub}
-              accessibilityRole="button"
-              accessibilityLabel="Appeler un club"
-              style={({ pressed }) => [
-                styles.ctaSecondary,
-                pressed ? { opacity: 0.9 } : null,
-              ]}
-            >
-              <Ionicons name="call" size={18} color="#ffffff" style={{ marginRight: 6 }} />
-              <Text style={styles.ctaSecondaryText}>Appeler un club</Text>
-            </Pressable>
           </View>
         ) : (
           <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
@@ -8060,12 +8051,12 @@ const HourSlotRow = ({ item }) => {
           {(() => {
             // Utiliser UNIQUEMENT la référence pour éviter les changements
             const club = matchClubRef.current;
-            
+
             // Calculer le texte directement depuis la référence
             // Texte par défaut sur 2 lignes : "APPELER" puis "un club"
             let buttonText = 'APPELER\nun club';
             let phoneNumber = null;
-            
+
             if (club && club.call_phone) {
               phoneNumber = club.call_phone;
               const label = club.call_button_label;
@@ -8076,7 +8067,7 @@ const HourSlotRow = ({ item }) => {
                 buttonText = `APPELER\n${name || 'le club'}`;
               }
             }
-            
+
             // Toujours afficher le même bouton (violet) avec le texte personnalisé
             return (
               <Pressable
@@ -15679,8 +15670,12 @@ const HourSlotRow = ({ item }) => {
         {(() => {
           const ids = pendingCreate?.commonClubIds ?? [];
           console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
-          console.log('[HotMatch] listToRender', { common: confirmCommonClubs?.length ?? 0, list: listToRender?.length ?? 0, qConfirm });
-          console.log('[HotMatch] listToRender HARD', { common: confirmCommonClubs?.length ?? 0, list: listToRender.length, qConfirm });
+          console.log('[HotMatch] RENDER MAP', {
+            isArray: Array.isArray(confirmCommonClubs),
+            type: typeof confirmCommonClubs,
+            len: confirmCommonClubs?.length,
+            value: confirmCommonClubs,
+          });
           return null;
         })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -15695,7 +15690,7 @@ const HourSlotRow = ({ item }) => {
             {/* Récap */}
             <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
               <Text style={{ color: THEME.muted, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>Récap</Text>
-              <Text style={{ color: THEME.text, fontSize: 14, fontWeight: '800' }}>
+              <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800' }}>
                 {pendingCreate?.startsAt && pendingCreate?.endsAt ? formatRange(pendingCreate.startsAt, pendingCreate.endsAt) : 'Créneau'}
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -15714,7 +15709,7 @@ const HourSlotRow = ({ item }) => {
             <Divider m={12} />
 
             {/* Clubs communs */}
-            <Text style={{ color: THEME.text, fontSize: 14, fontWeight: '800', marginBottom: 4 }}>Choisis le club</Text>
+            <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Choisis le club</Text>
             <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>Clubs acceptés par les 4 joueurs</Text>
 
             {confirmClubsLoading ? (
@@ -15776,7 +15771,7 @@ const HourSlotRow = ({ item }) => {
                   </Text>
                 ) : null}
 
-                {listToRender.length === 0 ? (
+                {(confirmCommonClubs ?? []).length === 0 ? (
                   <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10 }}>
                     <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
                       Aucun club à afficher
@@ -15788,61 +15783,55 @@ const HourSlotRow = ({ item }) => {
                 ) : null}
 
                 {/* Boutons toggles (sélection unique) */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  {listToRender.map((club) => {
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, columnGap: 8, marginBottom: 8 }}>
+                  {(confirmCommonClubs ?? []).map((club) => {
                     const active = String(confirmClubId) === String(club.id);
                     return (
                       <Pressable
                         key={`toggle-${club.id}`}
-                        onPress={() => setConfirmClubId(club.id)}
+                        onPress={() => handleConfirmClubPress(club)}
                         style={{
-                          paddingVertical: 8,
+                          width: '48%',
+                          paddingVertical: 10,
                           paddingHorizontal: 12,
                           borderRadius: 999,
                           borderWidth: 1,
                           borderColor: active ? THEME.accent : THEME.cardBorder,
                           backgroundColor: active ? THEME.accent : THEME.card,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
                         }}
                       >
-                        <Text style={{ color: active ? THEME.ink : THEME.text, fontWeight: '800', fontSize: 12 }}>
+                        <Text style={{ color: active ? THEME.ink : THEME.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
                           {club.name}
                         </Text>
+                        {club?.phone ? (
+                          <Pressable
+                            onPress={(e) => {
+                              e?.stopPropagation?.();
+                              e?.preventDefault?.();
+                              Linking.openURL(`tel:${club.phone}`);
+                            }}
+                            style={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: 11,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: 'rgba(255,255,255,0.18)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.25)',
+                            }}
+                          >
+                            <Ionicons name="call" size={12} color={active ? THEME.ink : THEME.text} />
+                          </Pressable>
+                        ) : null}
                       </Pressable>
                     );
                   })}
                 </View>
 
-                <ScrollView style={{ maxHeight: 220 }}>
-                  {listToRender.map((club) => {
-                    const active = String(confirmClubId) === String(club.id);
-                    return (
-                      <Pressable
-                        key={club.id}
-                        onPress={() => setConfirmClubId(club.id)}
-                        style={{
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: active ? THEME.accent : THEME.cardBorder,
-                          backgroundColor: active ? THEME.accentSoft : THEME.card,
-                          marginBottom: 8,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: THEME.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>
-                            {club.name}
-                          </Text>
-                          <Text style={{ color: THEME.muted, fontSize: 11, marginTop: 2 }}>✅ accepté par 4/4</Text>
-                        </View>
-                        <Ionicons name={active ? 'radio-button-on' : 'radio-button-off'} size={18} color={active ? THEME.accent : THEME.muted} />
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
               </>
             )}
 

@@ -39,7 +39,7 @@ BEGIN
     RAISE EXCEPTION 'Il faut 4 joueurs pour créer un match';
   END IF;
 
-  SELECT COUNT(DISTINCT zone_id), MIN(zone_id)
+  SELECT COUNT(DISTINCT zone_id), MIN(zone_id::text)::uuid
   INTO v_zone_count, v_zone_id
   FROM profiles
   WHERE id = ANY(v_ids);
@@ -135,7 +135,7 @@ BEGIN
     RAISE EXCEPTION 'Il faut 4 joueurs pour créer un match';
   END IF;
 
-  SELECT COUNT(DISTINCT zone_id), MIN(zone_id)
+  SELECT COUNT(DISTINCT zone_id), MIN(zone_id::text)::uuid
   INTO v_zone_count, v_zone_id
   FROM profiles
   WHERE id = ANY(v_ids);
