@@ -465,7 +465,14 @@ export default function MatchesScreen() {
           .order('name');
         if (error) throw error;
         if (mounted) {
-          const list = data || [];
+          let list = data || [];
+          if (list.length === 0 && Array.isArray(commonIds) && commonIds.length > 0) {
+            // Fallback: afficher des placeholders si la requête clubs ne retourne rien
+            list = commonIds.map((id) => ({
+              id,
+              name: `Club ${String(id).slice(0, 6)}`,
+            }));
+          }
           setConfirmCommonClubs(list);
           if (list.length === 1) {
             setConfirmClubId(list[0].id);
@@ -15748,6 +15755,9 @@ const HourSlotRow = ({ item }) => {
               </View>
             ) : (
               <>
+                {confirmClubsLoading && (confirmCommonClubs || []).length === 0 ? (
+                  <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 8 }}>Chargement des clubs...</Text>
+                ) : null}
                 {(confirmCommonClubs || []).length >= 5 ? (
                   <View style={{ marginBottom: 10 }}>
                     <TextInput
