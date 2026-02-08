@@ -6,24 +6,24 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    ActionSheetIOS,
-    ActivityIndicator,
-    Alert,
-    Animated,
-    DeviceEventEmitter,
-    FlatList,
-    Image,
-    InteractionManager,
-    Linking,
-    Modal, Platform, Pressable,
-    ScrollView,
-    SectionList,
-    Share,
-    StyleSheet,
-    Text,
-    TextInput, UIManager, useWindowDimensions,
-    Vibration,
-    View
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  DeviceEventEmitter,
+  FlatList,
+  Image,
+  InteractionManager,
+  Linking,
+  Modal, Platform, Pressable,
+  ScrollView,
+  SectionList,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput, UIManager, useWindowDimensions,
+  Vibration,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import clickIcon from '../../../assets/icons/click.png';
@@ -329,7 +329,6 @@ export default function MatchesScreen() {
     confirmFiredRef.current = false;
     pendingCreateRef.current = null;
     setPendingCreate(null);
-    setIsConfirmOpen(false);
   }, []);
 
   const changeZone = useCallback(async (zone, options = {}) => {
@@ -380,7 +379,6 @@ export default function MatchesScreen() {
     setConfirmClubSearch('');
     setConfirmCommonClubs([]);
     setConfirmCreatorId(meId || null);
-    setIsConfirmOpen(true);
   }, [meId]);
 
   const handleConfirmCreate = useCallback((source = 'confirm') => {
@@ -405,16 +403,13 @@ export default function MatchesScreen() {
     return Array.from(new Set(base.filter(Boolean).map(String)));
   }, [pendingCreate, confirmCreatorId, meId]);
 
-  const confirmPayload = pendingCreate || {};
-  const payloadCommonClubIds = Array.isArray(confirmPayload.commonClubIds)
-    ? confirmPayload.commonClubIds
-    : [];
-  const payloadCommonClubIdsKey = payloadCommonClubIds.join(',');
+  const payloadCommonClubIds = pendingCreate?.commonClubIds ?? [];
+  const payloadCommonClubIdsKey = Array.isArray(payloadCommonClubIds) ? payloadCommonClubIds.join(',') : '';
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!isConfirmOpen) return;
+      if (!pendingCreate) return;
       console.log('[HotMatch] payload.commonClubIds', payloadCommonClubIds);
       if (!payloadCommonClubIds.length) {
         if (mounted) {
@@ -452,7 +447,7 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
     };
-  }, [isConfirmOpen, payloadCommonClubIdsKey]);
+  }, [pendingCreate, payloadCommonClubIdsKey]);
 
   const filteredConfirmClubs = useMemo(() => {
     const searchValue = (confirmClubSearch || '').trim();
@@ -666,7 +661,6 @@ export default function MatchesScreen() {
   const previousGroupIdRef = React.useRef(null); // Pour détecter les changements de groupe vs semaine
   const previousWeekOffsetRef = React.useRef(0); // Pour détecter les changements de semaine
   const [matchCreatedUndoVisible, setMatchCreatedUndoVisible] = useState(false);
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [pendingCreate, setPendingCreate] = useState(null);
   const [matchCreatedUndoEndsAt, setMatchCreatedUndoEndsAt] = useState(0);
   const [matchCreatedUndoMatchId, setMatchCreatedUndoMatchId] = useState(null);
@@ -15648,9 +15642,9 @@ const HourSlotRow = ({ item }) => {
       </Modal>
 
       {/* Bottom sheet confirmation création match */}
-      <Modal transparent animationType="slide" visible={isConfirmOpen} onRequestClose={() => closeConfirm('cancel')}>
+      <Modal transparent animationType="slide" visible={!!pendingCreate} onRequestClose={() => closeConfirm('cancel')}>
         {(() => {
-          console.log('[HotMatch] render visible:', isConfirmOpen, 'ids:', payloadCommonClubIds?.length, 'clubs:', confirmCommonClubs.length);
+          console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', payloadCommonClubIds?.length, 'clubs:', confirmCommonClubs.length);
           return null;
         })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -15710,9 +15704,6 @@ const HourSlotRow = ({ item }) => {
               </View>
             ) : (
               <>
-                {confirmClubsLoading && (confirmCommonClubs || []).length === 0 ? (
-                  <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 8 }}>Chargement des clubs...</Text>
-                ) : null}
                 {(confirmCommonClubs || []).length >= 5 ? (
                   <View style={{ marginBottom: 10 }}>
                     <TextInput
