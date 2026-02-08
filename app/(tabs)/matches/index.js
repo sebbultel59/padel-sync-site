@@ -406,10 +406,10 @@ export default function MatchesScreen() {
   }, [pendingCreate, confirmCreatorId, meId]);
 
   const confirmCommonClubIds = useMemo(() => {
-    if (!confirmPlayerIds.length) return [];
     if (Array.isArray(pendingCreate?.commonClubIds) && pendingCreate.commonClubIds.length > 0) {
       return pendingCreate.commonClubIds;
     }
+    if (!confirmPlayerIds.length) return [];
     return getCommonAcceptedClubs(confirmPlayerIds, acceptedClubsByUser);
   }, [confirmPlayerIds, acceptedClubsByUser, pendingCreate]);
 
