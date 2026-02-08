@@ -480,15 +480,13 @@ export default function MatchesScreen() {
   }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(',')]);
 
   const filteredConfirmClubs = useMemo(() => {
-    const searchValue = (confirmClubSearch || '').trim();
-    if (!searchValue) return confirmCommonClubs;
-    const q = searchValue.toLowerCase();
-    return (confirmCommonClubs || []).filter((c) => (c?.name || '').toLowerCase().includes(q));
+    const base = confirmCommonClubs ?? [];
+    const q = (confirmClubSearch ?? '').trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((c) => (c?.name ?? '').toLowerCase().includes(q));
   }, [confirmCommonClubs, confirmClubSearch]);
 
-  const listToRender = (filteredConfirmClubs && filteredConfirmClubs.length > 0)
-    ? filteredConfirmClubs
-    : (confirmCommonClubs ?? []);
+  const listToRender = filteredConfirmClubs ?? [];
 
 
 
