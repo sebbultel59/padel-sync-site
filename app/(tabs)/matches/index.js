@@ -486,6 +486,10 @@ export default function MatchesScreen() {
     return (confirmCommonClubs || []).filter((c) => (c?.name || '').toLowerCase().includes(q));
   }, [confirmCommonClubs, confirmClubSearch]);
 
+  const listToRender = (filteredConfirmClubs && filteredConfirmClubs.length > 0)
+    ? filteredConfirmClubs
+    : (confirmCommonClubs ?? []);
+
 
 
   const notifyMatchCreated = useCallback(async (matchId, playerIds = []) => {
@@ -15681,6 +15685,7 @@ const HourSlotRow = ({ item }) => {
         {(() => {
           const ids = pendingCreate?.commonClubIds ?? [];
           console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
+          console.log('[HotMatch] clubs lists', { common: confirmCommonClubs?.length ?? 0, filtered: filteredConfirmClubs?.length ?? 0, search: confirmClubSearch });
           return null;
         })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -15776,9 +15781,20 @@ const HourSlotRow = ({ item }) => {
                   </Text>
                 ) : null}
 
+                {listToRender.length === 0 ? (
+                  <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10 }}>
+                    <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
+                      Aucun club à afficher
+                    </Text>
+                    <Text style={{ color: THEME.muted, fontSize: 12 }}>
+                      Vérifie le filtre ou le chargement des clubs.
+                    </Text>
+                  </View>
+                ) : null}
+
                 {/* Boutons toggles (sélection unique) */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  {(filteredConfirmClubs || []).map((club) => {
+                  {listToRender.map((club) => {
                     const active = String(confirmClubId) === String(club.id);
                     return (
                       <Pressable
@@ -15802,7 +15818,7 @@ const HourSlotRow = ({ item }) => {
                 </View>
 
                 <ScrollView style={{ maxHeight: 220 }}>
-                  {(filteredConfirmClubs || []).map((club) => {
+                  {listToRender.map((club) => {
                     const active = String(confirmClubId) === String(club.id);
                     return (
                       <Pressable
