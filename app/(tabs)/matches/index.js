@@ -403,15 +403,15 @@ export default function MatchesScreen() {
     return Array.from(new Set(base.filter(Boolean).map(String)));
   }, [pendingCreate, confirmCreatorId, meId]);
 
-  const payloadCommonClubIds = pendingCreate?.commonClubIds ?? [];
-  const payloadCommonClubIdsKey = Array.isArray(payloadCommonClubIds) ? payloadCommonClubIds.join(',') : '';
+  const isConfirmOpen = !!pendingCreate;
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!pendingCreate) return;
-      console.log('[HotMatch] payload.commonClubIds', payloadCommonClubIds);
-      if (!payloadCommonClubIds.length) {
+      const ids = pendingCreate?.commonClubIds ?? [];
+      if (!isConfirmOpen) return;
+      console.log('[HotMatch] payload.commonClubIds', ids);
+      if (!ids.length) {
         if (mounted) {
           setConfirmCommonClubs([]);
           setConfirmClubId(null);
@@ -420,7 +420,6 @@ export default function MatchesScreen() {
       }
       try {
         setConfirmClubsLoading(true);
-        const ids = payloadCommonClubIds;
         const { data, error } = await supabase
           .from('clubs')
           .select('id, name')
@@ -447,7 +446,7 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
     };
-  }, [pendingCreate, payloadCommonClubIdsKey]);
+  }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(",")]);
 
   const filteredConfirmClubs = useMemo(() => {
     const searchValue = (confirmClubSearch || '').trim();
@@ -15642,9 +15641,15 @@ const HourSlotRow = ({ item }) => {
       </Modal>
 
       {/* Bottom sheet confirmation création match */}
+      {(() => {
+        const ids = pendingCreate?.commonClubIds ?? [];
+        console.log('[HotMatch] render pendingCreate:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
+        return null;
+      })()}
       <Modal transparent animationType="slide" visible={!!pendingCreate} onRequestClose={() => closeConfirm('cancel')}>
         {(() => {
-          console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', payloadCommonClubIds?.length, 'clubs:', confirmCommonClubs.length);
+          const ids = pendingCreate?.commonClubIds ?? [];
+          console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
           return null;
         })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -15685,7 +15690,7 @@ const HourSlotRow = ({ item }) => {
               <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={THEME.accent} />
               </View>
-            ) : payloadCommonClubIds.length === 0 ? (
+            ) : (pendingCreate?.commonClubIds ?? []).length === 0 ? (
               <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
                 <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
                   Aucun club en commun entre les 4 joueurs.
@@ -15791,7 +15796,7 @@ const HourSlotRow = ({ item }) => {
 
             <Pressable
               onPress={() => handleConfirmCreate('confirm')}
-              disabled={!confirmClubId || payloadCommonClubIds.length === 0}
+              disabled={!confirmClubId || (pendingCreate?.commonClubIds ?? []).length === 0}
               style={{
                 marginTop: 12,
                 backgroundColor: confirmClubId ? THEME.accent : 'rgba(255,255,255,0.12)',
