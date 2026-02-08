@@ -15774,6 +15774,31 @@ const HourSlotRow = ({ item }) => {
                   </Text>
                 ) : null}
 
+                {/* Boutons toggles (sélection unique) */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                  {(filteredConfirmClubs || []).map((club) => {
+                    const active = String(confirmClubId) === String(club.id);
+                    return (
+                      <Pressable
+                        key={`toggle-${club.id}`}
+                        onPress={() => setConfirmClubId(club.id)}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 12,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: active ? THEME.accent : THEME.cardBorder,
+                          backgroundColor: active ? THEME.accent : THEME.card,
+                        }}
+                      >
+                        <Text style={{ color: active ? THEME.ink : THEME.text, fontWeight: '800', fontSize: 12 }}>
+                          {club.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
                 <ScrollView style={{ maxHeight: 220 }}>
                   {(filteredConfirmClubs || []).map((club) => {
                     const active = String(confirmClubId) === String(club.id);
