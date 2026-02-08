@@ -378,8 +378,9 @@ export default function MatchesScreen() {
     setConfirmClubId(null);
     setConfirmClubSearch('');
     setConfirmCommonClubs([]);
+    setConfirmCreatorId(meId || null);
     setIsConfirmOpen(true);
-  }, []);
+  }, [meId]);
 
   const handleConfirmCreate = useCallback((source = 'confirm') => {
     if (confirmFiredRef.current) return;
@@ -396,11 +397,11 @@ export default function MatchesScreen() {
   }, [closeConfirm, onCreateIntervalMatch, confirmClubId]);
 
   const confirmPlayerIds = useMemo(() => {
-    if (!pendingCreate?.selectedUserIds || !meId) return [];
+    if (!pendingCreate?.selectedUserIds || !confirmCreatorId) return [];
     return Array.from(
-      new Set((pendingCreate.selectedUserIds || []).concat(meId).filter(Boolean).map(String))
+      new Set((pendingCreate.selectedUserIds || []).concat(confirmCreatorId).filter(Boolean).map(String))
     );
-  }, [pendingCreate, meId]);
+  }, [pendingCreate, confirmCreatorId]);
 
   const confirmCommonClubIds = useMemo(() => {
     if (!confirmPlayerIds.length) return [];
@@ -411,6 +412,12 @@ export default function MatchesScreen() {
     let mounted = true;
     (async () => {
       if (!isConfirmOpen) return;
+      if (!confirmCreatorId) {
+        const { data } = await supabase.auth.getUser();
+        const uid = data?.user?.id ?? null;
+        if (mounted) setConfirmCreatorId(uid);
+        if (!uid) return;
+      }
       let commonIds = confirmCommonClubIds;
       if (!commonIds.length && confirmPlayerIds.length) {
         try {
@@ -698,6 +705,7 @@ export default function MatchesScreen() {
   const [confirmClubId, setConfirmClubId] = useState(null);
   const [confirmClubSearch, setConfirmClubSearch] = useState('');
   const [confirmClubsLoading, setConfirmClubsLoading] = useState(false);
+  const [confirmCreatorId, setConfirmCreatorId] = useState(null);
   const notifiedMatchesRef = useRef(new Set());
   
   // Group selector states
@@ -2335,7 +2343,7 @@ function getCommonAcceptedClubs(userIds, acceptedMap) {
 
 function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, myAccepted, meId) {
   if (!slot) return null;
-  if (!myZoneId) return slot;
+  if (!myZoneId || !meId) return null;
   const userIds = slot.ready_user_ids || [];
   const filtered = userIds.filter((uid) => {
     const profile = profilesById[String(uid)];
