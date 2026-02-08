@@ -253,7 +253,7 @@ export default function SigninScreen() {
         );
       } else if (errorMsg.toLowerCase().includes('invalid login credentials') || errorMsg.toLowerCase().includes('invalid auth credentials')) {
         Alert.alert(
-          "Erreur",
+          "Faute !",
           "Identifiants et/ou mot de passe invalides. Si nécessaire clique sur mot de passe oublié ou crée un compte."
         );
       } else {

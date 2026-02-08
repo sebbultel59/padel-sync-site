@@ -375,6 +375,9 @@ export default function MatchesScreen() {
     pendingCreateRef.current = snapshot;
     setPendingCreate(snapshot);
     confirmFiredRef.current = false;
+    setConfirmClubId(null);
+    setConfirmClubSearch('');
+    setConfirmCommonClubs([]);
     setIsConfirmOpen(true);
   }, []);
 
@@ -385,9 +388,95 @@ export default function MatchesScreen() {
     console.log('[MatchesConfirm] create', { source, pendingPlayers: payload?.selectedUserIds || [] });
     closeConfirm(source);
     if (payload?.startsAt && payload?.endsAt) {
-      onCreateIntervalMatch(payload.startsAt, payload.endsAt, payload.selectedUserIds, 'confirmed', { skipPostCreateModal: true });
+      onCreateIntervalMatch(payload.startsAt, payload.endsAt, payload.selectedUserIds, 'confirmed', {
+        skipPostCreateModal: true,
+        selectedClubId: confirmClubId,
+      });
     }
-  }, [closeConfirm, onCreateIntervalMatch]);
+  }, [closeConfirm, onCreateIntervalMatch, confirmClubId]);
+
+  const confirmPlayerIds = useMemo(() => {
+    if (!pendingCreate?.selectedUserIds || !meId) return [];
+    return Array.from(
+      new Set((pendingCreate.selectedUserIds || []).concat(meId).filter(Boolean).map(String))
+    );
+  }, [pendingCreate, meId]);
+
+  const confirmCommonClubIds = useMemo(() => {
+    if (!confirmPlayerIds.length) return [];
+    return getCommonAcceptedClubs(confirmPlayerIds, acceptedClubsByUser);
+  }, [confirmPlayerIds, acceptedClubsByUser]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!isConfirmOpen) return;
+      let commonIds = confirmCommonClubIds;
+      if (!commonIds.length && confirmPlayerIds.length) {
+        try {
+          const { data: uc, error: ucErr } = await supabase
+            .from('user_clubs')
+            .select('user_id, club_id')
+            .in('user_id', confirmPlayerIds)
+            .eq('is_accepted', true);
+          if (!ucErr && Array.isArray(uc)) {
+            const map = {};
+            uc.forEach((row) => {
+              const uid = String(row.user_id);
+              if (!map[uid]) map[uid] = [];
+              map[uid].push(String(row.club_id));
+            });
+            commonIds = getCommonAcceptedClubs(confirmPlayerIds, map);
+          }
+        } catch {}
+      }
+      if (!commonIds.length) {
+        if (mounted) {
+          setConfirmCommonClubs([]);
+          setConfirmClubId(null);
+        }
+        return;
+      }
+      try {
+        setConfirmClubsLoading(true);
+        const { data, error } = await supabase
+          .from('clubs')
+          .select('id, name')
+          .in('id', commonIds)
+          .order('name');
+        if (error) throw error;
+        if (mounted) {
+          const list = data || [];
+          setConfirmCommonClubs(list);
+          if (list.length === 1) {
+            setConfirmClubId(list[0].id);
+          } else if (confirmClubId && list.some((c) => String(c.id) === String(confirmClubId))) {
+            setConfirmClubId(confirmClubId);
+          } else {
+            setConfirmClubId(null);
+          }
+        }
+      } catch (e) {
+        console.warn('[MatchesConfirm] clubs load error:', e?.message || e);
+        if (mounted) {
+          setConfirmCommonClubs([]);
+          setConfirmClubId(null);
+        }
+      } finally {
+        if (mounted) setConfirmClubsLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [isConfirmOpen, confirmCommonClubIds, confirmClubId]);
+
+  const filteredConfirmClubs = useMemo(() => {
+    const searchValue = (confirmClubSearch || '').trim();
+    if (!searchValue) return confirmCommonClubs;
+    const q = searchValue.toLowerCase();
+    return (confirmCommonClubs || []).filter((c) => (c?.name || '').toLowerCase().includes(q));
+  }, [confirmCommonClubs, confirmClubSearch]);
 
 
 
@@ -453,6 +542,27 @@ export default function MatchesScreen() {
     setMatchCreatedUndoMatchId(matchId);
     setMatchCreatedUndoVisible(true);
     // L'expiration est gérée dans le composant de modal
+  }, [clearMatchCreatedUndoState]);
+
+  const handleMatchCreatedUndoConfirm = useCallback(() => {
+    const fn = matchCreatedUndoOnConfirmRef.current;
+    setMatchCreatedUndoVisible(false);
+    clearMatchCreatedUndoState();
+    if (fn) fn();
+  }, [clearMatchCreatedUndoState]);
+
+  const handleMatchCreatedUndoCancel = useCallback(() => {
+    const fn = matchCreatedUndoOnExpireRef.current;
+    setMatchCreatedUndoVisible(false);
+    clearMatchCreatedUndoState();
+    if (fn) fn();
+  }, [clearMatchCreatedUndoState]);
+
+  const handleMatchCreatedUndoTimeout = useCallback(() => {
+    const fn = matchCreatedUndoOnExpireRef.current;
+    setMatchCreatedUndoVisible(false);
+    clearMatchCreatedUndoState();
+    if (fn) fn();
   }, [clearMatchCreatedUndoState]);
 
   useEffect(() => {
@@ -584,6 +694,10 @@ export default function MatchesScreen() {
   const pendingCreateRef = useRef(null);
   const confirmFiredRef = useRef(false);
   const handleConfirmCreateRef = useRef(null);
+  const [confirmCommonClubs, setConfirmCommonClubs] = useState([]);
+  const [confirmClubId, setConfirmClubId] = useState(null);
+  const [confirmClubSearch, setConfirmClubSearch] = useState('');
+  const [confirmClubsLoading, setConfirmClubsLoading] = useState(false);
   const notifiedMatchesRef = useRef(new Set());
   
   // Group selector states
@@ -4597,7 +4711,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
 
   const onCreateIntervalMatch = useCallback(
     async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'confirmed', options = {}) => {
-      const { skipPostCreateModal = false } = options || {};
+      const { skipPostCreateModal = false, selectedClubId = null } = options || {};
       if (!groupId) return;
       // Preflight: prevent overlapping creation with same players
       try {
@@ -4639,11 +4753,16 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
             return;
           }
+          if (selectedClubId && !commonClubs.some((cid) => String(cid) === String(selectedClubId))) {
+            Alert.alert("Club invalide", "Le club choisi n'est pas commun aux 4 joueurs.");
+            return;
+          }
           const { data, error } = await supabase.rpc('create_match_from_interval_safe', {
             p_group: groupId,
             p_starts_at: starts_at_iso,
             p_ends_at: ends_at_iso,
             p_user_ids: playerIds,
+            p_club_id: selectedClubId || null,
           });
           console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
           // Ignorer les erreurs RLS sur availability car on va créer les RSVPs manuellement
@@ -6722,6 +6841,15 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     };
     // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
     const canCreate = type === 'ready' && selectedIds.length === 3;
+    const selectedPlayerIds = canCreate
+      ? Array.from(new Set((selectedIds || []).concat(meId).filter(Boolean).map(String)))
+      : [];
+    const clubsMapReady = canCreate
+      ? selectedPlayerIds.every((id) => Array.isArray(acceptedClubsByUser[String(id)]))
+      : false;
+    const commonClubCount = canCreate
+      ? getCommonAcceptedClubs(selectedPlayerIds, acceptedClubsByUser).length
+      : null;
     
     // Séparer le joueur authentifié des autres joueurs
     const otherUserIds = userIds.filter(uid => String(uid) !== String(meId));
@@ -6764,6 +6892,22 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
               </View>
             </Pressable>
         </View>
+        )}
+        {type === "ready" && (
+          <View style={{ marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+              Club : <Text style={{ color: '#6b7280', fontWeight: '700' }}>À choisir</Text>
+            </Text>
+            <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+              {canCreate
+                ? (!clubsMapReady
+                    ? 'Clubs en cours de chargement...'
+                    : (commonClubCount > 0
+                        ? `${commonClubCount} club${commonClubCount > 1 ? 's' : ''} commun${commonClubCount > 1 ? 's' : ''} possible${commonClubCount > 1 ? 's' : ''}`
+                        : 'Aucun club commun'))
+                : 'Sélectionne 3 joueurs pour voir les clubs communs'}
+            </Text>
+          </View>
         )}
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
           {/* Afficher l'avatar du joueur authentifié en premier s'il est disponible */}
@@ -15506,13 +15650,157 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
+      {/* Bottom sheet confirmation création match */}
+      <Modal transparent animationType="slide" visible={isConfirmOpen} onRequestClose={() => closeConfirm('cancel')}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: THEME.bg, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={{ color: THEME.text, fontSize: 16, fontWeight: '800' }}>Confirmer le match</Text>
+              <Pressable onPress={() => closeConfirm('cancel')} style={{ padding: 6 }}>
+                <Ionicons name="close" size={22} color={THEME.text} />
+              </Pressable>
+            </View>
+
+            {/* Récap */}
+            <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
+              <Text style={{ color: THEME.muted, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>Récap</Text>
+              <Text style={{ color: THEME.text, fontSize: 14, fontWeight: '800' }}>
+                {pendingCreate?.startsAt && pendingCreate?.endsAt ? formatRange(pendingCreate.startsAt, pendingCreate.endsAt) : 'Créneau'}
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {(confirmPlayerIds || []).map((uid) => {
+                  const p = profilesById[String(uid)];
+                  const label = p?.display_name || p?.name || p?.email || 'Joueur';
+                  return (
+                    <View key={uid} style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.08)' }}>
+                      <Text style={{ color: THEME.text, fontSize: 11, fontWeight: '700' }}>{label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            <Divider m={12} />
+
+            {/* Clubs communs */}
+            <Text style={{ color: THEME.text, fontSize: 14, fontWeight: '800', marginBottom: 4 }}>Choisis le club</Text>
+            <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>Clubs acceptés par les 4 joueurs</Text>
+
+            {confirmClubsLoading ? (
+              <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator color={THEME.accent} />
+              </View>
+            ) : (confirmCommonClubIds || []).length === 0 ? (
+              <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
+                <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
+                  Aucun club en commun entre les 4 joueurs.
+                </Text>
+                <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 12 }}>
+                  Chaque joueur doit avoir accepté le club dans ses préférences.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Pressable
+                    onPress={() => closeConfirm('change-player')}
+                    style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 10, borderRadius: 10, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: THEME.text, fontWeight: '700', fontSize: 12 }}>Changer un joueur</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => Alert.alert('Bientôt', 'La proposition de club sera disponible prochainement.')}
+                    style={{ flex: 1, backgroundColor: THEME.accent, paddingVertical: 10, borderRadius: 10, alignItems: 'center' }}
+                  >
+                    <Text style={{ color: THEME.ink, fontWeight: '800', fontSize: 12 }}>Proposer un club</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <>
+                {(confirmCommonClubs || []).length >= 5 ? (
+                  <View style={{ marginBottom: 10 }}>
+                    <TextInput
+                      value={confirmClubSearch}
+                      onChangeText={setConfirmClubSearch}
+                      placeholder="Rechercher un club"
+                      placeholderTextColor={THEME.muted}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: THEME.cardBorder,
+                        backgroundColor: 'rgba(255,255,255,0.06)',
+                        color: THEME.text,
+                      }}
+                    />
+                  </View>
+                ) : null}
+
+                {(confirmCommonClubs || []).length === 1 && confirmCommonClubs[0] ? (
+                  <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 8 }}>
+                    Club commun trouvé : <Text style={{ color: THEME.text, fontWeight: '800' }}>{confirmCommonClubs[0].name}</Text>
+                  </Text>
+                ) : null}
+
+                <ScrollView style={{ maxHeight: 220 }}>
+                  {(filteredConfirmClubs || []).map((club) => {
+                    const active = String(confirmClubId) === String(club.id);
+                    return (
+                      <Pressable
+                        key={club.id}
+                        onPress={() => setConfirmClubId(club.id)}
+                        style={{
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: active ? THEME.accent : THEME.cardBorder,
+                          backgroundColor: active ? THEME.accentSoft : THEME.card,
+                          marginBottom: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: THEME.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>
+                            {club.name}
+                          </Text>
+                          <Text style={{ color: THEME.muted, fontSize: 11, marginTop: 2 }}>✅ accepté par 4/4</Text>
+                        </View>
+                        <Ionicons name={active ? 'radio-button-on' : 'radio-button-off'} size={18} color={active ? THEME.accent : THEME.muted} />
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+
+            <Pressable
+              onPress={() => handleConfirmCreate('confirm')}
+              disabled={!confirmClubId || (confirmCommonClubIds || []).length === 0}
+              style={{
+                marginTop: 12,
+                backgroundColor: confirmClubId ? THEME.accent : 'rgba(255,255,255,0.12)',
+                paddingVertical: 12,
+                borderRadius: 12,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: confirmClubId ? THEME.ink : THEME.muted, fontWeight: '800', fontSize: 14 }}>
+                Confirmer le match
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* Popup "Match créé" avec annulation */}
       <MatchCreatedUndoModal
-        visible={isConfirmOpen}
-        durationSeconds={MATCH_CREATE_CONFIRM_SECONDS}
-        onConfirm={() => handleConfirmCreate('confirm')}
-        onCancel={() => closeConfirm('cancel')}
-        onTimeout={() => handleConfirmCreate('timeout')}
+        visible={matchCreatedUndoVisible}
+        durationSeconds={MATCH_CREATED_UNDO_SECONDS}
+        onConfirm={handleMatchCreatedUndoConfirm}
+        onCancel={handleMatchCreatedUndoCancel}
+        onTimeout={handleMatchCreatedUndoTimeout}
       />
 
       {/* Modale de contacts du joueur */}

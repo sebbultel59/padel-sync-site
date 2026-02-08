@@ -133,6 +133,7 @@ export default function Index() {
                 const picked = france || groups?.[0] || null;
                 if (picked?.id) {
                   await AsyncStorage.setItem('active_group_id', String(picked.id));
+                  setActiveGroup(picked);
                   hasGroup = true;
                   const hasAvail = await hasAvailabilityForGroup(userId, picked.id);
                   setHasAvailability(hasAvail);
