@@ -365,11 +365,12 @@ export default function MatchesScreen() {
     );
   }, [meId, myZoneId, activeGroup?.id, persistGeoPrefs]);
 
-  const openConfirm = useCallback(({ startsAt, endsAt, selectedUserIds }) => {
+  const openConfirm = useCallback(({ startsAt, endsAt, selectedUserIds, commonClubIds }) => {
     const snapshot = {
       startsAt,
       endsAt,
       selectedUserIds: Array.isArray(selectedUserIds) ? [...selectedUserIds] : [],
+      commonClubIds: Array.isArray(commonClubIds) ? [...commonClubIds] : [],
     };
     console.log('OPEN_MODAL_2', snapshot);
     pendingCreateRef.current = snapshot;
@@ -397,34 +398,41 @@ export default function MatchesScreen() {
   }, [closeConfirm, onCreateIntervalMatch, confirmClubId]);
 
   const confirmPlayerIds = useMemo(() => {
-    if (!pendingCreate?.selectedUserIds || !confirmCreatorId) return [];
-    return Array.from(
-      new Set((pendingCreate.selectedUserIds || []).concat(confirmCreatorId).filter(Boolean).map(String))
-    );
-  }, [pendingCreate, confirmCreatorId]);
+    if (!pendingCreate?.selectedUserIds) return [];
+    const base = [...(pendingCreate.selectedUserIds || [])];
+    const creator = confirmCreatorId || meId || null;
+    if (creator) base.push(creator);
+    return Array.from(new Set(base.filter(Boolean).map(String)));
+  }, [pendingCreate, confirmCreatorId, meId]);
 
   const confirmCommonClubIds = useMemo(() => {
     if (!confirmPlayerIds.length) return [];
+    if (Array.isArray(pendingCreate?.commonClubIds) && pendingCreate.commonClubIds.length > 0) {
+      return pendingCreate.commonClubIds;
+    }
     return getCommonAcceptedClubs(confirmPlayerIds, acceptedClubsByUser);
-  }, [confirmPlayerIds, acceptedClubsByUser]);
+  }, [confirmPlayerIds, acceptedClubsByUser, pendingCreate]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!isConfirmOpen) return;
-      if (!confirmCreatorId) {
+      let effectiveCreatorId = confirmCreatorId || meId || null;
+      if (!effectiveCreatorId) {
         const { data } = await supabase.auth.getUser();
-        const uid = data?.user?.id ?? null;
-        if (mounted) setConfirmCreatorId(uid);
-        if (!uid) return;
+        effectiveCreatorId = data?.user?.id ?? null;
+        if (mounted) setConfirmCreatorId(effectiveCreatorId);
       }
+      const effectiveIds = Array.from(
+        new Set([...(pendingCreate?.selectedUserIds || []), effectiveCreatorId].filter(Boolean).map(String))
+      );
       let commonIds = confirmCommonClubIds;
-      if (!commonIds.length && confirmPlayerIds.length) {
+      if (!commonIds.length && effectiveIds.length) {
         try {
           const { data: uc, error: ucErr } = await supabase
             .from('user_clubs')
             .select('user_id, club_id')
-            .in('user_id', confirmPlayerIds)
+            .in('user_id', effectiveIds)
             .eq('is_accepted', true);
           if (!ucErr && Array.isArray(uc)) {
             const map = {};
@@ -433,7 +441,7 @@ export default function MatchesScreen() {
               if (!map[uid]) map[uid] = [];
               map[uid].push(String(row.club_id));
             });
-            commonIds = getCommonAcceptedClubs(confirmPlayerIds, map);
+            commonIds = getCommonAcceptedClubs(effectiveIds, map);
           }
         } catch {}
       }
@@ -2353,7 +2361,13 @@ function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, my
   if (!hasMe) return null;
   const clubGroup = pickClubGroup(filtered, acceptedMap, myAccepted);
   if (!clubGroup || !Array.isArray(clubGroup.userIds) || clubGroup.userIds.length < 4) return null;
-  return { ...slot, ready_user_ids: clubGroup.userIds, common_club_id: clubGroup.clubId };
+  const commonClubIds = getCommonAcceptedClubs(clubGroup.userIds, acceptedMap);
+  return {
+    ...slot,
+    ready_user_ids: clubGroup.userIds,
+    common_club_id: clubGroup.clubId,
+    common_club_ids: commonClubIds,
+  };
 }
 
 async function computeAvailableUserIdsForInterval(groupId, startsAt, endsAt) {
@@ -6885,7 +6899,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds })) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids })) : undefined}
               accessibilityRole="button"
               accessibilityLabel="Créer un match pour ce créneau"
               style={({ pressed }) => [
@@ -7032,7 +7046,7 @@ const LongSlotRow = ({ item }) => {
           <View style={styles.ctaRow}>
             <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
               <Pressable
-                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds }))}
+                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids }))}
                 onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
                 onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
                 accessibilityRole="button"
@@ -7063,7 +7077,7 @@ const LongSlotRow = ({ item }) => {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds })) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids })) : undefined}
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
@@ -7186,7 +7200,7 @@ const HourSlotRow = ({ item }) => {
           <View style={styles.ctaRow}>
             <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
               <Pressable
-                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds }))}
+                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids }))}
                 onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
                 onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
                 accessibilityRole="button"
@@ -7217,7 +7231,7 @@ const HourSlotRow = ({ item }) => {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds })) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids })) : undefined}
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
