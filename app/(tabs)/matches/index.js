@@ -2293,22 +2293,28 @@ function computeAvailableUsersForInterval(startsAt, endsAt, availabilityData) {
   return intersection ? [...intersection] : [];
 }
 
-function hasCommonAcceptedClub(userIds, acceptedMap, myAccepted) {
-  if (!Array.isArray(userIds) || userIds.length < 4) return false;
-  if (!myAccepted || myAccepted.size === 0) return false;
+function pickClubGroup(userIds, acceptedMap, myAccepted) {
+  if (!Array.isArray(userIds) || userIds.length < 4) return null;
+  if (!myAccepted || myAccepted.size === 0) return null;
   const counts = new Map();
   for (const uidRaw of userIds) {
     const uid = String(uidRaw);
-    const clubs = acceptedMap[uid] || [];
+    const clubs = acceptedMap[uid];
+    if (!Array.isArray(clubs)) return null; // données clubs pas encore chargées
     for (const clubId of clubs) {
       if (!myAccepted.has(clubId)) continue;
-      counts.set(clubId, (counts.get(clubId) || 0) + 1);
+      if (!counts.has(clubId)) counts.set(clubId, new Set());
+      counts.get(clubId).add(uid);
     }
   }
-  for (const cnt of counts.values()) {
-    if (cnt >= 4) return true;
+  let best = null;
+  for (const [clubId, set] of counts.entries()) {
+    if (set.size < 4) continue;
+    if (!best || set.size > best.userIds.length) {
+      best = { clubId, userIds: Array.from(set) };
+    }
   }
-  return false;
+  return best;
 }
 
 function getCommonAcceptedClubs(userIds, acceptedMap) {
@@ -2337,8 +2343,9 @@ function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, my
   });
   const hasMe = meId ? filtered.some((id) => String(id) === String(meId)) : true;
   if (!hasMe) return null;
-  if (!hasCommonAcceptedClub(filtered, acceptedMap, myAccepted)) return null;
-  return { ...slot, ready_user_ids: filtered };
+  const clubGroup = pickClubGroup(filtered, acceptedMap, myAccepted);
+  if (!clubGroup || !Array.isArray(clubGroup.userIds) || clubGroup.userIds.length < 4) return null;
+  return { ...slot, ready_user_ids: clubGroup.userIds, common_club_id: clubGroup.clubId };
 }
 
 async function computeAvailableUserIdsForInterval(groupId, startsAt, endsAt) {
