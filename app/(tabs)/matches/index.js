@@ -406,12 +406,16 @@ export default function MatchesScreen() {
   }, [pendingCreate, confirmCreatorId, meId]);
 
   const confirmCommonClubIds = useMemo(() => {
+    if (!confirmPlayerIds.length) return [];
+    return getCommonAcceptedClubs(confirmPlayerIds, acceptedClubsByUser);
+  }, [confirmPlayerIds, acceptedClubsByUser]);
+
+  const modalClubIds = useMemo(() => {
     if (Array.isArray(pendingCreate?.commonClubIds) && pendingCreate.commonClubIds.length > 0) {
       return pendingCreate.commonClubIds;
     }
-    if (!confirmPlayerIds.length) return [];
-    return getCommonAcceptedClubs(confirmPlayerIds, acceptedClubsByUser);
-  }, [confirmPlayerIds, acceptedClubsByUser, pendingCreate]);
+    return confirmCommonClubIds;
+  }, [pendingCreate, confirmCommonClubIds]);
 
   useEffect(() => {
     let mounted = true;
@@ -426,7 +430,7 @@ export default function MatchesScreen() {
       const effectiveIds = Array.from(
         new Set([...(pendingCreate?.selectedUserIds || []), effectiveCreatorId].filter(Boolean).map(String))
       );
-      let commonIds = confirmCommonClubIds;
+      let commonIds = modalClubIds;
       if (!commonIds.length && effectiveIds.length) {
         try {
           const { data: uc, error: ucErr } = await supabase
@@ -484,7 +488,7 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
     };
-  }, [isConfirmOpen, confirmCommonClubIds, confirmClubId]);
+  }, [isConfirmOpen, modalClubIds, confirmClubId, confirmCreatorId, meId, pendingCreate]);
 
   const filteredConfirmClubs = useMemo(() => {
     const searchValue = (confirmClubSearch || '').trim();
@@ -15719,7 +15723,7 @@ const HourSlotRow = ({ item }) => {
               <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={THEME.accent} />
               </View>
-            ) : (confirmCommonClubIds || []).length === 0 ? (
+            ) : (modalClubIds || []).length === 0 ? (
               <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
                 <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
                   Aucun club en commun entre les 4 joueurs.
@@ -15806,7 +15810,7 @@ const HourSlotRow = ({ item }) => {
 
             <Pressable
               onPress={() => handleConfirmCreate('confirm')}
-              disabled={!confirmClubId || (confirmCommonClubIds || []).length === 0}
+              disabled={!confirmClubId || (modalClubIds || []).length === 0}
               style={{
                 marginTop: 12,
                 backgroundColor: confirmClubId ? THEME.accent : 'rgba(255,255,255,0.12)',
