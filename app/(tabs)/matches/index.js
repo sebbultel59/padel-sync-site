@@ -8056,6 +8056,7 @@ const HourSlotRow = ({ item }) => {
     const slotDate = (slot.starts_at && slot.ends_at) ? formatRange(slot.starts_at, slot.ends_at) : '';
     console.log('[MatchCardConfirmed] slotDate:', slotDate, 'slot.starts_at:', slot.starts_at, 'slot.ends_at:', slot.ends_at, 'm:', m.id, 'm.time_slot_id:', m?.time_slot_id);
     const [resolvedClubName, setResolvedClubName] = React.useState(null);
+    const [resolvedClubPhone, setResolvedClubPhone] = React.useState(null);
     const lastClubIdRef = React.useRef(null);
     const matchDate = m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : null;
     const clubLabel = m?.club_name || resolvedClubName || '';
@@ -8076,22 +8077,23 @@ const HourSlotRow = ({ item }) => {
 
     lastClubIdRef.current = clubId;
 
-    if (m?.club_name) {
-      setResolvedClubName(m.club_name);
-      MATCH_CLUB_NAME_CACHE.current.set(String(clubId), m.club_name);
+      if (m?.club_name) {
+        setResolvedClubName(m.club_name);
+        MATCH_CLUB_NAME_CACHE.current.set(String(clubId), { name: m.club_name, phone: null });
       return () => { cancelled = true; };
     }
 
-    const cached = MATCH_CLUB_NAME_CACHE.current.get(String(clubId)) || null;
-    if (cached) {
-      setResolvedClubName(cached);
+      const cached = MATCH_CLUB_NAME_CACHE.current.get(String(clubId)) || null;
+      if (cached?.name || cached?.phone) {
+        if (cached?.name) setResolvedClubName(cached.name);
+        if (cached?.phone) setResolvedClubPhone(cached.phone);
       return () => { cancelled = true; };
     }
 
     (async () => {
       const { data, error } = await supabase
         .from('clubs')
-        .select('name')
+          .select('name, phone, call_phone')
         .eq('id', clubId)
         .maybeSingle();
 
@@ -8102,10 +8104,13 @@ const HourSlotRow = ({ item }) => {
         return;
       }
 
-      if (data?.name) {
-        MATCH_CLUB_NAME_CACHE.current.set(String(clubId), data.name);
-        setResolvedClubName(data.name);
-      }
+        const nextName = data?.name || null;
+        const nextPhone = data?.phone || data?.call_phone || null;
+        if (nextName || nextPhone) {
+          MATCH_CLUB_NAME_CACHE.current.set(String(clubId), { name: nextName, phone: nextPhone });
+        }
+        if (nextName) setResolvedClubName(nextName);
+        if (nextPhone) setResolvedClubPhone(nextPhone);
     })();
 
     return () => { cancelled = true; };
@@ -8115,22 +8120,22 @@ const HourSlotRow = ({ item }) => {
       <View style={[styles.matchCardGlow, reserved && styles.matchCardGlowReserved]}>
         <View style={[styles.matchCard, reserved && styles.matchCardReserved]}>
           {slotDate ? (
-            <Text style={[styles.matchDate, styles.matchDateCentered, { marginBottom: clubLabel ? 2 : 6 }]}>
+            <Text style={[styles.matchDate, styles.matchDateCentered, { marginBottom: clubLabel ? 2 : 6, fontSize: 20 }]}>
               {slotDate}
             </Text>
           ) : matchDate ? (
-            <Text style={[styles.matchDate, styles.matchDateCentered, { marginBottom: clubLabel ? 2 : 6 }]}>
+            <Text style={[styles.matchDate, styles.matchDateCentered, { marginBottom: clubLabel ? 2 : 6, fontSize: 20 }]}>
               Match du {matchDate}
             </Text>
           ) : (
-            <Text style={[styles.matchDateCentered, { fontWeight: '800', color: THEME.muted, fontSize: 14, marginBottom: clubLabel ? 2 : 6, fontStyle: 'italic' }]}>
+            <Text style={[styles.matchDateCentered, { fontWeight: '800', color: THEME.muted, fontSize: 20, marginBottom: clubLabel ? 2 : 6, fontStyle: 'italic' }]}>
               Date non définie
             </Text>
           )}
           {clubLabel ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 0, marginBottom: 4 }}>
               <Ionicons name="location-outline" size={14} color={reserved ? THEME.accent : THEME.muted} />
-              <Text style={{ color: reserved ? THEME.accent : THEME.muted, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+              <Text style={{ color: reserved ? THEME.accent : THEME.muted, fontSize: 20, fontWeight: '700' }} numberOfLines={1}>
                 {clubLabel}
               </Text>
             </View>
@@ -8164,26 +8169,12 @@ const HourSlotRow = ({ item }) => {
             gap: 8,
           }}
         >
-          {/* Bouton appeler le club (si configuré) ou contacter un club */}
+          {/* Bouton appeler le club du match */}
           {(() => {
-            // Utiliser UNIQUEMENT la référence pour éviter les changements
-            const club = matchClubRef.current;
-
-            // Calculer le texte directement depuis la référence
-            // Texte par défaut sur 2 lignes : "APPELER" puis "un club"
-            let buttonText = 'APPELER\nun club';
-            let phoneNumber = null;
-
-            if (club && club.call_phone) {
-              phoneNumber = club.call_phone;
-              const label = club.call_button_label;
-              const name = club.name;
-              if (label) {
-                buttonText = label.includes('\n') ? label : label.replace(/\s+/, '\n');
-              } else {
-                buttonText = `APPELER\n${name || 'le club'}`;
-              }
-            }
+            const cached = m?.club_id ? MATCH_CLUB_NAME_CACHE.current.get(String(m.club_id)) : null;
+            const phoneNumber = resolvedClubPhone || cached?.phone || null;
+            const labelName = clubLabel || cached?.name || 'le club';
+            const buttonText = `APPELER\n${labelName}`;
 
             // Toujours afficher le même bouton (violet) avec le texte personnalisé
             return (
@@ -8195,7 +8186,7 @@ const HourSlotRow = ({ item }) => {
                       Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone');
                     });
                   } else {
-                    setClubModalOpen(true);
+                    Alert.alert('Numéro indisponible', 'Le numéro du club n\'est pas disponible.');
                   }
                 }}
                 style={{
