@@ -25,6 +25,7 @@ DECLARE
   v_zone_count INTEGER;
   v_player_count INTEGER;
   v_common_club UUID;
+  v_group_club UUID;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -48,34 +49,45 @@ BEGIN
     RAISE EXCEPTION 'Tous les joueurs doivent avoir la même zone';
   END IF;
 
-  WITH accepted AS (
-    SELECT uc.user_id, uc.club_id, uc.is_preferred
-    FROM user_clubs uc
-    JOIN clubs c ON c.id = uc.club_id
-    WHERE uc.is_accepted = true
-      AND uc.user_id = ANY(v_ids)
-      AND c.zone_id = v_zone_id
-  ),
-  counts AS (
-    SELECT club_id,
-           COUNT(DISTINCT user_id) AS cnt,
-           SUM(CASE WHEN is_preferred THEN 1 ELSE 0 END) AS pref_cnt
-    FROM accepted
-    GROUP BY club_id
-  )
-  SELECT club_id
-  INTO v_common_club
-  FROM counts
-  WHERE cnt = v_player_count
-    AND (p_club_id IS NULL OR club_id = p_club_id)
-  ORDER BY pref_cnt DESC, club_id
-  LIMIT 1;
+  SELECT club_id INTO v_group_club
+  FROM groups
+  WHERE id = p_group;
 
-  IF v_common_club IS NULL THEN
-    IF p_club_id IS NOT NULL THEN
+  IF v_group_club IS NOT NULL THEN
+    IF p_club_id IS NOT NULL AND p_club_id <> v_group_club THEN
       RAISE EXCEPTION 'Club choisi non commun';
     END IF;
-    RAISE EXCEPTION 'Aucun club commun sélectionné';
+    v_common_club := v_group_club;
+  ELSE
+    WITH accepted AS (
+      SELECT uc.user_id, uc.club_id, uc.is_preferred
+      FROM user_clubs uc
+      JOIN clubs c ON c.id = uc.club_id
+      WHERE uc.is_accepted = true
+        AND uc.user_id = ANY(v_ids)
+        AND c.zone_id = v_zone_id
+    ),
+    counts AS (
+      SELECT club_id,
+             COUNT(DISTINCT user_id) AS cnt,
+             SUM(CASE WHEN is_preferred THEN 1 ELSE 0 END) AS pref_cnt
+      FROM accepted
+      GROUP BY club_id
+    )
+    SELECT club_id
+    INTO v_common_club
+    FROM counts
+    WHERE cnt = v_player_count
+      AND (p_club_id IS NULL OR club_id = p_club_id)
+    ORDER BY pref_cnt DESC, club_id
+    LIMIT 1;
+
+    IF v_common_club IS NULL THEN
+      IF p_club_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Club choisi non commun';
+      END IF;
+      RAISE EXCEPTION 'Aucun club commun sélectionné';
+    END IF;
   END IF;
 
   INSERT INTO time_slots (group_id, starts_at, ends_at)
@@ -110,6 +122,7 @@ DECLARE
   v_zone_count INTEGER;
   v_player_count INTEGER;
   v_common_club UUID;
+  v_group_club UUID;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -144,34 +157,45 @@ BEGIN
     RAISE EXCEPTION 'Tous les joueurs doivent avoir la même zone';
   END IF;
 
-  WITH accepted AS (
-    SELECT uc.user_id, uc.club_id, uc.is_preferred
-    FROM user_clubs uc
-    JOIN clubs c ON c.id = uc.club_id
-    WHERE uc.is_accepted = true
-      AND uc.user_id = ANY(v_ids)
-      AND c.zone_id = v_zone_id
-  ),
-  counts AS (
-    SELECT club_id,
-           COUNT(DISTINCT user_id) AS cnt,
-           SUM(CASE WHEN is_preferred THEN 1 ELSE 0 END) AS pref_cnt
-    FROM accepted
-    GROUP BY club_id
-  )
-  SELECT club_id
-  INTO v_common_club
-  FROM counts
-  WHERE cnt = v_player_count
-    AND (p_club_id IS NULL OR club_id = p_club_id)
-  ORDER BY pref_cnt DESC, club_id
-  LIMIT 1;
+  SELECT club_id INTO v_group_club
+  FROM groups
+  WHERE id = p_group;
 
-  IF v_common_club IS NULL THEN
-    IF p_club_id IS NOT NULL THEN
+  IF v_group_club IS NOT NULL THEN
+    IF p_club_id IS NOT NULL AND p_club_id <> v_group_club THEN
       RAISE EXCEPTION 'Club choisi non commun';
     END IF;
-    RAISE EXCEPTION 'Aucun club commun sélectionné';
+    v_common_club := v_group_club;
+  ELSE
+    WITH accepted AS (
+      SELECT uc.user_id, uc.club_id, uc.is_preferred
+      FROM user_clubs uc
+      JOIN clubs c ON c.id = uc.club_id
+      WHERE uc.is_accepted = true
+        AND uc.user_id = ANY(v_ids)
+        AND c.zone_id = v_zone_id
+    ),
+    counts AS (
+      SELECT club_id,
+             COUNT(DISTINCT user_id) AS cnt,
+             SUM(CASE WHEN is_preferred THEN 1 ELSE 0 END) AS pref_cnt
+      FROM accepted
+      GROUP BY club_id
+    )
+    SELECT club_id
+    INTO v_common_club
+    FROM counts
+    WHERE cnt = v_player_count
+      AND (p_club_id IS NULL OR club_id = p_club_id)
+    ORDER BY pref_cnt DESC, club_id
+    LIMIT 1;
+
+    IF v_common_club IS NULL THEN
+      IF p_club_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Club choisi non commun';
+      END IF;
+      RAISE EXCEPTION 'Aucun club commun sélectionné';
+    END IF;
   END IF;
 
   SELECT id INTO v_match_id

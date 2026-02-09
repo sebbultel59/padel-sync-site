@@ -365,28 +365,32 @@ export default function MatchesScreen() {
     );
   }, [meId, myZoneId, activeGroup?.id, persistGeoPrefs]);
 
-  const openConfirm = useCallback(async ({ startsAt, endsAt, selectedUserIds, commonClubIds }) => {
+  const openConfirm = useCallback(async ({ startsAt, endsAt, selectedUserIds, commonClubIds, forcedClubId }) => {
     const snapshot = {
       startsAt,
       endsAt,
       selectedUserIds: Array.isArray(selectedUserIds) ? [...selectedUserIds] : [],
       commonClubIds: Array.isArray(commonClubIds) ? [...commonClubIds] : [],
+      forcedClubId: forcedClubId || null,
+      clubId: forcedClubId || null,
     };
     console.log('OPEN_MODAL_2', snapshot);
     pendingCreateRef.current = snapshot;
     setPendingCreate(snapshot);
     confirmFiredRef.current = false;
-    setConfirmClubId(null);
+    confirmClubIdRef.current = forcedClubId || null;
+    setConfirmClubId(forcedClubId || null);
     setConfirmClubSearch('');
     setConfirmCommonClubs([]);
     setConfirmCreatorId(meId || null);
     try {
       setConfirmClubsLoading(true);
-      console.log('[HotMatch] openConfirm fetch clubs by ids', snapshot.commonClubIds);
+      const ids = snapshot.forcedClubId ? [snapshot.forcedClubId] : (snapshot.commonClubIds || []);
+      console.log('[HotMatch] openConfirm fetch clubs by ids', ids);
       const { data, error } = await supabase
         .from('clubs')
         .select('id,name,phone')
-        .in('id', snapshot.commonClubIds || []);
+        .in('id', ids);
       console.log('[HotMatch] openConfirm fetch result', {
         count: data?.length ?? 0,
         error: error?.message ?? null,
@@ -404,15 +408,19 @@ export default function MatchesScreen() {
   const handleConfirmCreate = useCallback((source = 'confirm') => {
     if (confirmFiredRef.current) return;
     const refClubId = pendingCreateRef.current?.clubId ?? null;
-    const selectedClubId = confirmClubId ?? refClubId ?? null;
+    const forcedClubId = pendingCreateRef.current?.forcedClubId ?? null;
+    const selectedClubId = forcedClubId ?? confirmClubId ?? refClubId ?? null;
+    const finalClubId = confirmClubId || forcedClubId || selectedClubId || refClubId || null;
     console.log('[HotMatch] confirm pressed', {
       confirmClubId,
       refClubId,
+      forcedClubId,
       selectedClubId,
+      finalClubId,
       confirmCommonClubsLen: (confirmCommonClubs ?? []).length,
       pendingIds: pendingCreate?.commonClubIds?.length ?? 0,
     });
-    if (!selectedClubId) {
+    if (!finalClubId) {
       Alert.alert('Aucun club commun sélectionné', 'Sélectionne un club pour confirmer.');
       return;
     }
@@ -423,10 +431,11 @@ export default function MatchesScreen() {
     if (payload?.startsAt && payload?.endsAt) {
       onCreateIntervalMatch(payload.startsAt, payload.endsAt, payload.selectedUserIds, 'confirmed', {
         skipPostCreateModal: true,
-        selectedClubId: selectedClubId,
+        selectedClubId: finalClubId,
       });
+      setTab('valides');
     }
-  }, [closeConfirm, onCreateIntervalMatch, confirmClubId, confirmCommonClubs, pendingCreate]);
+  }, [closeConfirm, onCreateIntervalMatch, confirmClubId, confirmCommonClubs, pendingCreate, setTab]);
 
   const handleConfirmClubPress = useCallback((club) => {
     const id = club?.id ?? null;
@@ -449,9 +458,12 @@ export default function MatchesScreen() {
   }, [confirmClubId]);
 
   const isConfirmOpen = !!pendingCreate;
+  const forcedClubId = pendingCreate?.forcedClubId ?? null;
+  const effectiveClubId = forcedClubId ?? confirmClubId;
 
   useEffect(() => {
-    const ids = pendingCreate?.commonClubIds ?? [];
+    const forcedClubId = pendingCreate?.forcedClubId ?? null;
+    const ids = forcedClubId ? [forcedClubId] : (pendingCreate?.commonClubIds ?? []);
 
     console.log('[HotMatch] effect fired', { isConfirmOpen, idsLen: ids.length, ids });
 
@@ -499,7 +511,7 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
     };
-  }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(',')]);
+  }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(','), pendingCreate?.forcedClubId]);
 
   // Filtre temporairement désactivé pour diagnostic
 
@@ -651,6 +663,8 @@ export default function MatchesScreen() {
   const filterConfigBottom = filterButtonsBottom + filterBarMeasuredHeight + STACK_SPACING;
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
+  const groupClubId = activeGroup?.club_id ?? null;
+  const isClubGroup = !!groupClubId;
   const [inviteBanner, setInviteBanner] = useState(null);
   const [acceptedClubsByUser, setAcceptedClubsByUser] = useState({});
   const [myAcceptedClubs, setMyAcceptedClubs] = useState(new Set());
@@ -667,7 +681,6 @@ export default function MatchesScreen() {
   });
   React.useEffect(() => {
     if (tab === 'rsvp') {
-      setTab('proposes');
     }
   }, [tab]);
   const [mode, setMode] = useState('long');
@@ -1066,7 +1079,7 @@ const longReadyWeek = React.useMemo(
 
       // Filtrer par zone + clubs acceptés
       finalFiltered = finalFiltered
-        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId))
+        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId, groupClubId))
         .filter(Boolean);
       
       // Log les créneaux valides
@@ -1245,7 +1258,7 @@ const hourReadyWeek = React.useMemo(
 
       // Filtrer par zone + clubs acceptés
       finalFiltered = finalFiltered
-        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId))
+        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId, groupClubId))
         .filter(Boolean);
       
       // Log les créneaux valides
@@ -2359,7 +2372,7 @@ function getCommonAcceptedClubs(userIds, acceptedMap) {
   return Array.from(common || []);
 }
 
-function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, myAccepted, meId) {
+function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, myAccepted, meId, groupClubId) {
   if (!slot) return null;
   if (!myZoneId || !meId) return null;
   const userIds = slot.ready_user_ids || [];
@@ -2369,6 +2382,15 @@ function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, my
   });
   const hasMe = meId ? filtered.some((id) => String(id) === String(meId)) : true;
   if (!hasMe) return null;
+  if (groupClubId) {
+    if (!Array.isArray(filtered) || filtered.length < 4) return null;
+    return {
+      ...slot,
+      ready_user_ids: filtered,
+      common_club_id: groupClubId,
+      common_club_ids: [],
+    };
+  }
   const clubGroup = pickClubGroup(filtered, acceptedMap, myAccepted);
   if (!clubGroup || !Array.isArray(clubGroup.userIds) || clubGroup.userIds.length < 4) return null;
   const commonClubIds = getCommonAcceptedClubs(clubGroup.userIds, acceptedMap);
@@ -4270,7 +4292,14 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
           const removeFrom = (setter, id) => setter((prev = []) => prev.filter((x) => String(x.id) !== String(id)));
           const upsertInto = (setter, m) => setter((prev = []) => {
             const map = new Map(prev.map((x) => [String(x.id), x]));
-            map.set(String(m.id), m);
+            const existing = map.get(String(m.id)) || {};
+            map.set(String(m.id), {
+              ...existing,
+              ...m,
+              time_slots: m.time_slots && (m.time_slots?.starts_at || m.time_slots?.ends_at)
+                ? m.time_slots
+                : existing.time_slots,
+            });
             const arr = Array.from(map.values());
             arr.sort((a, b) => new Date(a?.time_slots?.starts_at || 0) - new Date(b?.time_slots?.starts_at || 0));
             return arr;
@@ -4306,6 +4335,8 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
               is_court_reserved: Boolean(rowNew?.is_court_reserved ?? rowOld?.is_court_reserved ?? false),
               court_reserved_at: rowNew?.court_reserved_at ?? rowOld?.court_reserved_at ?? null,
               court_reserved_by: rowNew?.court_reserved_by ?? rowOld?.court_reserved_by ?? null,
+              club_id: rowNew?.club_id ?? rowOld?.club_id ?? null,
+              club_name: rowNew?.club_name ?? rowOld?.club_name ?? null,
               time_slots: rowNew?.time_slots || rowOld?.time_slots || {},
             };
             m = await ensureTimeSlot(m);
@@ -4883,13 +4914,14 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
               // Créer le match avec le nouveau slot
               const { data: ins, error: eIns } = await supabase
                 .from('matches')
-                .insert({ group_id: groupId, time_slot_id: newSlot.id, status: matchStatus })
+                .insert({ group_id: groupId, time_slot_id: newSlot.id, status: matchStatus, club_id: selectedClubId })
                 .select('id, status')
                 .single();
               
               if (eIns) throw eIns;
               newMatchId = ins?.id || null;
               console.log('[onCreateIntervalMatch] Nouveau match créé avec nouveau time_slot:', newMatchId, 'status:', ins?.status);
+              console.log('[onCreateIntervalMatch] created match club_id', { matchId: newMatchId, finalClubId: selectedClubId });
               
               // Utiliser les horaires du nouveau slot
               if (newSlot?.starts_at && newSlot?.ends_at) {
@@ -4900,12 +4932,13 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
               // Pas de match existant, réutiliser le slot existant
               const { data: ins, error: eIns } = await supabase
                 .from('matches')
-                .insert({ group_id: groupId, time_slot_id: slot.id, status: matchStatus })
+                .insert({ group_id: groupId, time_slot_id: slot.id, status: matchStatus, club_id: selectedClubId })
                 .select('id, status')
                 .single();
               if (eIns) throw eIns;
               newMatchId = ins?.id || null;
               console.log('[onCreateIntervalMatch] Match créé:', newMatchId, 'status:', ins?.status);
+              console.log('[onCreateIntervalMatch] created match club_id', { matchId: newMatchId, finalClubId: selectedClubId });
               // Ensure ends_at we propagate below is coherent with the slot row
               if (slot?.starts_at && slot?.ends_at) {
                 starts_at_iso = slot.starts_at;
@@ -6564,6 +6597,9 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       // Recharger les données après suppression réussie
       freezeDisplay(1800);
       await fetchData();
+      freezeDisplayUntilRef.current = 0;
+      setDisplaySyncTick((v) => v + 1);
+      setTab('valides');
       if (Platform.OS === 'web') window.alert('Match annulé — le créneau revient dans les propositions.');
       else Alert.alert('Match annulé', 'Le créneau revient dans les propositions.');
     } catch (e) {
@@ -6571,7 +6607,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
       if (Platform.OS === 'web') window.alert('Impossible d\'annuler le match\n' + (e.message ?? String(e)));
       else Alert.alert('Erreur', e.message ?? String(e));
     }
-  }, [fetchData]);
+  }, [fetchData, setTab]);
 
   const onAdminAccept = useCallback(async (match_id, user_id) => {
     try {
@@ -6879,9 +6915,11 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     const clubsMapReady = canCreate
       ? selectedPlayerIds.every((id) => Array.isArray(acceptedClubsByUser[String(id)]))
       : false;
-    const commonClubCount = canCreate
+    const commonClubCount = canCreate && !isClubGroup
       ? getCommonAcceptedClubs(selectedPlayerIds, acceptedClubsByUser).length
       : null;
+    const forcedClubId = isClubGroup ? groupClubId : null;
+    const commonClubIds = isClubGroup ? [] : item.common_club_ids;
     
     // Séparer le joueur authentifié des autres joueurs
     const otherUserIds = userIds.filter(uid => String(uid) !== String(meId));
@@ -6902,7 +6940,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids })) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId })) : undefined}
               accessibilityRole="button"
               accessibilityLabel="Créer un match pour ce créneau"
               style={({ pressed }) => [
@@ -6927,18 +6965,31 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         )}
         {type === "ready" && (
           <View style={{ marginBottom: 8 }}>
-            <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
-              Club : <Text style={{ color: '#6b7280', fontWeight: '700' }}>À choisir</Text>
-            </Text>
-            <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-              {canCreate
-                ? (!clubsMapReady
-                    ? 'Clubs en cours de chargement...'
-                    : (commonClubCount > 0
-                        ? `${commonClubCount} club${commonClubCount > 1 ? 's' : ''} commun${commonClubCount > 1 ? 's' : ''} possible${commonClubCount > 1 ? 's' : ''}`
-                        : 'Aucun club commun'))
-                : 'Sélectionne 3 joueurs pour voir les clubs communs'}
-            </Text>
+            {isClubGroup ? (
+              <>
+                <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+                  Club : <Text style={{ color: '#6b7280', fontWeight: '700' }}>du groupe</Text>
+                </Text>
+                <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                  Le match sera créé au club du groupe.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+                  Club : <Text style={{ color: '#6b7280', fontWeight: '700' }}>À choisir</Text>
+                </Text>
+                <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                  {canCreate
+                    ? (!clubsMapReady
+                        ? 'Clubs en cours de chargement...'
+                        : (commonClubCount > 0
+                            ? `${commonClubCount} club${commonClubCount > 1 ? 's' : ''} commun${commonClubCount > 1 ? 's' : ''} possible${commonClubCount > 1 ? 's' : ''}`
+                            : 'Aucun club commun'))
+                    : 'Sélectionne 3 joueurs pour voir les clubs communs'}
+                </Text>
+              </>
+            )}
           </View>
         )}
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 0, flexWrap: "wrap", alignItems: 'center' }}>
@@ -7025,6 +7076,8 @@ const LongSlotRow = ({ item }) => {
   };
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
+  const forcedClubId = isClubGroup ? groupClubId : null;
+  const commonClubIds = isClubGroup ? [] : item.common_club_ids;
   const remainingToSelect = Math.max(0, 3 - selectedIds.length);
   const selectLabel = `Sélectionner ${remainingToSelect} joueur${remainingToSelect > 1 ? 's' : ''}`;
 
@@ -7049,7 +7102,7 @@ const LongSlotRow = ({ item }) => {
           <View style={styles.ctaRow}>
             <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
               <Pressable
-                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids }))}
+                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId }))}
                 onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
                 onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
                 accessibilityRole="button"
@@ -7069,7 +7122,7 @@ const LongSlotRow = ({ item }) => {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids })) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId })) : undefined}
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
@@ -7192,7 +7245,7 @@ const HourSlotRow = ({ item }) => {
           <View style={styles.ctaRow}>
             <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
               <Pressable
-                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids }))}
+                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId }))}
                 onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
                 onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
                 accessibilityRole="button"
@@ -7212,7 +7265,7 @@ const HourSlotRow = ({ item }) => {
             <Pressable
               disabled={!canCreate}
               accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds: item.common_club_ids })) : undefined}
+              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId })) : undefined}
               onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
               onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
               accessibilityRole="button"
@@ -7346,6 +7399,8 @@ const HourSlotRow = ({ item }) => {
       </View>
     );
   };
+
+  const MATCH_CLUB_NAME_CACHE = React.useRef(new Map());
 
   const MatchCardConfirmed = ({ m }) => {
     // Récupérer le groupe actif pour accéder au club_id
@@ -8000,24 +8055,86 @@ const HourSlotRow = ({ item }) => {
     // Récupérer la date du créneau
     const slotDate = (slot.starts_at && slot.ends_at) ? formatRange(slot.starts_at, slot.ends_at) : '';
     console.log('[MatchCardConfirmed] slotDate:', slotDate, 'slot.starts_at:', slot.starts_at, 'slot.ends_at:', slot.ends_at, 'm:', m.id, 'm.time_slot_id:', m?.time_slot_id);
+    const [resolvedClubName, setResolvedClubName] = React.useState(null);
+    const lastClubIdRef = React.useRef(null);
     const matchDate = m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : null;
+    const clubLabel = m?.club_name || resolvedClubName || '';
+  
+  React.useEffect(() => {
+    let cancelled = false;
+    const clubId = m?.club_id;
+    console.log('[MatchCardConfirmed] club fields', {
+      matchId: m?.id,
+      club_id: clubId,
+      club_name: m?.club_name,
+    });
+
+    if (!clubId) {
+      lastClubIdRef.current = null;
+      return () => { cancelled = true; };
+    }
+
+    lastClubIdRef.current = clubId;
+
+    if (m?.club_name) {
+      setResolvedClubName(m.club_name);
+      MATCH_CLUB_NAME_CACHE.current.set(String(clubId), m.club_name);
+      return () => { cancelled = true; };
+    }
+
+    const cached = MATCH_CLUB_NAME_CACHE.current.get(String(clubId)) || null;
+    if (cached) {
+      setResolvedClubName(cached);
+      return () => { cancelled = true; };
+    }
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('clubs')
+        .select('name')
+        .eq('id', clubId)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.warn('[MatchCardConfirmed] club lookup error:', error?.message || error);
+        return;
+      }
+
+      if (data?.name) {
+        MATCH_CLUB_NAME_CACHE.current.set(String(clubId), data.name);
+        setResolvedClubName(data.name);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [m?.club_id, m?.club_name]);
 
     return (
       <View style={[styles.matchCardGlow, reserved && styles.matchCardGlowReserved]}>
         <View style={[styles.matchCard, reserved && styles.matchCardReserved]}>
           {slotDate ? (
-            <Text style={[styles.matchDate, styles.matchDateCentered]}>
+            <Text style={[styles.matchDate, styles.matchDateCentered, { marginBottom: clubLabel ? 2 : 6 }]}>
               {slotDate}
             </Text>
           ) : matchDate ? (
-            <Text style={[styles.matchDate, styles.matchDateCentered]}>
+            <Text style={[styles.matchDate, styles.matchDateCentered, { marginBottom: clubLabel ? 2 : 6 }]}>
               Match du {matchDate}
             </Text>
           ) : (
-            <Text style={[styles.matchDateCentered, { fontWeight: '800', color: THEME.muted, fontSize: 14, marginBottom: 6, fontStyle: 'italic' }]}>
+            <Text style={[styles.matchDateCentered, { fontWeight: '800', color: THEME.muted, fontSize: 14, marginBottom: clubLabel ? 2 : 6, fontStyle: 'italic' }]}>
               Date non définie
             </Text>
           )}
+          {clubLabel ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 0, marginBottom: 4 }}>
+              <Ionicons name="location-outline" size={14} color={reserved ? THEME.accent : THEME.muted} />
+              <Text style={{ color: reserved ? THEME.accent : THEME.muted, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                {clubLabel}
+              </Text>
+            </View>
+          ) : null}
 
         {/* Avatars confirmés */}
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
@@ -15662,13 +15779,13 @@ const HourSlotRow = ({ item }) => {
 
       {/* Bottom sheet confirmation création match */}
       {(() => {
-        const ids = pendingCreate?.commonClubIds ?? [];
+        const ids = forcedClubId ? [forcedClubId] : (pendingCreate?.commonClubIds ?? []);
         console.log('[HotMatch] render pendingCreate:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
         return null;
       })()}
       <Modal transparent animationType="slide" visible={!!pendingCreate} onRequestClose={() => closeConfirm('cancel')}>
         {(() => {
-          const ids = pendingCreate?.commonClubIds ?? [];
+          const ids = forcedClubId ? [forcedClubId] : (pendingCreate?.commonClubIds ?? []);
           console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
           console.log('[HotMatch] RENDER MAP', {
             isArray: Array.isArray(confirmCommonClubs),
@@ -15709,14 +15826,63 @@ const HourSlotRow = ({ item }) => {
             <Divider m={12} />
 
             {/* Clubs communs */}
-            <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Choisis le club</Text>
-            <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>Clubs acceptés par les 4 joueurs</Text>
+            {(() => {
+              const forcedClubId = pendingCreate?.forcedClubId ?? null;
+              const forcedClub = forcedClubId
+                ? (confirmCommonClubs || []).find((c) => String(c?.id) === String(forcedClubId)) || (confirmCommonClubs || [])[0]
+                : null;
+              return (
+                <>
+                  {forcedClubId ? (
+                    <>
+                      <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Club du groupe</Text>
+                      <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
+                        Ce groupe impose son club.
+                      </Text>
+                      {forcedClub ? (
+                        <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <Text style={{ color: THEME.text, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
+                            {forcedClub.name}
+                          </Text>
+                          {forcedClub?.phone ? (
+                            <Pressable
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                e?.preventDefault?.();
+                                Linking.openURL(`tel:${forcedClub.phone}`);
+                              }}
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(255,255,255,0.18)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(255,255,255,0.25)',
+                              }}
+                            >
+                              <Ionicons name="call" size={13} color={THEME.text} />
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Choisis le club</Text>
+                      <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>Clubs acceptés par les 4 joueurs</Text>
+                    </>
+                  )}
+                </>
+              );
+            })()}
 
             {confirmClubsLoading ? (
               <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={THEME.accent} />
               </View>
-            ) : (pendingCreate?.commonClubIds ?? []).length === 0 ? (
+            ) : (pendingCreate?.forcedClubId ? false : (pendingCreate?.commonClubIds ?? []).length === 0) ? (
               <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
                 <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
                   Aucun club en commun entre les 4 joueurs.
@@ -15733,7 +15899,7 @@ const HourSlotRow = ({ item }) => {
                   </Pressable>
                 </View>
               </View>
-            ) : (
+            ) : pendingCreate?.forcedClubId ? null : (
               <>
                 {!confirmClubsLoading && (confirmCommonClubs || []).length === 0 ? (
                   <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10 }}>
@@ -15835,18 +16001,22 @@ const HourSlotRow = ({ item }) => {
               </>
             )}
 
+            <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700', marginTop: 6, marginBottom: 6 }}>
+              Sois sûr.e d'avoir une piste libre avant de confirmer. Ne bloque pas des joueurs. Appelle le club si nécessaire
+            </Text>
+
             <Pressable
               onPress={() => handleConfirmCreate('confirm')}
-              disabled={!confirmClubId || (pendingCreate?.commonClubIds ?? []).length === 0}
+              disabled={!(pendingCreate?.forcedClubId ?? confirmClubId)}
               style={{
                 marginTop: 12,
-                backgroundColor: confirmClubId ? THEME.accent : 'rgba(255,255,255,0.12)',
+                backgroundColor: (pendingCreate?.forcedClubId ?? confirmClubId) ? THEME.accent : 'rgba(255,255,255,0.12)',
                 paddingVertical: 12,
                 borderRadius: 12,
                 alignItems: 'center',
               }}
             >
-              <Text style={{ color: confirmClubId ? THEME.ink : THEME.muted, fontWeight: '800', fontSize: 14 }}>
+              <Text style={{ color: (pendingCreate?.forcedClubId ?? confirmClubId) ? THEME.ink : THEME.muted, fontWeight: '800', fontSize: 14 }}>
                 Confirmer le match
               </Text>
             </Pressable>

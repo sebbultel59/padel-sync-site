@@ -160,8 +160,20 @@ export default function ClubSelectScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: "#001831" }} contentContainerStyle={{ padding: 16, paddingTop: 46, paddingBottom: insets.bottom + 24 }}>
+      <Pressable
+        onPress={() => router.replace("/zone")}
+        style={{ alignSelf: "flex-start", paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", marginBottom: 8 }}
+      >
+        <Text style={{ color: "#cfe9ff", fontWeight: "800" }}>← Retour</Text>
+      </Pressable>
       <Text style={{ color: "#e0ff00", fontSize: 20, fontWeight: "900", marginBottom: 6 }}>
-        Clubs où j’accepte de jouer
+        Zone choisie
+      </Text>
+      <Text style={{ color: "#cfe9ff", marginBottom: 12, fontWeight: "700" }}>
+        {zone?.name || "—"}
+      </Text>
+      <Text style={{ color: "#e0ff00", fontSize: 20, fontWeight: "900", marginBottom: 6 }}>
+        Choisis les Clubs où tu acceptes de jouer
       </Text>
       <Text style={{ color: "#cfe9ff", marginBottom: 16 }}>
         Les matchs ne seront proposés que dans les clubs que tu sélectionnes.
@@ -185,14 +197,14 @@ export default function ClubSelectScreen() {
         ) : (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Pressable
-              onPress={() => setRadiusKm((v) => Math.max(5, (v || 0) - 1))}
+              onPress={() => setRadiusKm((v) => Math.max(5, (v || 0) - 5))}
               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.12)" }}
             >
               <Text style={{ color: "#ffffff", fontWeight: "700" }}>-</Text>
             </Pressable>
             <Text style={{ color: "#e0ff00", fontWeight: "800" }}>{Math.round(radiusKm)} km</Text>
             <Pressable
-              onPress={() => setRadiusKm((v) => Math.min(60, (v || 0) + 1))}
+              onPress={() => setRadiusKm((v) => Math.min(60, (v || 0) + 5))}
               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.12)" }}
             >
               <Text style={{ color: "#ffffff", fontWeight: "700" }}>+</Text>
@@ -212,8 +224,13 @@ export default function ClubSelectScreen() {
           marginBottom: 16
         }}
       >
-        <Text style={{ color: "#ffffff", fontWeight: "700" }}>
-          {showAll ? "Afficher seulement les clubs proches" : "Afficher tous les clubs de la zone"}
+        <Text
+          style={{
+            color: showAll ? "#e0ff00" : "#ffffff",
+            fontWeight: "700"
+          }}
+        >
+          Afficher tous les clubs de la zone
         </Text>
       </Pressable>
 
