@@ -1,6 +1,8 @@
 // app/(tabs)/semaine.js
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useFocusEffect } from '@react-navigation/native';
 import dayjs from "dayjs";
 import "dayjs/locale/fr";
 import isoWeek from "dayjs/plugin/isoWeek";
@@ -8,17 +10,15 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
-import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
 import { OnboardingModal } from "../../components/OnboardingModal";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
-import { useIsSuperAdmin, useCanManageGroup } from "../../lib/roles";
+import { useCanManageGroup, useIsSuperAdmin } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { press } from "../../lib/uiSafe";
-import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
 
 
 // Fallback alert helper (web/mobile)
@@ -84,6 +84,10 @@ const FIRST_COL_FONT_PORTRAIT = 12; // taille heures (colonne de gauche) en port
 const FIRST_COL_FONT_LANDSCAPE = 11; // taille heures (colonne de gauche) en paysage
 const SLOTS_PER_DAY = (END_HOUR - START_HOUR) * (60 / SLOT_MIN) + 1; // +1 pour inclure 23:00
 
+function getWeekStartFromOffset(weekOffset = 0) {
+  return dayjs().startOf("isoWeek").add(Number(weekOffset) || 0, "week").toDate();
+}
+
 export default function Semaine() {
   const scrollRef = React.useRef(null);
   const scrollYRef = React.useRef(0);
@@ -103,6 +107,10 @@ export default function Semaine() {
   const tabBarHeight = useBottomTabBarHeight();
   // ---- ÉTATS ----
   const [weekStart, setWeekStart] = useState(dayjs().startOf("isoWeek"));
+  const weekOffset = useMemo(
+    () => dayjs(weekStart).diff(dayjs().startOf("isoWeek"), "week"),
+    [weekStart]
+  );
   const [timeSlots, setTimeSlots] = useState([]); // time_slots (starts_at/ends_at/group_id)
   const [slots, setSlots] = useState([]);         // availability (avec status)
   const [matches, setMatches] = useState([]);     // matches liés aux time_slots
@@ -660,6 +668,62 @@ export default function Semaine() {
     });
     return map;
   }, [matches, timeSlots]);
+
+  const duplicateAvailabilityToNextWeek = useCallback(async () => {
+    if (!activeGroup?.id) return safeAlert("Choisis un groupe", "Active un groupe avant de dupliquer.");
+    if (!meId) return safeAlert("Info", "Impossible de récupérer ton utilisateur.");
+    const sourceWeekStart = getWeekStartFromOffset(weekOffset);
+    const sourceWeekEnd = dayjs(sourceWeekStart).add(7, "day").subtract(1, "millisecond").toDate();
+    const targetWeekStart = getWeekStartFromOffset(weekOffset + 1);
+    const scopeName = applyToAllGroups ? "global" : "group";
+    const tableName = applyToAllGroups ? "availability_global" : "availability";
+    console.log("[duplicateAvailabilityToNextWeek] scope:", scopeName, "table:", tableName);
+    console.log("[duplicateAvailabilityToNextWeek] source:", sourceWeekStart, sourceWeekEnd, "target:", targetWeekStart);
+    try {
+      let sourceQuery = supabase
+        .from(tableName)
+        .select(applyToAllGroups ? "user_id,start,end,status" : "user_id,start,end,status,group_id")
+        .gte("start", sourceWeekStart.toISOString())
+        .lte("end", sourceWeekEnd.toISOString())
+        .eq("user_id", meId);
+      if (!applyToAllGroups) {
+        sourceQuery = sourceQuery.eq("group_id", activeGroup.id);
+      }
+      const { data: sourceRows, error } = await sourceQuery;
+      if (error) throw error;
+      const sourceCount = sourceRows?.length || 0;
+      console.log("[DuplicateGlobal] table:", tableName, "count source:", sourceCount);
+      const allowedStatuses = new Set(["available", "neutral", "busy"]);
+      const mapped = (sourceRows || []).map((row) => {
+        const start = dayjs(row.start).add(7, "day").toISOString();
+        const end = row.end ? dayjs(row.end).add(7, "day").toISOString() : null;
+        const rawStatus = String(row.status || "available").toLowerCase();
+        const status = applyToAllGroups && !allowedStatuses.has(rawStatus) ? "available" : row.status;
+        const base = { user_id: row.user_id, start, end, status };
+        return applyToAllGroups ? base : { ...base, group_id: row.group_id };
+      });
+      console.log("[DuplicateGlobal] payload count:", mapped.length);
+      if (mapped.length === 0) {
+        return safeAlert("Info", "Aucune disponibilité à copier.");
+      }
+      const { data: inserted, error: upsertError } = await supabase
+        .from(tableName)
+        .upsert(mapped, {
+          onConflict: applyToAllGroups ? "user_id,start,end" : "group_id,user_id,start,end",
+          ignoreDuplicates: true,
+        })
+        .select("user_id,start,end");
+      if (upsertError) {
+        console.log("[DuplicateGlobal] error:", upsertError?.message || upsertError);
+        if (upsertError?.code !== "23505") throw upsertError;
+      }
+      console.log("[DuplicateGlobal] inserted:", inserted?.length || 0);
+      safeAlert("OK", "Disponibilités copiées vers la semaine suivante.");
+    } catch (e) {
+      console.warn("[DuplicateGlobal] error:", e?.message || e);
+      safeAlert("Erreur", e?.message ?? String(e));
+    }
+  }, [activeGroup?.id, weekOffset, applyToAllGroups, meId]);
 
   // Statut de MA dispo par start (clés normalisées pour garantir la cohérence)
   const myStatusByStart = useMemo(() => {
@@ -2197,19 +2261,33 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
       <View
         style={{
           position: 'absolute',
-          bottom: (tabBarHeight || 0) + 36,
+          bottom: (tabBarHeight || 0) + 37,
           left: 0,
           right: 0,
+      
+          height: 30,                 // ✅ hauteur fixe
           flexDirection: 'row',
-          alignItems: 'center',
+          alignItems: 'center',       // ✅ centrage vertical
           justifyContent: 'center',
           gap: 16,
-          paddingVertical: 8,
-          paddingHorizontal: 16,
-          backgroundColor: '#001831',
+      
+          paddingHorizontal: 16,      // ✅ OK
+          paddingVertical: 0,         // ❌ supprimer l’influence sur la hauteur
+      
+          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+          borderRadius: 999,
+          borderWidth: 0,
+          borderColor: 'rgba(255, 255, 255, 0.34)',
+      
+          shadowColor: '#000000',
+          shadowOpacity: 0.95,
+          shadowRadius: 3,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 3,
+      
           zIndex: 999,
           elevation: 9,
-          marginBottom: 0,
+          marginHorizontal: 16,
         }}
       >
         <Pressable
@@ -2217,52 +2295,171 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           accessibilityRole="button"
           accessibilityLabel="Semaine précédente"
           hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+          style={{
+            height: 35,                 // ✅ hauteur fixe
+            paddingHorizontal: 6,
+            paddingVertical: 0,         // ✅ pas d’impact sur la hauteur
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <Ionicons name="caret-back" size={32} color="#156BC9" />
+          <Ionicons name="caret-back" size={22} color="#ffffff" />
         </Pressable>
-
-        <Text style={{ fontWeight: '900', fontSize: 16, color: '#ffffff' }}>
-          {formatWeekRangeLabel(weekStart.toDate(), weekStart.add(6, 'day').toDate())}
+        
+        <Text
+          style={{
+            height: 35,                 // ✅ même hauteur pour alignement parfait
+            lineHeight: 35,             // ✅ centrage vertical du texte
+            fontWeight: '900',
+            fontSize: 15,
+            color: '#ffffff',
+            textAlign: 'center',
+          }}
+        >
+          {formatWeekRangeLabel(
+            weekStart.toDate(),
+            weekStart.add(6, 'day').toDate()
+          )}
         </Text>
-
+        
         <Pressable
           onPress={() => setWeekStart((w) => w.add(1, 'week'))}
           accessibilityRole="button"
           accessibilityLabel="Semaine suivante"
           hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
+          style={{
+            height: 35,                 // ✅ hauteur fixe
+            paddingHorizontal: 6,
+            paddingVertical: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <Ionicons name="caret-forward" size={32} color="#156BC9" />
+          <Ionicons name="caret-forward" size={22} color="#ffffff" />
         </Pressable>
       </View>
+
+      {weekOffset >= 0 && activeGroup?.id ? (
+        <View
+          style={{
+            position: "absolute",
+            bottom: (tabBarHeight || 0) + 68,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+            paddingHorizontal: 16,
+            zIndex: 999,
+          }}
+        >
+          <View
+            style={{
+              paddingVertical: 6,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0)',
+              backgroundColor: 'rgba(255, 255, 255, 0)',
+              shadowColor: '#000000',
+              shadowOpacity: 0.95,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
+            }}
+          >
+            
+            <Pressable
+              onPress={duplicateAvailabilityToNextWeek}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Ionicons
+                name="copy-outline"
+                size={14}
+                color="#e0ff00"
+              />
+              <Text
+                style={{
+                  color: "#e0ff00",
+                  fontWeight: "800",
+                  fontSize: 13,
+                }}
+              >
+                Copier mes dispos vers la semaine suivante
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {/* Sélecteur de groupe - Positionné en bas, collé à la tabbar */}
       {activeGroup?.name && (
         <Pressable
-          onPress={() => { setGroupSelectorOpen(true); loadMyGroups(); }}
+        onPress={() => {
+          setGroupSelectorOpen(true);
+          loadMyGroups();
+        }}
+        style={{
+          position: 'absolute',
+          bottom: (tabBarHeight || 0),
+          left: 0,
+          right: 0,
+      
+          height: 33,                 // ✅ hauteur fixe
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+      
+          paddingVertical: 0,         // ✅ important
+          paddingHorizontal: 14,
+      
+          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+          borderRadius: 999,
+          borderWidth: 0,
+          borderColor: 'rgba(255,255,255,0.22)',
+      
+          shadowColor: '#000000',
+          shadowOpacity: 0.95,
+          shadowRadius: 3,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 3,
+      
+          zIndex: 998,
+          elevation: 8,
+          marginHorizontal: 16,
+      
+          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+        }}
+      >
+        <Ionicons
+          name="people"
+          size={18}
+          color="#e0ff00"
+          style={{ marginRight: 6 }}
+        />
+      
+        <Text
           style={{
-            position: 'absolute',
-            bottom: (tabBarHeight || 0),
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingVertical: 8,
-            paddingHorizontal: 16,
-            backgroundColor: '#001831',
-            zIndex: 998,
-            elevation: 8,
-            marginTop: 0,
-            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+            height: 35,               // ✅ même hauteur
+            lineHeight: 35,           // ✅ centrage vertical du texte
+            fontWeight: '800',
+            color: '#e0ff00',
+            fontSize: 15,
+            textAlign: 'center',
           }}
+          numberOfLines={1}
         >
-          <Ionicons name="people" size={20} color="#e0ff00" style={{ marginRight: 6 }} />
-          <Text style={{ fontWeight: '800', color: '#e0ff00', fontSize: 15 }}>
-            {activeGroup.name || 'Sélectionner un groupe'}
-          </Text>
-          <Ionicons name="chevron-down" size={18} color="#e0ff00" style={{ marginLeft: 4 }} />
+          {activeGroup?.name || 'Sélectionner un groupe'}
+        </Text>
+      
+        <Ionicons
+          name="chevron-down-sharp"
+          size={20}
+          color="#e0ff00"
+          style={{ marginLeft: 4 }}
+        />
         </Pressable>
       )}
 
