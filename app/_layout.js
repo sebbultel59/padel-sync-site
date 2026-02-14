@@ -1,6 +1,7 @@
 // app/_layout.js
-import { Slot } from 'expo-router';
+import { router, Slot } from 'expo-router';
 import React, { useEffect } from 'react';
+import { Linking } from 'react-native';
 import 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CopilotProvider } from '../components/AppCopilot';
@@ -24,7 +25,40 @@ const buttonStyle = {
   fontWeight: '600',
 };
 
+function parseJoinUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const normalized = url.replace(/^syncpadel:\/\//, 'https://placeholder/');
+    const urlObj = new URL(normalized);
+    const groupId = urlObj.searchParams.get('group_id');
+    const code = urlObj.searchParams.get('code');
+    if (groupId) return { type: 'group_id', value: groupId };
+    if (code) return { type: 'code', value: code };
+  } catch (_) {}
+  return null;
+}
+
 export default function RootLayout() {
+  // Écouter les deep links "join" pour forcer une navigation avec params frais
+  // (résout le bug : rejoin après quitter → params vides, clic Rejoindre sans effet)
+  useEffect(() => {
+    const handleUrl = (event) => {
+      const url = event?.url;
+      if (!url || (!url.includes('/join') && !url.includes('group_id='))) return;
+      const parsed = parseJoinUrl(url);
+      if (!parsed) return;
+      const q = parsed.type === 'group_id'
+        ? `group_id=${encodeURIComponent(parsed.value)}`
+        : `code=${encodeURIComponent(parsed.value)}`;
+      router.replace(`/join?${q}`);
+    };
+    const sub = Linking.addEventListener('url', handleUrl);
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+    return () => sub.remove();
+  }, []);
+
   // Enregistrer le token push au démarrage de l'app
   useEffect(() => {
     // Attendre un peu pour que l'auth soit prête

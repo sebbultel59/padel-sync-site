@@ -1,15 +1,23 @@
 // app/join.js
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Clipboard, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Button, Clipboard, Linking, Text, TextInput, View } from "react-native";
 import { supabase } from "../lib/supabase";
 
 export default function Join() {
-  const { code, group_id } = useLocalSearchParams(); // lit /join?code=ABC123 ou /join?group_id=...
+  const params = useLocalSearchParams();
+  const code = Array.isArray(params?.code) ? params?.code?.[0] : params?.code;
+  const group_id = Array.isArray(params?.group_id) ? params?.group_id?.[0] : params?.group_id;
   const [inviteCode, setInviteCode] = useState(code ?? "");
+  const [joining, setJoining] = useState(false);
+  const joiningRef = useRef(false);
+  const autoJoinDoneRef = useRef(false);
   const router = useRouter();
 
   const handleJoinByGroupId = useCallback(async (groupId) => {
+    if (joiningRef.current) return;
+    joiningRef.current = true;
+    setJoining(true);
     try {
       // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
       const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
@@ -39,12 +47,18 @@ export default function Join() {
     } catch (e) {
       console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
       Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
+    } finally {
+      joiningRef.current = false;
+      setJoining(false);
     }
   }, [router]);
 
   const acceptInvite = useCallback(async (codeToUse?: string) => {
+    if (joiningRef.current) return;
     let codeToProcess = codeToUse || inviteCode;
     if (!codeToProcess) return Alert.alert("Code requis", "Entre un code d'invitation.");
+    joiningRef.current = true;
+    setJoining(true);
 
     // Support du lien web https://syncpadel.app/invite/{CODE}
     const webInviteMatch = String(codeToProcess).match(/syncpadel\.app\/invite\/([A-Z0-9]+)/i);
@@ -66,7 +80,9 @@ export default function Join() {
           groupId = url.searchParams.get('group_id');
         }
         if (groupId) {
-          handleJoinByGroupId(groupId);
+          joiningRef.current = false;
+          setJoining(false);
+          await handleJoinByGroupId(groupId);
           return;
         }
       } catch (e) {
@@ -74,34 +90,86 @@ export default function Join() {
       }
     }
     
-    // Sinon, traiter comme un code d'invitation
-    const { data, error } = await supabase.rpc("accept_invite", { p_code: codeToProcess.trim() });
-    if (error) return Alert.alert("Erreur", error.message);
-    Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-    router.replace("/(tabs)/matches");
+    try {
+      // Sinon, traiter comme un code d'invitation
+      const { data, error } = await supabase.rpc("accept_invite", { p_code: codeToProcess.trim() });
+      if (error) {
+        Alert.alert("Erreur", error.message);
+        return;
+      }
+      Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+      router.replace("/(tabs)/matches");
+    } catch (e) {
+      console.error('[Join] Erreur accept_invite:', e);
+      Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe.");
+    } finally {
+      joiningRef.current = false;
+      setJoining(false);
+    }
   }, [inviteCode, handleJoinByGroupId, router]);
 
   useEffect(() => {
-    if (code) {
-      setInviteCode(code);
-      // Si on a un code via deep link, rejoindre automatiquement le groupe
-      console.log('[Join] Code reçu via deep link:', code);
-      // Appeler acceptInvite avec le code directement
-      acceptInvite(code);
-    } else if (group_id) {
-      // Si on a un group_id, on essaie de rejoindre directement le groupe
-      console.log('[Join] Group ID reçu:', group_id);
-      handleJoinByGroupId(group_id);
+    const codeVal = Array.isArray(code) ? code?.[0] : code;
+    const groupIdVal = Array.isArray(group_id) ? group_id?.[0] : group_id;
+    if (autoJoinDoneRef.current) return;
+    if (codeVal) {
+      autoJoinDoneRef.current = true;
+      setInviteCode(codeVal);
+      console.log('[Join] Code reçu via deep link:', codeVal);
+      acceptInvite(codeVal);
+    } else if (groupIdVal) {
+      autoJoinDoneRef.current = true;
+      console.log('[Join] Group ID reçu:', groupIdVal);
+      handleJoinByGroupId(groupIdVal);
     }
   }, [code, group_id, handleJoinByGroupId, acceptInvite]);
+
+  // Écouter les deep links quand on est déjà sur cette page (params vides au rejoin)
+  useEffect(() => {
+    const handleUrl = (event) => {
+      const url = event?.url;
+      if (!url) return;
+      try {
+        // syncpadel://invite/ABC123 (lien classique d'invitation)
+        const inviteMatch = url.match(/invite\/([A-Za-z0-9]+)/i);
+        if (inviteMatch?.[1]) {
+          const c = inviteMatch[1];
+          setInviteCode(c);
+          acceptInvite(c);
+          return;
+        }
+        // syncpadel://join?code=... ou ?group_id=...
+        if (!url.includes('group_id=') && !url.includes('code=')) return;
+        const norm = url.replace(/^syncpadel:\/\//, 'https://placeholder/');
+        const u = new URL(norm);
+        const gid = u.searchParams.get('group_id');
+        const c = u.searchParams.get('code');
+        if (gid) {
+          handleJoinByGroupId(gid);
+        } else if (c) {
+          setInviteCode(c);
+          acceptInvite(c);
+        }
+      } catch (_) {}
+    };
+    const sub = Linking.addEventListener('url', handleUrl);
+    return () => sub.remove();
+  }, [handleJoinByGroupId, acceptInvite]);
 
   const handlePasteDeepLink = useCallback(async () => {
     try {
       const text = await Clipboard.getString();
       if (!text) return;
-      
+      const trimmed = String(text).trim();
+      // Lien web invite https://syncpadel.app/invite/ABC123
+      const webInvite = trimmed.match(/syncpadel\.app\/invite\/([A-Za-z0-9]+)/i) || trimmed.match(/\/invite\/([A-Za-z0-9]+)/i);
+      if (webInvite?.[1]) {
+        setInviteCode(webInvite[1]);
+        await acceptInvite(webInvite[1]);
+        return;
+      }
       // Vérifier si c'est un deep link syncpadel://
-      if (text.startsWith('syncpadel://join?group_id=')) {
+      if (trimmed.startsWith('syncpadel://join?group_id=')) {
         try {
           // Extraire le group_id depuis le deep link
           const match = text.match(/group_id=([^&]+)/);
@@ -152,10 +220,11 @@ export default function Join() {
       />
       <View style={{ flexDirection: "row", gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <Button title="Coller et utiliser" onPress={handlePasteDeepLink} />
+          <Button title="Coller et utiliser" onPress={handlePasteDeepLink} disabled={joining} />
         </View>
-        <View style={{ flex: 1 }}>
-          <Button title="Rejoindre" onPress={acceptInvite} />
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {joining ? <ActivityIndicator size="small" /> : null}
+          <Button title="Rejoindre" onPress={acceptInvite} disabled={joining} />
         </View>
       </View>
     </View>

@@ -78,7 +78,7 @@ export default function InviteScreen() {
             {message}
           </Text>
           <Pressable
-            onPress={() => router.replace("/join")}
+            onPress={() => router.replace(`/join?code=${encodeURIComponent(inviteCode || "")}`)}
             style={{
               marginTop: 16,
               paddingHorizontal: 16,

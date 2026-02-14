@@ -46,6 +46,7 @@ export default function TabsLayout() {
     group_join_request_approved: true,
     group_join_request_rejected: true,
   });
+  const [notifyGroupMatches, setNotifyGroupMatches] = useState(true);
 
   async function loadNotifications() {
     try {
@@ -336,7 +337,7 @@ export default function TabsLayout() {
 
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('notification_preferences')
+        .select('notification_preferences, notify_group_matches')
         .eq('id', uid)
         .single();
 
@@ -367,6 +368,9 @@ export default function TabsLayout() {
           group_join_request_rejected: true,
         };
         setNotificationPreferences({ ...defaults, ...profile.notification_preferences });
+      }
+      if (typeof profile?.notify_group_matches === 'boolean') {
+        setNotifyGroupMatches(profile.notify_group_matches);
       }
     } catch (e) {
       console.warn('[notifications] loadPreferences error', e);
@@ -399,6 +403,30 @@ export default function TabsLayout() {
       console.warn('[notifications] savePreferences error', e);
       // Mettre à jour l'état local même en cas d'erreur
       setNotificationPreferences(prefs);
+    }
+  }
+
+  async function saveNotifyGroupMatches(nextValue) {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ notify_group_matches: nextValue })
+        .eq('id', uid);
+      if (error) {
+        if (error.code === 'PGRST116' || error.message?.includes('column') || error.message?.includes('notify_group_matches')) {
+          console.warn('[notifications] Column notify_group_matches does not exist yet. Please run migration.');
+          setNotifyGroupMatches(nextValue);
+          return;
+        }
+        throw error;
+      }
+      setNotifyGroupMatches(nextValue);
+    } catch (e) {
+      console.warn('[notifications] saveNotifyGroupMatches error', e);
+      setNotifyGroupMatches(nextValue);
     }
   }
 
