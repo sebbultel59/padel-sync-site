@@ -8,26 +8,26 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		348840870E817A7216B71740 /* libPods-PadelSync.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FFEAF6D920D21F0B991CCFE /* libPods-PadelSync.a */; };
+		35A7EDCB41627EA291F2EBC4 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBE6136080E5420371EFB90 /* ExpoModulesProvider.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		3EDB94BCDADE8B3D96F8D6CE /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 965894D296D3440C197C0F27 /* PrivacyInfo.xcprivacy */; };
-		B301D18DC60513A38296AF13 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31EB8D0102CC2FD1A0F002B /* ExpoModulesProvider.swift */; };
+		786BF9B6F7CD06E863CB7D0D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B892E3087E7CAEB3C59A4B /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		F133A3A0876893FC03FAC689 /* libPods-PadelSync.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0109B18A5990A494B0C46994 /* libPods-PadelSync.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0109B18A5990A494B0C46994 /* libPods-PadelSync.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-PadelSync.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07F961A680F5B00A75B9A /* PadelSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PadelSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = PadelSync/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = PadelSync/Info.plist; sourceTree = "<group>"; };
-		1FFEAF6D920D21F0B991CCFE /* libPods-PadelSync.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-PadelSync.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		6A870F78F65F9EB22183301C /* Pods-PadelSync.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PadelSync.release.xcconfig"; path = "Target Support Files/Pods-PadelSync/Pods-PadelSync.release.xcconfig"; sourceTree = "<group>"; };
-		965894D296D3440C197C0F27 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = PadelSync/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		19CE31F034DFE03CD1D3C696 /* Pods-PadelSync.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PadelSync.debug.xcconfig"; path = "Target Support Files/Pods-PadelSync/Pods-PadelSync.debug.xcconfig"; sourceTree = "<group>"; };
+		8CBE6136080E5420371EFB90 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-PadelSync/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		A1B892E3087E7CAEB3C59A4B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = PadelSync/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A959E8F176FDAF647CF293AF /* Pods-PadelSync.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PadelSync.release.xcconfig"; path = "Target Support Files/Pods-PadelSync/Pods-PadelSync.release.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = PadelSync/SplashScreen.storyboard; sourceTree = "<group>"; };
-		B31EB8D0102CC2FD1A0F002B /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-PadelSync/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		ED5792B5D1A9A69A478A46F5 /* Pods-PadelSync.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PadelSync.debug.xcconfig"; path = "Target Support Files/Pods-PadelSync/Pods-PadelSync.debug.xcconfig"; sourceTree = "<group>"; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = PadelSync/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* PadelSync-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "PadelSync-Bridging-Header.h"; path = "PadelSync/PadelSync-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -37,13 +37,21 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				348840870E817A7216B71740 /* libPods-PadelSync.a in Frameworks */,
+				F133A3A0876893FC03FAC689 /* libPods-PadelSync.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0EB9BE777CFD3876016E2FD6 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				DEA0167C5C6CDB1FF84CEE7E /* PadelSync */,
+			);
+			name = ExpoModulesProviders;
+			sourceTree = "<group>";
+		};
 		13B07FAE1A68108700A75B9A /* PadelSync */ = {
 			isa = PBXGroup;
 			children = (
@@ -53,7 +61,7 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				965894D296D3440C197C0F27 /* PrivacyInfo.xcprivacy */,
+				A1B892E3087E7CAEB3C59A4B /* PrivacyInfo.xcprivacy */,
 			);
 			name = PadelSync;
 			sourceTree = "<group>";
@@ -62,17 +70,19 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				1FFEAF6D920D21F0B991CCFE /* libPods-PadelSync.a */,
+				0109B18A5990A494B0C46994 /* libPods-PadelSync.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		2E4309EE5CF58E7955289C93 /* PadelSync */ = {
+		494CEBFCEE8A85867B41AEB7 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				B31EB8D0102CC2FD1A0F002B /* ExpoModulesProvider.swift */,
+				19CE31F034DFE03CD1D3C696 /* Pods-PadelSync.debug.xcconfig */,
+				A959E8F176FDAF647CF293AF /* Pods-PadelSync.release.xcconfig */,
 			);
-			name = PadelSync;
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -89,8 +99,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				C736D556779BDF8F9C3462C9 /* Pods */,
-				DB66BB30CB7113586F163892 /* ExpoModulesProviders */,
+				494CEBFCEE8A85867B41AEB7 /* Pods */,
+				0EB9BE777CFD3876016E2FD6 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -114,22 +124,12 @@
 			path = PadelSync/Supporting;
 			sourceTree = "<group>";
 		};
-		C736D556779BDF8F9C3462C9 /* Pods */ = {
+		DEA0167C5C6CDB1FF84CEE7E /* PadelSync */ = {
 			isa = PBXGroup;
 			children = (
-				ED5792B5D1A9A69A478A46F5 /* Pods-PadelSync.debug.xcconfig */,
-				6A870F78F65F9EB22183301C /* Pods-PadelSync.release.xcconfig */,
+				8CBE6136080E5420371EFB90 /* ExpoModulesProvider.swift */,
 			);
-			name = Pods;
-			path = Pods;
-			sourceTree = "<group>";
-		};
-		DB66BB30CB7113586F163892 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				2E4309EE5CF58E7955289C93 /* PadelSync */,
-			);
-			name = ExpoModulesProviders;
+			name = PadelSync;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -140,13 +140,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "PadelSync" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				A36EFD276A7BFA2508475656 /* [Expo] Configure project */,
+				B00788750B0C30EE8A982925 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				EA720315C563AB0B54C4FA23 /* [CP] Embed Pods Frameworks */,
+				880EBFC16C626D6B73C52F4F /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -196,7 +196,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				3EDB94BCDADE8B3D96F8D6CE /* PrivacyInfo.xcprivacy in Resources */,
+				786BF9B6F7CD06E863CB7D0D /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -263,6 +263,8 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/SDWebImage/SDWebImage.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-launcher/EXDevLauncher.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-menu/EXDevMenu.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/react-native-maps/ReactNativeMapsPrivacy.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
@@ -281,6 +283,8 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SDWebImage.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevLauncher.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevMenu.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ReactNativeMapsPrivacy.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -288,7 +292,29 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-PadelSync/Pods-PadelSync-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		A36EFD276A7BFA2508475656 /* [Expo] Configure project */ = {
+		880EBFC16C626D6B73C52F4F /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-PadelSync/Pods-PadelSync-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-PadelSync/Pods-PadelSync-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		B00788750B0C30EE8A982925 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -312,28 +338,6 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-PadelSync/expo-configure-project.sh\"\n";
 		};
-		EA720315C563AB0B54C4FA23 /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-PadelSync/Pods-PadelSync-frameworks.sh",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-PadelSync/Pods-PadelSync-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -342,7 +346,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				B301D18DC60513A38296AF13 /* ExpoModulesProvider.swift in Sources */,
+				35A7EDCB41627EA291F2EBC4 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -351,12 +355,12 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = ED5792B5D1A9A69A478A46F5 /* Pods-PadelSync.debug.xcconfig */;
+			baseConfigurationReference = 19CE31F034DFE03CD1D3C696 /* Pods-PadelSync.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PadelSync/PadelSync.entitlements;
-				CURRENT_PROJECT_VERSION = 61;
+				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -368,7 +372,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.0.1;
+				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -387,19 +391,19 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 6A870F78F65F9EB22183301C /* Pods-PadelSync.release.xcconfig */;
+			baseConfigurationReference = A959E8F176FDAF647CF293AF /* Pods-PadelSync.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PadelSync/PadelSync.entitlements;
-				CURRENT_PROJECT_VERSION = 61;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = PadelSync/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.0.1;
+				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

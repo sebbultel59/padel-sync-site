@@ -36,6 +36,13 @@
         <data android:scheme="syncpadel"/>
         <data android:scheme="exp+padel-sync"/>
       </intent-filter>
+      <intent-filter data-generated="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <data android:scheme="https" android:host="syncpadel.app" android:pathPrefix="/invite"/>
+        <data android:scheme="exp+padel-sync"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+      </intent-filter>
     </activity>
   </application>
 </manifest>
