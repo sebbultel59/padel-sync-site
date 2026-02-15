@@ -11,7 +11,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "vercel-build": "echo 'Static files ready'",
-    "postinstall": "patch-package --ignore-errors || true && node scripts/remove-dev-client-always.js || true && node scripts/fix-kotlin-version.js || true"
+    "postinstall": "patch-package --ignore-errors || true && node scripts/fix-kotlin-version.js || true"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -76,7 +76,7 @@
     "adm-zip": "^0.5.16",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
-    "expo-dev-client": "~5.2.4",
+    "expo-dev-client": "~6.0.20",
     "fast-xml-parser": "^5.3.0",
     "patch-package": "^8.0.1",
     "postinstall-postinstall": "^2.1.0",
