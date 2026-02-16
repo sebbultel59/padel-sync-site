@@ -915,52 +915,17 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
       // C'est plus simple et fiable : l'utilisateur scanne et entre le code dans l'app
       let inviteCode;
       
-      // Pour les groupes privés : utiliser le code unique réutilisable
-      if (activeGroup.visibility === 'private') {
-        const { data: code, error: rpcError } = await supabase.rpc('get_or_create_group_invite_code', {
-          p_group_id: activeGroup.id
-        });
-        
-        if (rpcError) {
-          console.error('[QR] Erreur récupération code:', rpcError);
-          Alert.alert("Erreur", "Impossible de récupérer le code d'invitation");
-          return;
-        }
-        inviteCode = code;
-      } else {
-        // Pour les groupes publics : récupérer ou créer un code
-        const { data: existingInvite, error: fetchError } = await supabase
-          .from('invitations')
-          .select('code')
-          .eq('group_id', activeGroup.id)
-          .eq('used', false)
-          .eq('reusable', false)
-          .limit(1)
-          .maybeSingle();
-        
-        if (existingInvite?.code) {
-          inviteCode = existingInvite.code;
-        } else {
-          // Créer un nouveau code
-          const { data: newInvite, error: createError } = await supabase
-            .from('invitations')
-            .insert({
-              group_id: activeGroup.id,
-              code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-              created_by: meId,
-              reusable: false
-            })
-            .select('code')
-            .single();
-          
-          if (createError) {
-            console.error('[QR] Erreur création code:', createError);
-            Alert.alert("Erreur", "Impossible de créer le code d'invitation");
-            return;
-          }
-          inviteCode = newInvite.code;
-        }
+      // Pour tous les groupes : utiliser le code réutilisable (requis par la contrainte invitations_reusable_always_true)
+      const { data: code, error: rpcError } = await supabase.rpc('get_or_create_group_invite_code', {
+        p_group_id: activeGroup.id
+      });
+      
+      if (rpcError) {
+        console.error('[QR] Erreur récupération code:', rpcError);
+        Alert.alert("Erreur", "Impossible de récupérer le code d'invitation");
+        return;
       }
+      inviteCode = code;
       
       // Afficher le code d'invitation (sans QR code)
       setQrCode(inviteCode);
@@ -1275,7 +1240,8 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
       });
       
       if (error) {
-        Alert.alert("Erreur", error.message);
+        console.error("[Groupes] approve_join_request rpcError:", error);
+        Alert.alert("Erreur", "Impossible de traiter la demande.");
         return;
       }
       
@@ -1371,7 +1337,8 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
       });
       
       if (error) {
-        Alert.alert("Erreur", error.message);
+        console.error("[Groupes] reject_join_request rpcError:", error);
+        Alert.alert("Erreur", "Impossible de traiter la demande.");
         return;
       }
       
@@ -2117,26 +2084,20 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
   // Fonctions pour rejoindre un groupe
   const handleJoinByGroupId = useCallback(async (groupId) => {
     try {
-      // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
-        p_group_id: groupId
-      });
-      
-      if (!rpcError) {
+      const { data, error: rpcError } = await supabase.rpc('join_group_by_id', { p_group_id: groupId });
+      if (rpcError) {
+        console.error('[Groupes] join_group_by_id RPC error:', rpcError);
+        Alert.alert("Erreur", rpcError.message || "Impossible de rejoindre le groupe.");
+        return;
+      }
+      const res = data && typeof data === "object" ? data : { group_id: data, status: "joined" };
+      const status = res?.status;
+      if (status === "joined" || status === "already_member") {
         setJoinModalVisible(false);
         setInviteCode("");
         await loadGroups();
-        // Récupérer le groupe directement depuis la base de données
-        const { data: groupData } = await supabase
-          .from('groups')
-          .select('*')
-          .eq('id', groupId)
-          .single();
-        if (groupData) {
-          setActiveGroup(groupData);
-        }
-        
-        // Vérifier si c'est la première fois qu'un groupe est rejoint
+        const { data: groupData } = await supabase.from('groups').select('*').eq('id', groupId).single();
+        if (groupData) setActiveGroup(groupData);
         const wasFirstJoin = !(await getOnboardingFlag(FLAG_KEYS.GROUP_JOINED));
         if (wasFirstJoin) {
           await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
@@ -2146,42 +2107,14 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
         }
         return;
       }
-      
-      // Fallback: Essayer avec join_public_group pour les groupes publics
-      const { data: publicData, error: publicError } = await supabase.rpc('join_public_group', {
-        p_group_id: groupId
-      });
-      
-      if (!publicError) {
-        setJoinModalVisible(false);
-        setInviteCode("");
-        await loadGroups();
-        // Récupérer le groupe directement depuis la base de données
-        const { data: groupData } = await supabase
-          .from('groups')
-          .select('*')
-          .eq('id', groupId)
-          .single();
-        if (groupData) {
-          setActiveGroup(groupData);
-        }
-        
-        // Vérifier si c'est la première fois qu'un groupe est rejoint
-        const wasFirstJoin = !(await getOnboardingFlag(FLAG_KEYS.GROUP_JOINED));
-        if (wasFirstJoin) {
-          await setOnboardingFlag(FLAG_KEYS.GROUP_JOINED, true);
-          setGroupJoinedModalVisible(true);
-        } else {
-          Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-        }
-        return;
-      }
-      
-      // Si tout échoue, afficher un message d'erreur clair
-      console.error('[Join] Erreurs:', { rpcError: rpcError?.message, publicError: publicError?.message });
-      Alert.alert("Impossible de rejoindre", rpcError?.message || publicError?.message || "Ce groupe nécessite une invitation valide.");
+      const msg =
+        status === "invite_required" ? "Ce groupe nécessite une invitation valide."
+        : status === "group_not_found" ? "Ce groupe n'existe pas."
+        : status === "unauthenticated" ? "Connecte-toi pour rejoindre un groupe."
+        : "Impossible de rejoindre le groupe.";
+      Alert.alert("Erreur", msg);
     } catch (e) {
-      console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
+      console.error('[Groupes] Erreur lors de la tentative de rejoindre:', e);
       Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
     }
   }, [loadGroups, setActiveGroup]);
@@ -2211,23 +2144,57 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
       }
     }
     
-    // Sinon, traiter comme un code d'invitation
-    const { data, error } = await supabase.rpc("accept_invite", { p_code: inviteCode.trim() });
-    if (error) return Alert.alert("Erreur", error.message);
-    Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-    setJoinModalVisible(false);
-    setInviteCode("");
-    await loadGroups();
-    // Récupérer le groupe directement depuis la base de données
-    if (data) {
-      const { data: groupData } = await supabase
-        .from('groups')
-        .select('*')
-        .eq('id', data)
-        .single();
-      if (groupData) {
-        setActiveGroup(groupData);
-      }
+    const { data, error: rpcError } = await supabase.rpc("accept_invite", { p_code: inviteCode.trim() });
+    if (rpcError) {
+      console.error(rpcError);
+      Alert.alert("Erreur", "Impossible de traiter la demande.");
+      return;
+    }
+    const res = data && typeof data === "object" ? data : { group_id: data, status: "joined" };
+    const status = res?.status;
+
+    switch (status) {
+      case "joined":
+      case "already_approved":
+        setJoinModalVisible(false);
+        setInviteCode("");
+        await loadGroups();
+        const gid = res?.group_id;
+        if (gid) {
+          const { data: groupData } = await supabase.from("groups").select("*").eq("id", gid).single();
+          if (groupData) setActiveGroup(groupData);
+        }
+        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+        return;
+      case "pending":
+        setJoinModalVisible(false);
+        setInviteCode("");
+        await loadGroups();
+        Alert.alert("Demande envoyée", "En attente de validation.");
+        return;
+      case "reopened_pending":
+        setJoinModalVisible(false);
+        setInviteCode("");
+        await loadGroups();
+        Alert.alert("Demande renvoyée", "En attente de validation.");
+        return;
+      case "code_used":
+        Alert.alert("Code déjà utilisé");
+        return;
+      case "code_expired":
+        Alert.alert("Code expiré");
+        return;
+      case "code_max_uses":
+        Alert.alert("Limite atteinte");
+        return;
+      case "code_invalid":
+        Alert.alert("Code invalide");
+        return;
+      case "unauthenticated":
+        Alert.alert("Connexion requise");
+        return;
+      default:
+        Alert.alert("Erreur", "Impossible de traiter la demande.");
     }
   }, [inviteCode, handleJoinByGroupId, loadGroups, setActiveGroup]);
 

@@ -19,31 +19,25 @@ export default function Join() {
     joiningRef.current = true;
     setJoining(true);
     try {
-      // Essayer d'abord avec join_group_by_id (nouvelle fonction qui gère tous les cas)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('join_group_by_id', {
-        p_group_id: groupId
-      });
-      
-      if (!rpcError) {
+      const { data, error: rpcError } = await supabase.rpc('join_group_by_id', { p_group_id: groupId });
+      if (rpcError) {
+        console.error('[Join] join_group_by_id RPC error:', rpcError);
+        Alert.alert("Erreur", rpcError.message || "Impossible de rejoindre le groupe.");
+        return;
+      }
+      const res = data && typeof data === "object" ? data : { group_id: data, status: "joined" };
+      const status = res?.status;
+      if (status === "joined" || status === "already_member") {
         Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
         router.replace("/(tabs)/matches");
         return;
       }
-      
-      // Fallback: Essayer avec join_public_group pour les groupes publics
-      const { data: publicData, error: publicError } = await supabase.rpc('join_public_group', {
-        p_group_id: groupId
-      });
-      
-      if (!publicError) {
-        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-        router.replace("/(tabs)/matches");
-        return;
-      }
-      
-      // Si tout échoue, afficher un message d'erreur clair
-      console.error('[Join] Erreurs:', { rpcError: rpcError?.message, publicError: publicError?.message });
-      Alert.alert("Impossible de rejoindre", rpcError?.message || publicError?.message || "Ce groupe nécessite une invitation valide.");
+      const msg =
+        status === "invite_required" ? "Ce groupe nécessite une invitation valide."
+        : status === "group_not_found" ? "Ce groupe n'existe pas."
+        : status === "unauthenticated" ? "Connecte-toi pour rejoindre un groupe."
+        : "Impossible de rejoindre le groupe.";
+      Alert.alert("Erreur", msg);
     } catch (e) {
       console.error('[Join] Erreur lors de la tentative de rejoindre:', e);
       Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe. Veuillez contacter un administrateur.");
@@ -53,7 +47,7 @@ export default function Join() {
     }
   }, [router]);
 
-  const acceptInvite = useCallback(async (codeToUse?: string) => {
+  const acceptInvite = useCallback(async (codeToUse) => {
     if (joiningRef.current) return;
     let codeToProcess = codeToUse || inviteCode;
     if (!codeToProcess) return Alert.alert("Code requis", "Entre un code d'invitation.");
@@ -91,14 +85,39 @@ export default function Join() {
     }
     
     try {
-      // Sinon, traiter comme un code d'invitation
-      const { data, error } = await supabase.rpc("accept_invite", { p_code: codeToProcess.trim() });
-      if (error) {
-        Alert.alert("Erreur", error.message);
+      const { data, error: rpcError } = await supabase.rpc("accept_invite", { p_code: codeToProcess.trim() });
+      if (rpcError) {
+        console.error("[Join] accept_invite RPC error:", rpcError);
+        Alert.alert("Erreur", rpcError.message || "Impossible de rejoindre le groupe.");
         return;
       }
-      Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
-      router.replace("/(tabs)/matches");
+      const res = data && typeof data === "object" ? data : { group_id: data, status: "joined" };
+      const status = res?.status;
+      const groupId = res?.group_id;
+
+      if (status === "joined" || status === "already_approved") {
+        Alert.alert("Rejoint ✅", "Bienvenue dans le groupe !");
+        router.replace("/(tabs)/matches");
+        return;
+      }
+      if (status === "pending") {
+        Alert.alert("Demande envoyée", "Demande envoyée, en attente de validation.");
+        if (groupId) router.replace("/(tabs)/matches");
+        return;
+      }
+      if (status === "reopened_pending") {
+        Alert.alert("Demande renvoyée", "Demande renvoyée, en attente de validation.");
+        if (groupId) router.replace("/(tabs)/matches");
+        return;
+      }
+      const msg =
+        status === "code_used" ? "Ce code a déjà été utilisé."
+        : status === "code_expired" ? "Ce code a expiré."
+        : status === "code_max_uses" ? "Ce code a atteint la limite d'utilisations."
+        : status === "code_invalid" ? "Code invalide."
+        : status === "unauthenticated" ? "Connecte-toi pour rejoindre un groupe."
+        : "Impossible de rejoindre le groupe.";
+      Alert.alert("Erreur", msg);
     } catch (e) {
       console.error('[Join] Erreur accept_invite:', e);
       Alert.alert("Erreur", e?.message || "Impossible de rejoindre le groupe.");

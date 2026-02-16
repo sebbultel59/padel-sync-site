@@ -112,9 +112,10 @@ export default function Index() {
                 .maybeSingle();
 
               if (franceGroup?.id && !alreadyAutoJoined) {
-                // Tenter de rejoindre automatiquement le groupe public
-                await supabase.rpc('join_group_by_id', { p_group_id: franceGroup.id });
-                await AsyncStorage.setItem(AUTO_JOIN_KEY, '1');
+                const { data, error } = await supabase.rpc('join_group_by_id', { p_group_id: franceGroup.id });
+                const res = data && typeof data === "object" ? data : null;
+                const ok = !error && res && (res.status === "joined" || res.status === "already_member");
+                if (ok) await AsyncStorage.setItem(AUTO_JOIN_KEY, '1');
               }
 
               const { data: memberships } = await supabase

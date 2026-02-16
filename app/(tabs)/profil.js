@@ -1362,22 +1362,22 @@ export default function ProfilScreen() {
             .ilike("name", "%padel sync%france%")
             .maybeSingle();
           if (franceGroup?.id) {
-            let joinError = null;
-            try {
-              const { error: rpcError } = await supabase.rpc("join_public_group", {
-                p_group_id: franceGroup.id
-              });
-              if (rpcError) joinError = rpcError;
-            } catch (e) {
-              joinError = e;
+            const { data, error } = await supabase.rpc("join_group_by_id", {
+              p_group_id: franceGroup.id
+            });
+            const res = data && typeof data === "object" ? data : null;
+            const ok = !error && res && (res.status === "joined" || res.status === "already_member");
+            if (!ok && error) {
+              console.error("[Profil] join_group_by_id error:", error);
+              throw error;
             }
-            if (joinError) {
-              const { error: fallbackError } = await supabase.rpc("join_group_by_id", {
-                p_group_id: franceGroup.id
-              });
-              if (fallbackError && !/duplicate|already/i.test(fallbackError.message || "")) {
-                throw fallbackError;
-              }
+            if (!ok && res) {
+              const msg =
+                res.status === "invite_required" ? "Ce groupe nécessite une invitation valide."
+                : res.status === "group_not_found" ? "Ce groupe n'existe pas."
+                : res.status === "unauthenticated" ? "Connecte-toi pour rejoindre un groupe."
+                : "Impossible de rejoindre le groupe.";
+              throw new Error(msg);
             }
             await AsyncStorage.setItem("active_group_id", String(franceGroup.id));
             setActiveGroup(franceGroup);
