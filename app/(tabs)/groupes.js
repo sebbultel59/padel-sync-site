@@ -7,10 +7,12 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { router, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "react-native-qrcode-svg";
 import {
     ActionSheetIOS,
     ActivityIndicator,
     Alert,
+    Animated,
     Clipboard,
     DeviceEventEmitter,
     Image,
@@ -283,6 +285,8 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
 
   const [members, setMembers] = useState([]);
   const [membersModalVisible, setMembersModalVisible] = useState(false);
+  const [membersSearch, setMembersSearch] = useState("");
+  const [membersLevelFilter, setMembersLevelFilter] = useState([]);
   const [joinRequests, setJoinRequests] = useState([]);
   const [joinRequestsModalVisible, setJoinRequestsModalVisible] = useState(false);
   const [contactProfile, setContactProfile] = useState(null);
@@ -293,6 +297,16 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
 
   const [qrVisible, setQrVisible] = useState(false);
   const [qrCode, setQrCode] = useState(""); // Code d'invitation affiché
+  const [showToast, setShowToast] = useState(false);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTranslateY = useRef(new Animated.Value(8)).current;
+  const toastTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
@@ -378,7 +392,15 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
           );
         }
         
-        myGroups = (data ?? []).map(g => {
+        myGroups = (data ?? [])
+          // Masquer temporairement le groupe de test 50+ membres
+          .filter(g => {
+            const name = String(g.name || "").toLowerCase();
+            return !name.includes("groupe de test - 50+ membres".toLowerCase())
+              && !name.includes("test-50+ membres".toLowerCase())
+              && !name.includes("test 50+ membres".toLowerCase());
+          })
+          .map(g => {
           const club = g.club_id ? (clubsMap.get(g.club_id) || null) : null;
           return {
           ...g,
@@ -412,6 +434,13 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
       }
       
         const openList = (openPublic ?? [])
+          // Masquer temporairement le groupe de test 50+ membres
+          .filter(g => {
+            const name = String(g.name || "").toLowerCase();
+            return !name.includes("groupe de test - 50+ membres".toLowerCase())
+              && !name.includes("test-50+ membres".toLowerCase())
+              && !name.includes("test 50+ membres".toLowerCase());
+          })
           .map(g => {
             const club = g.club_id ? (publicClubsMap.get(g.club_id) || null) : null;
             return {
@@ -2240,6 +2269,55 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
     }
   }, [handleJoinByGroupId]);
 
+  const animateToastIn = useCallback(() => {
+    toastOpacity.setValue(0);
+    toastTranslateY.setValue(8);
+    Animated.parallel([
+      Animated.timing(toastOpacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastTranslateY, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [toastOpacity, toastTranslateY]);
+
+  const animateToastOut = useCallback((onDone) => {
+    Animated.parallel([
+      Animated.timing(toastOpacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastTranslateY, {
+        toValue: 8,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) onDone?.();
+    });
+  }, [toastOpacity, toastTranslateY]);
+
+  const triggerToast = useCallback(() => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setShowToast(true);
+    animateToastIn();
+    toastTimerRef.current = setTimeout(() => {
+      animateToastOut(() => setShowToast(false));
+    }, 1500);
+  }, [animateToastIn, animateToastOut]);
+
+  const handleCopyCode = useCallback(async () => {
+    if (!qrCode) return;
+    Clipboard.setString(qrCode);
+    triggerToast();
+  }, [qrCode, triggerToast]);
+
   if (!authChecked || loading) {
     return (
       <View style={s.center}>
@@ -2257,20 +2335,80 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
         animationType="slide"
         onRequestClose={() => setContactVisible(false)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400 }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 20, textAlign: 'center' }}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(3,7,18,0.9)',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          {/* Blob "liquid" en arrière-plan */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: 260,
+              height: 260,
+              borderRadius: 130,
+              backgroundColor: 'rgba(56,189,248,0.55)', // cyan
+              top: 60,
+              left: -40,
+              opacity: 0.9,
+              transform: [{ rotate: '-18deg' }],
+            }}
+          />
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: 260,
+              height: 260,
+              borderRadius: 130,
+              backgroundColor: 'rgba(190,242,100,0.50)', // lime
+              bottom: -40,
+              right: -40,
+              opacity: 0.9,
+              transform: [{ rotate: '16deg' }],
+            }}
+          />
+          <View
+            style={{
+              backgroundColor: 'rgba(15,23,42,0.96)', // slate-900 quasi plein
+              borderRadius: 24,
+              padding: 20,
+              width: '90%',
+              maxWidth: 400,
+              borderWidth: 1,
+              borderColor: 'rgba(148,163,184,0.5)',
+              shadowColor: '#000',
+              shadowOpacity: 0.35,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: 16 },
+              elevation: 10,
+            }}
+          >
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#e5e7eb', marginBottom: 20, textAlign: 'center' }}>
               Contacter {contactProfile?.display_name || contactProfile?.name || contactProfile?.email || 'ce membre'}
             </Text>
             <View style={{ gap: 12 }}>
               {contactProfile?.phone && (
-                <Pressable
-                  onPress={() => { Linking.openURL(`tel:${contactProfile.phone}`); setContactVisible(false); }}
-                  style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-                >
-                  <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
-                  <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    onPress={() => { Linking.openURL(`tel:${contactProfile.phone}`); setContactVisible(false); }}
+                    style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+                  >
+                    <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
+                    <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { Linking.openURL(`sms:${contactProfile.phone}`).catch(() => {}); setContactVisible(false); }}
+                    style={{ backgroundColor: '#0f766e', paddingVertical: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+                  >
+                    <Ionicons name="chatbubble" size={20} color="white" style={{ marginRight: 8 }} />
+                    <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un SMS</Text>
+                  </Pressable>
+                </>
               )}
               {contactProfile?.email && (
                 <Pressable
@@ -3907,53 +4045,54 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal QR */}
+      {/* Modal QR - Code d'invitation + QR + Partager */}
       <Modal visible={qrVisible} transparent animationType="fade" onRequestClose={() => setQrVisible(false)}>
         <View style={s.qrWrap}>
-          <View style={s.qrCard}>
-            <Text style={{ fontWeight: "800", marginBottom: 12 }}>Code d'invitation</Text>
+          <View style={[s.qrCard, s.inviteModalCard, s.inviteModalContainer]}>
+            <Text style={s.inviteModalTitle}>Code d'invitation</Text>
             {qrCode ? (
               <>
-                <Text style={{ marginTop: 16, fontSize: 14, color: "#666", textAlign: "center" }}>
-                  Pour rejoindre ce groupe, utilisez le code suivant :
-                </Text>
-                <Text style={{ marginTop: 16, fontSize: 32, fontWeight: "700", letterSpacing: 4, textAlign: "center", color: BRAND }}>
-                  {qrCode}
-                </Text>
-                <Text style={{ marginTop: 16, fontSize: 12, color: "#999", textAlign: "center", paddingHorizontal: 20 }}>
-                  1. Ouvre l'app Padel Sync{'\n'}
-                  2. Va dans "Groupes" → "Rejoindre un groupe"{'\n'}
-                  3. Entre le code ci-dessus
-                </Text>
+                <View style={s.inviteModalQrContainer}>
+                  <QRCode value={`https://syncpadel.app/invite/${qrCode}`} size={180} />
+                </View>
+                <Text style={s.inviteModalCode}>{qrCode.split("").join(" ")}</Text>
+                <TouchableOpacity onPress={press("copy-invite-code", handleCopyCode)} style={s.inviteModalCopyBtn} activeOpacity={0.8}>
+                  <Text style={s.inviteModalCopyText}>Copier le code</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.inviteModalShareBtn}
+                  onPress={press("share-invite-code", async () => {
+                    try {
+                      const inviteLink = `https://syncpadel.app/invite/${qrCode}`;
+                      const groupLabel = activeGroup?.name ? ` ${activeGroup.name}` : "";
+                      await Share.share({ message: `Rejoins mon groupe Padel Sync${groupLabel} 🔥\n${inviteLink}` });
+                    } catch (e) {
+                      console.error("[Share Code] Erreur:", e);
+                      Alert.alert("Partage impossible", e?.message ?? String(e));
+                    }
+                  })}
+                  activeOpacity={0.8}
+                >
+                  <Text style={s.inviteModalShareText}>Partager le lien</Text>
+                </TouchableOpacity>
               </>
             ) : (
-              <ActivityIndicator style={{ marginTop: 20 }} />
+              <ActivityIndicator style={{ marginTop: 24 }} />
             )}
-            {qrCode ? (
-              <Pressable 
-                onPress={press("share-invite-code", async () => {
-                  try {
-                    const inviteLink = qrCode ? `https://syncpadel.app/invite/${qrCode}` : null;
-                    const groupLabel = activeGroup?.name ? ` (${activeGroup.name})` : '';
-                    const message =
-                      `Rejoins notre groupe Padel Sync${groupLabel} 🎾\n` +
-                      `👉 ${inviteLink || 'Lien indisponible'}\n` +
-                      `(ou avec le code : ${qrCode || 'CODE_INDISPONIBLE'})`;
-                    
-                    await Share.share({ message });
-                  } catch (e) {
-                    console.error('[Share Code] Erreur:', e);
-                    Alert.alert("Partage impossible", e?.message ?? String(e));
-                  }
-                })} 
-                style={[s.btn, { backgroundColor: "#10b981", marginTop: 14, paddingVertical: 16, paddingHorizontal: 20 }, Platform.OS === "web" && { cursor: "pointer" }]} 
-              >
-                <Text style={s.btnTxt}>Envoyer l'invitation</Text>
-              </Pressable>
-            ) : null}
-            <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.btn, { backgroundColor: "#dc2626", marginTop: 14, paddingVertical: 16, paddingHorizontal: 20 }, Platform.OS === "web" && { cursor: "pointer" }]} >
-              <Text style={s.btnTxt}>Fermer</Text>
+            <Pressable onPress={press("close-qr", () => setQrVisible(false))} style={[s.inviteModalCloseBtn, Platform.OS === "web" && { cursor: "pointer" }]}>
+              <Text style={s.inviteModalCloseText}>Fermer</Text>
             </Pressable>
+            {showToast && (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  s.inviteModalToast,
+                  { opacity: toastOpacity, transform: [{ translateY: toastTranslateY }] },
+                ]}
+              >
+                <Text style={s.inviteModalToastText}>✅ Code copié</Text>
+              </Animated.View>
+            )}
           </View>
         </View>
       </Modal>
@@ -4113,17 +4252,97 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
       </Modal>
 
       {/* Modal membres */}
-      <Modal visible={membersModalVisible} transparent animationType="slide" onRequestClose={() => setMembersModalVisible(false)}>
+      <Modal
+        visible={membersModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setMembersModalVisible(false);
+          setMembersSearch("");
+          setMembersLevelFilter([]);
+        }}
+      >
         <View style={s.qrWrap}>
           <View style={[s.qrCard, { width: 340, alignItems: "stretch" }]}>
-            <Text style={{ fontWeight: "800", marginBottom: 12 }}>Membres ({members.length})</Text>
-            <ScrollView style={{ maxHeight: 360 }}>
+            <Text style={{ fontWeight: "800", marginBottom: 8 }}>Membres ({members.length})</Text>
+            <TextInput
+              placeholder="Rechercher un joueur..."
+              placeholderTextColor="#9ca3af"
+              value={membersSearch}
+              onChangeText={setMembersSearch}
+              style={{
+                marginBottom: 8,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: "#e5e7eb",
+                paddingHorizontal: 12,
+                paddingVertical: Platform.OS === "ios" ? 8 : 6,
+                backgroundColor: "#f9fafb",
+                color: "#111827",
+                fontSize: 14,
+              }}
+            />
+            <Text style={{ fontSize: 11, fontWeight: "700", color: "#6b7280", marginBottom: 4 }}>
+              Niveau
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+              {[1,2,3,4,5,6,7,8].map((lvl) => {
+                const isSelected = membersLevelFilter.includes(lvl);
+                const bubbleColor = colorForLevel(lvl);
+                return (
+                  <Pressable
+                    key={lvl}
+                    onPress={() => {
+                      setMembersLevelFilter((prev) =>
+                        prev.includes(lvl) ? prev.filter((v) => v !== lvl) : [...prev, lvl]
+                      );
+                    }}
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 13,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: isSelected ? bubbleColor : "#ffffff",
+                      borderWidth: 2,
+                      borderColor: bubbleColor,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: "800",
+                        color: isSelected ? "#000000" : bubbleColor,
+                      }}
+                    >
+                      {lvl}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {membersLevelFilter.length > 0 && (
+              <Text style={{ fontSize: 11, color: "#15803d", marginBottom: 4 }}>
+                Filtre niveaux actif : {membersLevelFilter.join(", ")}
+              </Text>
+            )}
+            <ScrollView style={{ height: 360 }}>
               {[...members]
+                .filter((m) => {
+                  const q = membersSearch.trim().toLowerCase();
+                  if (q) {
+                    const label = (m.name || m.display_name || m.email || "").toLowerCase();
+                    if (!label.includes(q)) return false;
+                  }
+                  if (!membersLevelFilter.length) return true;
+                  const n = toNumberOrNull(m.niveau);
+                  if (!n) return false;
+                  return membersLevelFilter.includes(n);
+                })
                 .sort((a, b) => {
-                  // Admins en premier
-                  if (a.is_admin && !b.is_admin) return -1;
-                  if (!a.is_admin && b.is_admin) return 1;
-                  return 0;
+                  const nameA = (a.name || a.display_name || a.email || "").toLocaleLowerCase("fr");
+                  const nameB = (b.name || b.display_name || b.email || "").toLocaleLowerCase("fr");
+                  return nameA.localeCompare(nameB, "fr", { sensitivity: "base" });
                 })
                 .map((m) => (
                 <View key={m.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
@@ -4155,7 +4374,14 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
                 </View>
               ))}
             </ScrollView>
-            <Pressable onPress={press("close-members", () => setMembersModalVisible(false))} style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]} >
+            <Pressable
+              onPress={press("close-members", () => {
+                setMembersModalVisible(false);
+                setMembersSearch("");
+                setMembersLevelFilter([]);
+              })}
+              style={[s.btn, { backgroundColor: BRAND, marginTop: 14 }, Platform.OS === "web" && { cursor: "pointer" }]}
+            >
               <Text style={s.btnTxt}>Fermer</Text>
             </Pressable>
           </View>
@@ -4293,6 +4519,19 @@ const s = StyleSheet.create({
   },
   qrWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
   qrCard: { width: 300, borderRadius: 12, backgroundColor: "white", padding: 16, alignItems: "center" },
+  inviteModalContainer: { position: "relative" },
+  inviteModalCard: { padding: 24, borderRadius: 24, width: 320 },
+  inviteModalTitle: { fontWeight: "800", fontSize: 20, marginBottom: 20, textAlign: "center", color: "#001833" },
+  inviteModalQrContainer: { backgroundColor: "#FFFFFF", padding: 20, borderRadius: 20, alignItems: "center", marginBottom: 20 },
+  inviteModalCode: { fontSize: 22, fontWeight: "800", letterSpacing: 4, color: BRAND, marginBottom: 8, textAlign: "center" },
+  inviteModalCopyBtn: { marginTop: 10, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.06)", borderWidth: 1, borderColor: "rgba(0,0,0,0.1)", alignSelf: "center", marginBottom: 12 },
+  inviteModalCopyText: { fontSize: 14, fontWeight: "800", color: "#001833" },
+  inviteModalShareBtn: { height: 48, borderRadius: 14, backgroundColor: "#16a34a", alignItems: "center", justifyContent: "center", width: "100%", marginBottom: 16 },
+  inviteModalShareText: { color: "#ffffff", fontWeight: "800", fontSize: 16 },
+  inviteModalCloseBtn: { paddingVertical: 12, paddingHorizontal: 20 },
+  inviteModalCloseText: { color: "#6b7280", fontSize: 15, fontWeight: "600" },
+  inviteModalToast: { position: "absolute", bottom: 18, alignSelf: "center", backgroundColor: "rgba(17,17,17,0.92)", paddingVertical: 10, paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  inviteModalToastText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   fab: {
     position: "absolute",
     right: 18,

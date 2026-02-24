@@ -41,6 +41,7 @@ try {
 } catch {}
 const hasNativeSlider = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RNCSlider");
 const GEO_PREFS_KEY = (groupId) => `geo_filter_prefs:${groupId}`;
+const FLASH_MATCH_ENABLED = false;
 
 const THEME = {
   bg: '#061A2B',
@@ -851,6 +852,7 @@ export default function MatchesScreen() {
   
   // Modale des matchs en feu
   const [hotMatchesModalVisible, setHotMatchesModalVisible] = useState(false);
+  const [hotMatchesLevelFilter, setHotMatchesLevelFilter] = useState([]); // Niveaux sélectionnés pour filtrer la liste des matchs en feu
   
   // Modale d'invitation de membres pour les matchs en feu
   const [inviteHotMatchModalVisible, setInviteHotMatchModalVisible] = useState(false);
@@ -1688,6 +1690,41 @@ const hotMatches = React.useMemo(
     }));
   },
   [readyAll, meId, groupId, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
+);
+
+// Filtre local par niveau pour la liste des matchs en feu dans la modale
+const filteredHotMatches = React.useMemo(
+  () => {
+    if (!Array.isArray(hotMatches)) return [];
+    const levels = Array.isArray(hotMatchesLevelFilter) ? hotMatchesLevelFilter : [];
+    if (levels.length === 0) return hotMatches;
+
+    const allowedLevels = new Set(
+      levels
+        .map((lvl) => Number(lvl))
+        .filter((n) => Number.isFinite(n))
+    );
+
+    return hotMatches.filter((m) => {
+      const userIds = m.available_user_ids || [];
+      if (!userIds.length) return false;
+
+      const matchLevels = userIds
+        .map((uid) => {
+          const profile = profilesById[String(uid)];
+          if (!profile?.niveau) return null;
+          const playerLevel = Number(profile.niveau);
+          return Number.isFinite(playerLevel) ? playerLevel : null;
+        })
+        .filter((lvl) => lvl != null);
+
+      if (!matchLevels.length) return false;
+
+      // Tous les joueurs du match doivent être dans les niveaux sélectionnés
+      return matchLevels.every((lvl) => allowedLevels.has(lvl));
+    });
+  },
+  [hotMatches, hotMatchesLevelFilter, profilesById]
 );
 
   const confirmedHour = React.useMemo(
@@ -11623,30 +11660,34 @@ const HourSlotRow = ({ item }) => {
       </Pressable>
       )}
 
-      {/* 5 — Match éclair - Bouton flottant toujours visible sur tous les onglets */}
-      <Step order={4} name="flash" text="Pressé ? Propose un match maintenant en 3 clics.">
-        <View style={{ position: 'absolute', bottom: (tabBarHeight || 0) + 140, right: 13, width: 48, height: 48 }} />
-      </Step>
-      {/* Bouton flottant match éclair - toujours visible sur tous les onglets */}
-      <Animated.View
-        style={[
-          styles.fabWrap,
-          { bottom: (tabBarHeight || 0) + 140 },
-          { transform: [{ scale: fabScale }] },
-        ]}
-      >
-        <Pressable
-          onPressIn={() => Animated.spring(fabScale, { toValue: 0.96, useNativeDriver: true }).start()}
-          onPressOut={() => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true }).start()}
-          onPress={() => {
-            Vibration.vibrate(10);
-            openFlashMatchDateModal();
-          }}
-          style={styles.fabButton}
-        >
-          <Ionicons name="flash" size={22} color={THEME.ink} />
-        </Pressable>
-      </Animated.View>
+      {FLASH_MATCH_ENABLED && (
+        <>
+          {/* 5 — Match éclair - Bouton flottant toujours visible sur tous les onglets */}
+          <Step order={4} name="flash" text="Pressé ? Propose un match maintenant en 3 clics.">
+            <View style={{ position: 'absolute', bottom: (tabBarHeight || 0) + 140, right: 13, width: 48, height: 48 }} />
+          </Step>
+          {/* Bouton flottant match éclair - toujours visible sur tous les onglets */}
+          <Animated.View
+            style={[
+              styles.fabWrap,
+              { bottom: (tabBarHeight || 0) + 140 },
+              { transform: [{ scale: fabScale }] },
+            ]}
+          >
+            <Pressable
+              onPressIn={() => Animated.spring(fabScale, { toValue: 0.96, useNativeDriver: true }).start()}
+              onPressOut={() => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true }).start()}
+              onPress={() => {
+                Vibration.vibrate(10);
+                openFlashMatchDateModal();
+              }}
+              style={styles.fabButton}
+            >
+              <Ionicons name="flash" size={22} color={THEME.ink} />
+            </Pressable>
+          </Animated.View>
+        </>
+      )}
 
       {/* Modale de choix date/heure/durée */}
       <Modal
@@ -12199,9 +12240,9 @@ const HourSlotRow = ({ item }) => {
                         <TextInput
                           placeholder="Rechercher un joueur (nom, email, niveau)..."
                           placeholderTextColor="#9ca3af"
-                  value={flashQuery}
-                  onChangeText={setFlashQuery}
-                  style={{
+                          value={flashQuery}
+                          onChangeText={setFlashQuery}
+                          style={{
                             backgroundColor: 'rgba(255,255,255,0.75)',
                             borderWidth: 1,
                             borderColor: 'rgba(15,23,42,0.12)',
@@ -12209,7 +12250,7 @@ const HourSlotRow = ({ item }) => {
                             paddingHorizontal: 12,
                             paddingVertical: 10,
                             color: '#111827',
-                            marginBottom: 12,
+                            marginBottom: 8,
                             fontSize: 14,
                             shadowColor: '#0b2240',
                             shadowOpacity: 0.08,
@@ -12220,7 +12261,51 @@ const HourSlotRow = ({ item }) => {
                           returnKeyType="search"
                           autoCapitalize="none"
                         />
-                        
+
+                        {/* Filtres rapides de niveau (bulles 1-8) */}
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#e5e7eb', marginBottom: 4 }}>
+                          Niveau
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map((lvl) => {
+                            const isSelected = Array.isArray(flashLevelFilter) && flashLevelFilter.includes(lvl);
+                            const bubbleColor = colorForLevel(lvl);
+                            return (
+                              <Pressable
+                                key={lvl}
+                                onPress={() => {
+                                  setFlashLevelFilter((prev) => {
+                                    const prevArray = Array.isArray(prev) ? prev : [];
+                                    return prevArray.includes(lvl)
+                                      ? prevArray.filter((v) => v !== lvl)
+                                      : [...prevArray, lvl];
+                                  });
+                                }}
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  borderRadius: 13,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  backgroundColor: isSelected ? bubbleColor : '#ffffff',
+                                  borderWidth: 2,
+                                  borderColor: bubbleColor,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 12,
+                                    fontWeight: '800',
+                                    color: isSelected ? '#000000' : bubbleColor,
+                                  }}
+                                >
+                                  {lvl}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+
                         {/* Boutons de filtres */}
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, marginBottom: 12 }}>
                           <Text style={{ 
@@ -12623,7 +12708,7 @@ const HourSlotRow = ({ item }) => {
                           paddingHorizontal: 12,
                           paddingVertical: 10,
                           color: '#111827',
-                          marginBottom: 12,
+                          marginBottom: 8,
                           fontSize: 14,
                           shadowColor: '#0b2240',
                           shadowOpacity: 0.08,
@@ -12634,6 +12719,50 @@ const HourSlotRow = ({ item }) => {
                         returnKeyType="search"
                         autoCapitalize="none"
                       />
+
+                      {/* Filtres rapides de niveau (bulles 1-8) */}
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#e5e7eb', marginBottom: 4 }}>
+                        Niveau
+                      </Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((lvl) => {
+                          const isSelected = Array.isArray(flashLevelFilter) && flashLevelFilter.includes(lvl);
+                          const bubbleColor = colorForLevel(lvl);
+                          return (
+                            <Pressable
+                              key={lvl}
+                              onPress={() => {
+                                setFlashLevelFilter((prev) => {
+                                  const prevArray = Array.isArray(prev) ? prev : [];
+                                  return prevArray.includes(lvl)
+                                    ? prevArray.filter((v) => v !== lvl)
+                                    : [...prevArray, lvl];
+                                });
+                              }}
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: isSelected ? bubbleColor : '#ffffff',
+                                borderWidth: 2,
+                                borderColor: bubbleColor,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: '800',
+                                  color: isSelected ? '#000000' : bubbleColor,
+                                }}
+                              >
+                                {lvl}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
                       
                       {/* Boutons de filtres */}
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, marginBottom: 12 }}>
@@ -14229,7 +14358,7 @@ const HourSlotRow = ({ item }) => {
       {/* Modale des matchs en feu */}
       <Modal visible={hotMatchesModalVisible} transparent animationType="fade" onRequestClose={() => setHotMatchesModalVisible(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(6, 26, 43, 0.85)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <View style={{ width: '95%', maxWidth: 600, backgroundColor: THEME.card, borderRadius: 32, padding: 24, maxHeight: '90%', borderWidth: 1, borderColor: THEME.cardBorder, shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.4, shadowRadius: 30, elevation: 20 }}>
+          <View style={{ width: '95%', maxWidth: 600, height: 520, backgroundColor: THEME.card, borderRadius: 32, padding: 24, borderWidth: 1, borderColor: THEME.cardBorder, shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.4, shadowRadius: 30, elevation: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 24 }}>🔥</Text>
@@ -14240,6 +14369,7 @@ const HourSlotRow = ({ item }) => {
               </Pressable>
             </View>
             
+            <View style={{ flex: 1, minHeight: 0 }}>
             {hotMatches.length === 0 ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
                 <Text style={{ color: THEME.text, textAlign: 'center', fontSize: 16 }}>
@@ -14250,8 +14380,62 @@ const HourSlotRow = ({ item }) => {
                 </Text>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ paddingBottom: 8 }}>
-                {hotMatches.map((m) => {
+              <>
+                {/* Filtres rapides de niveau pour les matchs en feu */}
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: THEME.muted, marginBottom: 4 }}>
+                    Niveau
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((lvl) => {
+                      const isSelected = Array.isArray(hotMatchesLevelFilter) && hotMatchesLevelFilter.includes(lvl);
+                      const bubbleColor = colorForLevel(lvl);
+                      return (
+                        <Pressable
+                          key={lvl}
+                          onPress={() => {
+                            setHotMatchesLevelFilter((prev) => {
+                              const prevArray = Array.isArray(prev) ? prev : [];
+                              return prevArray.includes(lvl)
+                                ? prevArray.filter((v) => v !== lvl)
+                                : [...prevArray, lvl];
+                            });
+                          }}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 13,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: isSelected ? bubbleColor : '#ffffff',
+                            borderWidth: 2,
+                            borderColor: bubbleColor,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: '800',
+                              color: isSelected ? '#000000' : bubbleColor,
+                            }}
+                          >
+                            {lvl}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {filteredHotMatches.length === 0 ? (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <Text style={{ color: THEME.muted, textAlign: 'center', fontSize: 14 }}>
+                      Aucun match en feu pour ces niveaux.
+                    </Text>
+                  </View>
+                ) : (
+                  <ScrollView style={{ flex: 1, minHeight: 320 }} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={true}>
+                    {filteredHotMatches.map((m) => {
                   const availableUserIds = m.available_user_ids || [];
                   // Ne pas ajouter automatiquement l'utilisateur à la liste
                   const allAvailableIds = [...new Set(availableUserIds)];
@@ -14663,6 +14847,9 @@ const HourSlotRow = ({ item }) => {
                 })}
               </ScrollView>
             )}
+              </>
+            )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -14747,26 +14934,6 @@ const HourSlotRow = ({ item }) => {
                   if (!hotMatchLevelFilter.includes(memberLevel)) return false;
                 }
                 
-                // Filtre géographique
-                if (hotMatchGeoRefPoint && hotMatchGeoRefPoint.lat != null && hotMatchGeoRefPoint.lng != null && hotMatchGeoRadiusKm != null) {
-                  // Utiliser domicile, puis travail, comme position du joueur
-                  let playerLat = null;
-                  let playerLng = null;
-                  if (member.address_home?.lat && member.address_home?.lng) {
-                    playerLat = member.address_home.lat;
-                    playerLng = member.address_home.lng;
-                  } else if (member.address_work?.lat && member.address_work?.lng) {
-                    playerLat = member.address_work.lat;
-                    playerLng = member.address_work.lng;
-                  }
-                  
-                  if (!playerLat || !playerLng) return false; // Pas de position = exclu
-                  
-                  // Calculer la distance
-                  const distanceKm = haversineKm(hotMatchGeoRefPoint, { lat: playerLat, lng: playerLng });
-                  if (distanceKm > hotMatchGeoRadiusKm) return false;
-                }
-                
                 return true;
               });
               
@@ -14799,12 +14966,56 @@ const HourSlotRow = ({ item }) => {
                         paddingHorizontal: 12,
                         paddingVertical: 10,
                         color: THEME.text,
-                        marginBottom: 12,
+                        marginBottom: 8,
                         fontSize: 14,
                       }}
                       returnKeyType="search"
                       autoCapitalize="none"
                     />
+
+                    {/* Filtres rapides de niveau (bulles 1-8) */}
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: THEME.muted, marginBottom: 4 }}>
+                      Niveau
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((lvl) => {
+                        const isSelected = Array.isArray(hotMatchLevelFilter) && hotMatchLevelFilter.includes(lvl);
+                        const bubbleColor = colorForLevel(lvl);
+                        return (
+                          <Pressable
+                            key={lvl}
+                            onPress={() => {
+                              setHotMatchLevelFilter((prev) => {
+                                const prevArray = Array.isArray(prev) ? prev : [];
+                                return prevArray.includes(lvl)
+                                  ? prevArray.filter((v) => v !== lvl)
+                                  : [...prevArray, lvl];
+                              });
+                            }}
+                            style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: 13,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isSelected ? bubbleColor : '#ffffff',
+                              borderWidth: 2,
+                              borderColor: bubbleColor,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: '800',
+                                color: isSelected ? '#000000' : bubbleColor,
+                              }}
+                            >
+                              {lvl}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
                     
                     {/* Boutons de filtres */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
@@ -14851,40 +15062,6 @@ const HourSlotRow = ({ item }) => {
                       }}>
                         Filtres
                       </Text>
-                      
-                      <Pressable
-                        onPress={() => {
-                          if (!hotMatchGeoFilterVisible) {
-                            setHotMatchLevelFilterVisible(false);
-                          }
-                          setHotMatchGeoFilterVisible(!hotMatchGeoFilterVisible);
-                        }}
-                      style={{
-                        padding: 10,
-                        backgroundColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.75)',
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.7)',
-                        shadowColor: '#0b2240',
-                        shadowOpacity: 0.12,
-                        shadowRadius: 8,
-                        shadowOffset: { width: 0, height: 2 },
-                        elevation: 3,
-                      }}
-                      >
-                        <Ionicons 
-                          name="location" 
-                          size={20} 
-                        color={(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#ff751d' : '#374151'}
-                          style={{
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.3,
-                            shadowRadius: 3,
-                            elevation: 4,
-                          }}
-                        />
-                      </Pressable>
                     </View>
                     
                     {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
@@ -14947,178 +15124,11 @@ const HourSlotRow = ({ item }) => {
                       </View>
                     )}
                     
-                    {/* Zone de configuration du filtre géographique (masquée par défaut) */}
-                    {hotMatchGeoFilterVisible && (
-                      <View style={{ 
-                        backgroundColor: THEME.cardAlt, 
-                        borderRadius: 16, 
-                        padding: 12,
-                        borderWidth: 1,
-                        borderColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? THEME.accent : THEME.cardBorder,
-                        marginBottom: 12,
-                      }}>
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: THEME.text, marginBottom: 12 }}>
-                          Filtrer par distance
-                        </Text>
-                        
-                        {/* Sélection du type de position */}
-                        <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '800', color: THEME.text, marginBottom: 8 }}>
-                            Position de référence
-                          </Text>
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                            {[
-                              { key: 'current', label: '📍 Position actuelle' },
-                              { key: 'home', label: '🏠 Domicile' },
-                              { key: 'work', label: '💼 Travail' },
-                              { key: 'city', label: '🏙️ Ville' },
-                            ].map(({ key, label }) => {
-                              const isSelected = hotMatchGeoLocationType === key;
-                              return (
-                                <Pressable
-                                  key={key}
-                                  onPress={() => {
-                                    if (isSelected) {
-                                      setHotMatchGeoRefPoint(null);
-                                      setHotMatchGeoCityQuery('');
-                                      setHotMatchGeoCitySuggestions([]);
-                                      setHotMatchGeoLocationType(null);
-                                      setHotMatchGeoRadiusKm(null);
-                                    } else {
-                                      setHotMatchGeoLocationType(key);
-                                      if (key === 'city') {
-                                        setHotMatchGeoRefPoint(null);
-                                        setHotMatchGeoCityQuery('');
-                                      }
-                                    }
-                                  }}
-                                  style={{
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 8,
-                                    backgroundColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#ffffff',
-                                    borderWidth: 1,
-                                    borderColor: (isSelected && hotMatchGeoRefPoint) ? '#15803d' : '#d1d5db',
-                                  }}
-                                >
-                                  <Text style={{ 
-                                    fontSize: 13, 
-                                    fontWeight: (isSelected && hotMatchGeoRefPoint) ? '800' : '700', 
-                                    color: (isSelected && hotMatchGeoRefPoint) ? '#ffffff' : '#111827' 
-                                  }}>
-                                    {label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                        </View>
-                        
-                        {/* Recherche de ville si type = 'city' */}
-                        {hotMatchGeoLocationType === 'city' && (
-                          <View style={{ marginBottom: 12 }}>
-                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                              Rechercher une ville
-                            </Text>
-                            <TextInput
-                              placeholder="Tapez le nom d'une ville..."
-                              value={hotMatchGeoCityQuery}
-                              onChangeText={(text) => {
-                                setHotMatchGeoCityQuery(text);
-                                searchHotMatchGeoCity(text);
-                              }}
-                              style={{
-                                backgroundColor: '#ffffff',
-                                borderRadius: 8,
-                                padding: 12,
-                                borderWidth: 1,
-                                borderColor: '#d1d5db',
-                                fontSize: 14,
-                              }}
-                            />
-                            {hotMatchGeoCitySuggestions.length > 0 && (
-                              <View style={{ marginTop: 8, backgroundColor: '#ffffff', borderRadius: 8, borderWidth: 1, borderColor: '#d1d5db', maxHeight: 150 }}>
-                                <ScrollView>
-                                  {hotMatchGeoCitySuggestions.map((suggestion, idx) => (
-                                    <Pressable
-                                      key={idx}
-                                      onPress={() => {
-                                        setHotMatchGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
-                                        setHotMatchGeoCityQuery(suggestion.name);
-                                        setHotMatchGeoCitySuggestions([]);
-                                      }}
-                                      style={{
-                                        padding: 12,
-                                        borderBottomWidth: idx < hotMatchGeoCitySuggestions.length - 1 ? 1 : 0,
-                                        borderBottomColor: '#e5e7eb',
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 14, color: '#111827' }}>{suggestion.name}</Text>
-                                    </Pressable>
-                                  ))}
-                                </ScrollView>
-                              </View>
-                            )}
-                          </View>
-                        )}
-                        
-                        {/* Sélection du rayon */}
-                        <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                            Rayon : {hotMatchGeoRadiusKm ? `${hotMatchGeoRadiusKm} km` : 'non sélectionné'}
-                          </Text>
-                          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
-                            {[10, 20, 30, 40, 50].map((km) => {
-                              const isSelected = hotMatchGeoRadiusKm === km;
-                              return (
-                                <Pressable
-                                  key={km}
-                                  onPress={() => {
-                                    if (isSelected) {
-                                      setHotMatchGeoRadiusKm(null);
-                                    } else {
-                                      setHotMatchGeoRadiusKm(km);
-                                    }
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    paddingVertical: 6,
-                                    paddingHorizontal: 8,
-                                    borderRadius: 8,
-                                    backgroundColor: isSelected ? '#15803d' : '#ffffff',
-                                    borderWidth: 1,
-                                    borderColor: isSelected ? '#15803d' : '#d1d5db',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                  }}
-                                >
-                                  <Text style={{ 
-                                    fontSize: 12, 
-                                    fontWeight: isSelected ? '800' : '700', 
-                                    color: isSelected ? '#ffffff' : '#111827' 
-                                  }}>
-                                    {km} km
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                        </View>
-                        
-                        {(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) && (
-                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d', marginTop: 8 }}>
-                            ✓ Filtre actif : {hotMatchGeoRadiusKm} km autour de {hotMatchGeoRefPoint.address || 'la position sélectionnée'}
-                          </Text>
-                        )}
-                      </View>
-                    )}
-                    
                     <View style={{ padding: 20 }}>
                       <Text style={{ color: '#6b7280', textAlign: 'center' }}>
                         Aucun membre trouvé
                         {hotMatchSearchQuery.trim() && ` pour "${hotMatchSearchQuery}"`}
                         {hotMatchLevelFilter.length > 0 && ` avec les niveaux ${hotMatchLevelFilter.sort((a, b) => a - b).join(', ')}`}
-                        {hotMatchGeoRefPoint && hotMatchGeoRadiusKm && ` dans un rayon de ${hotMatchGeoRadiusKm} km autour de ${hotMatchGeoRefPoint.address || 'la position sélectionnée'}`}
                       </Text>
                     </View>
                   </>
@@ -15192,40 +15202,6 @@ const HourSlotRow = ({ item }) => {
                     }}>
                       Filtres
                     </Text>
-                    
-                    <Pressable
-                      onPress={() => {
-                        if (!hotMatchGeoFilterVisible) {
-                          setHotMatchLevelFilterVisible(false);
-                        }
-                        setHotMatchGeoFilterVisible(!hotMatchGeoFilterVisible);
-                      }}
-                      style={{
-                        padding: 10,
-                        backgroundColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.75)',
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.7)',
-                        shadowColor: '#0b2240',
-                        shadowOpacity: 0.12,
-                        shadowRadius: 8,
-                        shadowOffset: { width: 0, height: 2 },
-                        elevation: 3,
-                      }}
-                    >
-                      <Ionicons 
-                        name="location" 
-                        size={20} 
-                        color={(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#ff751d' : '#374151'}
-                        style={{
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowOpacity: 0.3,
-                          shadowRadius: 3,
-                          elevation: 4,
-                        }}
-                      />
-                    </Pressable>
                   </View>
                   
                   {/* Zone de configuration du filtre par niveau (masquée par défaut) */}
@@ -15288,176 +15264,9 @@ const HourSlotRow = ({ item }) => {
                     </View>
                   )}
                   
-                  {/* Zone de configuration du filtre géographique (masquée par défaut) */}
-                  {hotMatchGeoFilterVisible && (
-                    <View style={{ 
-                      backgroundColor: '#f3f4f6', 
-                      borderRadius: 12, 
-                      padding: 12,
-                      borderWidth: 1,
-                      borderColor: (hotMatchGeoRefPoint && hotMatchGeoRadiusKm) ? '#15803d' : '#d1d5db',
-                      marginBottom: 12,
-                    }}>
-                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 12 }}>
-                        Filtrer par distance
-                      </Text>
-                      
-                      {/* Sélection du type de position */}
-                      <View style={{ marginBottom: 12 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-                          Position de référence
-                        </Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                          {[
-                            { key: 'current', label: '📍 Position actuelle' },
-                            { key: 'home', label: '🏠 Domicile' },
-                            { key: 'work', label: '💼 Travail' },
-                            { key: 'city', label: '🏙️ Ville' },
-                          ].map(({ key, label }) => {
-                            const isSelected = hotMatchGeoLocationType === key;
-                            return (
-                              <Pressable
-                                key={key}
-                                onPress={() => {
-                                  if (isSelected) {
-                                    setHotMatchGeoRefPoint(null);
-                                    setHotMatchGeoCityQuery('');
-                                    setHotMatchGeoCitySuggestions([]);
-                                    setHotMatchGeoLocationType(null);
-                                    setHotMatchGeoRadiusKm(null);
-                                  } else {
-                                    setHotMatchGeoLocationType(key);
-                                    if (key === 'city') {
-                                      setHotMatchGeoRefPoint(null);
-                                      setHotMatchGeoCityQuery('');
-                                    }
-                                  }
-                                }}
-                                style={{
-                                  paddingVertical: 8,
-                                  paddingHorizontal: 12,
-                                  borderRadius: 999,
-                                  backgroundColor: (isSelected && hotMatchGeoRefPoint) ? THEME.accent : THEME.card,
-                                  borderWidth: 1,
-                                  borderColor: (isSelected && hotMatchGeoRefPoint) ? THEME.accent : THEME.cardBorder,
-                                }}
-                              >
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  fontWeight: (isSelected && hotMatchGeoRefPoint) ? '800' : '700', 
-                                  color: (isSelected && hotMatchGeoRefPoint) ? THEME.ink : THEME.text 
-                                }}>
-                                  {label}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-                      
-                      {/* Recherche de ville si type = 'city' */}
-                      {hotMatchGeoLocationType === 'city' && (
-                        <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '800', color: THEME.text, marginBottom: 8 }}>
-                            Rechercher une ville
-                          </Text>
-                          <TextInput
-                            placeholder="Tapez le nom d'une ville..."
-                            value={hotMatchGeoCityQuery}
-                            onChangeText={(text) => {
-                              setHotMatchGeoCityQuery(text);
-                              searchHotMatchGeoCity(text);
-                            }}
-                            style={{
-                              backgroundColor: THEME.card,
-                              borderRadius: 999,
-                              padding: 12,
-                              borderWidth: 1,
-                              borderColor: THEME.cardBorder,
-                              fontSize: 14,
-                              color: THEME.text,
-                            }}
-                          />
-                          {hotMatchGeoCitySuggestions.length > 0 && (
-                              <View style={{ marginTop: 8, backgroundColor: THEME.card, borderRadius: 16, borderWidth: 1, borderColor: THEME.cardBorder, maxHeight: 150 }}>
-                              <ScrollView>
-                                {hotMatchGeoCitySuggestions.map((suggestion, idx) => (
-                                  <Pressable
-                                    key={idx}
-                                    onPress={() => {
-                                      setHotMatchGeoRefPoint({ lat: suggestion.lat, lng: suggestion.lng, address: suggestion.name });
-                                      setHotMatchGeoCityQuery(suggestion.name);
-                                      setHotMatchGeoCitySuggestions([]);
-                                    }}
-                                    style={{
-                                      padding: 12,
-                                      borderBottomWidth: idx < hotMatchGeoCitySuggestions.length - 1 ? 1 : 0,
-                                      borderBottomColor: '#e5e7eb',
-                                    }}
-                                      >
-                                        <Text style={{ fontSize: 14, color: THEME.text }}>{suggestion.name}</Text>
-                                  </Pressable>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          )}
-                        </View>
-                      )}
-                      
-                      {/* Sélection du rayon */}
-                      <View style={{ marginBottom: 12 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: THEME.text, marginBottom: 8 }}>
-                          Rayon : {hotMatchGeoRadiusKm ? `${hotMatchGeoRadiusKm} km` : 'non sélectionné'}
-                        </Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
-                          {[10, 20, 30, 40, 50].map((km) => {
-                            const isSelected = hotMatchGeoRadiusKm === km;
-                            return (
-                              <Pressable
-                                key={km}
-                                onPress={() => {
-                                  if (isSelected) {
-                                    setHotMatchGeoRadiusKm(null);
-                                  } else {
-                                    setHotMatchGeoRadiusKm(km);
-                                  }
-                                }}
-                                style={{
-                                  flex: 1,
-                                  paddingVertical: 6,
-                                  paddingHorizontal: 8,
-                                  borderRadius: 999,
-                                  backgroundColor: isSelected ? THEME.accent : THEME.card,
-                                  borderWidth: 1,
-                                  borderColor: isSelected ? THEME.accent : THEME.cardBorder,
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}
-                              >
-                                <Text style={{ 
-                                  fontSize: 12, 
-                                  fontWeight: isSelected ? '800' : '700', 
-                                  color: isSelected ? THEME.ink : THEME.text 
-                                }}>
-                                  {km} km
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-                      
-                    {(hotMatchGeoRefPoint && hotMatchGeoRadiusKm) && (
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.accent, marginTop: 8 }}>
-                          ✓ Filtre actif : {hotMatchGeoRadiusKm} km autour de {hotMatchGeoRefPoint.address || 'la position sélectionnée'}
-                        </Text>
-                      )}
-                    </View>
-                  )}
-                  
                   <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 8, fontWeight: '700' }}>
                     {filteredMembers.length} membre{filteredMembers.length > 1 ? 's' : ''} trouvé{filteredMembers.length > 1 ? 's' : ''}
-                    {(hotMatchSearchQuery.trim() || hotMatchLevelFilter.length > 0 || (hotMatchGeoRefPoint && hotMatchGeoRadiusKm)) && filteredMembers.length !== hotMatchMembers.length && ` sur ${hotMatchMembers.length}`}
+                    {(hotMatchSearchQuery.trim() || hotMatchLevelFilter.length > 0) && filteredMembers.length !== hotMatchMembers.length && ` sur ${hotMatchMembers.length}`}
                   </Text>
                   <ScrollView style={{ maxHeight: 400, minHeight: 200, backgroundColor: THEME.cardAlt, borderRadius: 24, padding: 8, borderWidth: 1, borderColor: THEME.cardBorder }} showsVerticalScrollIndicator={true}>
                     {filteredMembers.map((member) => (
@@ -16313,7 +16122,7 @@ const HourSlotRow = ({ item }) => {
             paddingHorizontal: 12,
             paddingVertical: 4,
             borderRadius: 999,
-            width: 280,
+            width: 290,
             alignItems: 'center',
             backgroundColor: 'rgba(255,255,255,0.16)',
             borderWidth: 1,

@@ -882,21 +882,43 @@ export default function TabsLayout() {
                 data={notifications}
                 keyExtractor={(n) => String(n.id)}
                 contentContainerStyle={{ paddingVertical: 4 }}
-                renderItem={({ item }) => (
-                  <View style={{ paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 1, borderColor: '#eef2f7' }}>
-                    <Text style={{ fontWeight: item.is_read ? '700' : '900', fontSize: 13, color: '#0b2240', marginBottom: 2 }}>
-                      {item.title || 'Notification'}
-                    </Text>
-                    {item.body ? (
-                      <Text style={{ color: '#374151', fontSize: 12 }} numberOfLines={3}>
-                        {item.body}
+                renderItem={({ item }) => {
+                  const isRead = !!item.is_read;
+                  const titleColor = isRead ? '#9ca3af' : '#0b2240';
+                  const bodyColor = isRead ? '#9ca3af' : '#374151';
+                  const dateColor = isRead ? '#d1d5db' : '#6b7280';
+                  const rowBg = isRead ? '#f9fafb' : '#ffffff';
+                  return (
+                    <View
+                      style={{
+                        paddingVertical: 10,
+                        paddingHorizontal: 8,
+                        borderBottomWidth: 1,
+                        borderColor: '#eef2f7',
+                        backgroundColor: rowBg,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontWeight: isRead ? '700' : '900',
+                          fontSize: 13,
+                          color: titleColor,
+                          marginBottom: 2,
+                        }}
+                      >
+                        {item.title || 'Notification'}
                       </Text>
-                    ) : null}
-                    <Text style={{ color: '#6b7280', fontSize: 11, marginTop: 4 }}>
-                      {new Date(item.created_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
-                    </Text>
-                  </View>
-                )}
+                      {item.body ? (
+                        <Text style={{ color: bodyColor, fontSize: 12 }} numberOfLines={3}>
+                          {item.body}
+                        </Text>
+                      ) : null}
+                      <Text style={{ color: dateColor, fontSize: 11, marginTop: 4 }}>
+                        {new Date(item.created_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </Text>
+                    </View>
+                  );
+                }}
                 ListEmptyComponent={() => (
                   <View style={{ paddingVertical: 24, alignItems: 'center' }}>
                     <Text style={{ color: '#6b7280', fontSize: 12 }}>Aucune notification</Text>

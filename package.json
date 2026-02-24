@@ -1,6 +1,6 @@
 {
   "name": "padel-sync",
-  "version": "5.0.5",
+  "version": "5.0.7",
   "private": true,
   "main": "index.js",
   "scripts": {
@@ -29,6 +29,7 @@
     "expo-av": "~16.0.7",
     "expo-blur": "~15.0.7",
     "expo-build-properties": "~1.0.9",
+    "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.10",
     "expo-device": "~8.0.9",
     "expo-file-system": "~19.0.17",

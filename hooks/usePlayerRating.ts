@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ratingToLevelAndXp } from '../lib/rating';
+import { initialRatingFromDeclaredLevel, ratingToLevelAndXp } from '../lib/rating';
 
 interface PlayerRating {
   rating: number;
@@ -71,10 +71,23 @@ export function usePlayerRating(userId: string | null | undefined): UsePlayerRat
         setLosses(data.losses || 0);
         setDraws(data.draws || 0);
       } else {
-        // Pas de rating existant, initialiser avec des valeurs par défaut
-        setRating(50.0); // Rating initial par défaut
-        setLevel(4); // Niveau 4 par défaut (milieu de l'échelle)
-        setXp(50.0); // XP au milieu du niveau
+        // Pas de rating existant : utiliser le niveau déclaré du profil (profiles.niveau)
+        let declaredLevel = 4; // fallback milieu de l'échelle
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('niveau')
+          .eq('id', userId)
+          .maybeSingle();
+        const raw = profileData?.niveau != null ? Number(profileData.niveau) : NaN;
+        if (Number.isFinite(raw) && raw >= 1 && raw <= 8) {
+          declaredLevel = Math.round(raw);
+        }
+        const initialRating = initialRatingFromDeclaredLevel(declaredLevel);
+        const { level: initialLevel, xp: initialXp } = ratingToLevelAndXp(initialRating);
+
+        setRating(initialRating);
+        setLevel(initialLevel);
+        setXp(initialXp);
         setMatchesPlayed(0);
         setWins(0);
         setLosses(0);

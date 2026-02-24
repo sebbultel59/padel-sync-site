@@ -2,7 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import OnFireLabel from "../../components/OnFireLabel";
 import PlayerRankSummary from "../../components/PlayerRankSummary";
 import { usePlayerBadges } from "../../hooks/usePlayerBadges";
@@ -43,6 +43,7 @@ export default function ProfileScreen() {
   const { clubId } = useUserRole();
   const { activeGroup } = useActiveGroup();
   const [city, setCity] = useState(null);
+  const [phoneModalVisible, setPhoneModalVisible] = useState(false);
   
   // Historique des 5 derniers matchs (forme du moment)
   const [historyMatches, setHistoryMatches] = useState([]);
@@ -293,8 +294,84 @@ export default function ProfileScreen() {
 
   const title = formatPlayerName(p.display_name || p.name || p.email || "Joueur");
   const initial = (title?.trim?.()[0] ?? "?").toUpperCase();
+  // Niveau déclaré sur le profil (1-8), utilisé pour la pastille de l'avatar
+  const profileLevel = levelInfo?.v ?? null;
 
   return (
+    <>
+    {/* Modale contact téléphone */}
+    <Modal
+      visible={phoneModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setPhoneModalVisible(false)}
+    >
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(3,7,18,0.6)', // fond plus transparent
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: 'rgba(15,23,42,0.96)',
+            borderRadius: 24,
+            padding: 20,
+            width: '90%',
+            maxWidth: 400,
+            borderWidth: 1,
+            borderColor: 'rgba(148,163,184,0.5)',
+            shadowColor: '#000',
+            shadowOpacity: 0.35,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: 16 },
+            elevation: 10,
+          }}
+        >
+          <Text style={{ fontSize: 18, fontWeight: '800', color: '#e5e7eb', marginBottom: 8, textAlign: 'center' }}>
+            {title}
+          </Text>
+          <Text style={{ fontSize: 14, color: '#9ca3af', marginBottom: 16, textAlign: 'center' }}>
+            {p?.phone}
+          </Text>
+          <View style={{ gap: 12 }}>
+            <Pressable
+              onPress={() => {
+                if (p?.phone) {
+                  Linking.openURL(`tel:${p.phone}`).catch(() => {});
+                }
+                setPhoneModalVisible(false);
+              }}
+              style={{ backgroundColor: '#15803d', paddingVertical: 12, borderRadius: 999, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+            >
+              <Ionicons name="call" size={20} color="white" style={{ marginRight: 8 }} />
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Appeler</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (p?.phone) {
+                  Linking.openURL(`sms:${p.phone}`).catch(() => {});
+                }
+                setPhoneModalVisible(false);
+              }}
+              style={{ backgroundColor: '#0f766e', paddingVertical: 12, borderRadius: 999, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+            >
+              <Ionicons name="chatbubble" size={20} color="white" style={{ marginRight: 8 }} />
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Envoyer un SMS</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setPhoneModalVisible(false)}
+              style={{ backgroundColor: '#6b7280', paddingVertical: 12, borderRadius: 999, alignItems: 'center' }}
+            >
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Annuler</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+
     <ScrollView contentContainerStyle={s.container}>
       {/* Header avec bouton retour */}
       <View style={s.header}>
@@ -325,8 +402,8 @@ export default function ProfileScreen() {
             <Text style={s.initial}>{initial}</Text>
           </View>
         )}
-          {/* Pastille niveau */}
-          {level !== null && (
+          {/* Pastille niveau : toujours le niveau déclaré du profil, pas le niveau XP/classement */}
+          {profileLevel != null && (
             <View
               style={{
                 position: 'absolute',
@@ -335,7 +412,7 @@ export default function ProfileScreen() {
                 width: 40,
                 height: 40,
                 borderRadius: 20,
-                backgroundColor: colorForLevel(level),
+                backgroundColor: colorForLevel(profileLevel),
                 borderWidth: 2,
                 borderColor: '#001831',
                 alignItems: 'center',
@@ -350,7 +427,7 @@ export default function ProfileScreen() {
                   fontSize: 18,
                 }}
               >
-                {level}
+                {profileLevel}
               </Text>
             </View>
           )}
@@ -372,7 +449,9 @@ export default function ProfileScreen() {
             emoji="📞"
             label="Téléphone"
             value={p.phone || "—"}
-            onPress={p.phone ? () => Linking.openURL(`tel:${p.phone}`) : null}
+            onPress={p.phone ? () => {
+              setPhoneModalVisible(true);
+            } : null}
           />
         </View>
       </View>
@@ -867,6 +946,7 @@ export default function ProfileScreen() {
 
       <View style={{ height: 24 }} />
     </ScrollView>
+    </>
   );
 }
 
