@@ -44,5 +44,10 @@
         <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>
     </activity>
+    <!-- Override ML Kit barcode scanner: allow any orientation for large screens (Play Console) -->
+    <activity
+      android:name="com.google.mlkit.vision.codescanner.internal.GmsBarcodeScanningDelegateActivity"
+      android:screenOrientation="unspecified"
+      tools:replace="android:screenOrientation" />
   </application>
 </manifest>

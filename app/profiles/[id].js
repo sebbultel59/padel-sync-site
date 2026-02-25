@@ -10,9 +10,9 @@ import { usePlayerRating } from "../../hooks/usePlayerRating";
 import { usePlayerStats } from "../../hooks/usePlayerStats";
 import { usePlayerWinStreak } from "../../hooks/usePlayerWinStreak";
 import { useActiveGroup } from "../../lib/activeGroup";
+import { getBadgeImage } from "../../lib/badgeImages";
 import { useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
-import { getBadgeImage } from "../../lib/badgeImages";
 import { formatPlayerName } from "../../lib/uiSafe";
 
 const BRAND = "#1a4b97";
