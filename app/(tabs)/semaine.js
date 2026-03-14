@@ -13,6 +13,7 @@ import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollVie
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
 import { OnboardingModal } from "../../components/OnboardingModal";
+import { OneLineText } from "../../components/ui/OneLineText";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { FLAG_KEYS, getOnboardingFlag, setOnboardingFlag } from "../../lib/onboardingFlags";
@@ -2380,7 +2381,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 size={14}
                 color="#e0ff00"
               />
-              <Text
+              <OneLineText
                 style={{
                   color: "#e0ff00",
                   fontWeight: "800",
@@ -2388,7 +2389,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                 }}
               >
                 Copier mes dispos vers la semaine suivante
-              </Text>
+              </OneLineText>
             </Pressable>
           </View>
         </View>
@@ -2440,19 +2441,18 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           style={{ marginRight: 6 }}
         />
       
-        <Text
+        <OneLineText
           style={{
-            height: 35,               // ✅ même hauteur
-            lineHeight: 35,           // ✅ centrage vertical du texte
+            height: 35,
+            lineHeight: 35,
             fontWeight: '800',
             color: '#e0ff00',
             fontSize: 15,
             textAlign: 'center',
           }}
-          numberOfLines={1}
         >
           {activeGroup?.name || 'Sélectionner un groupe'}
-        </Text>
+        </OneLineText>
       
         <Ionicons
           name="chevron-down-sharp"

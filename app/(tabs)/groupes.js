@@ -33,6 +33,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Leaderboard from "../../components/Leaderboard";
 import { OnboardingModal } from "../../components/OnboardingModal";
+import { OneLineText } from "../../components/ui/OneLineText";
 import { useActiveGroup } from "../../lib/activeGroup";
 import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { haversineKm } from "../../lib/geography";
@@ -2758,7 +2759,7 @@ const [publicGroupsClubPickerVisible, setPublicGroupsClubPickerVisible] = useSta
             {/* Actions groupe actif */}
             <View style={{ flexDirection: "row", marginTop: 12, gap: 8 }}>
               <Pressable onPress={press("open-members-modal", () => setMembersModalVisible(true))} style={[s.btn, { backgroundColor: "#f3f4f6", flex: 1 }, Platform.OS === "web" && { cursor: "pointer" }]}>
-                <Text style={[s.btnTxt, { color: "#111827" }]}>Voir les membres ({members.length})</Text>
+                <OneLineText style={[s.btnTxt, { color: "#111827" }]}>Voir les membres ({members.length})</OneLineText>
               </Pressable>
               {isAdmin && (
                 <Pressable 

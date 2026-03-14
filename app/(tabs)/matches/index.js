@@ -30,6 +30,7 @@ import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
 import { Step, useCopilot } from '../../../components/AppCopilot';
 import { OnboardingModal } from '../../../components/OnboardingModal';
+import { OneLineText } from '../../../components/ui/OneLineText';
 import { useActiveGroup } from "../../../lib/activeGroup";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
 import { popInviteJoinedBanner } from "../../../lib/invite";
@@ -10062,9 +10063,7 @@ const HourSlotRow = ({ item }) => {
               }}
             >
               <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
-              <Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
+              <OneLineText
                 style={{
                   fontWeight: '700',
                   color: THEME.accent,
@@ -10083,7 +10082,7 @@ const HourSlotRow = ({ item }) => {
                   const maxLen = activeGroup?.club_id ? 15 : 28;
                   return label.length > maxLen ? `${label.slice(0, maxLen)}…` : label;
                 })()}
-              </Text>
+              </OneLineText>
               <Ionicons name="chevron-down" size={18} color={THEME.accent} style={{ marginLeft: 4 }} />
             </Pressable>
 
@@ -10583,9 +10582,9 @@ const HourSlotRow = ({ item }) => {
                     gap: 8
                   }}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.text, flexShrink: 1 }} numberOfLines={1}>
+                  <OneLineText style={{ fontSize: 12, fontWeight: '700', color: THEME.text }}>
                     {currentZone?.name || 'Sélectionner une zone'}
-                  </Text>
+                  </OneLineText>
                   <Ionicons name="chevron-down" size={16} color={THEME.muted} />
                 </Pressable>
                 <Text style={{ fontSize: 11, color: THEME.muted, marginTop: 6 }}>
@@ -16134,7 +16133,7 @@ const HourSlotRow = ({ item }) => {
             elevation: 3,
           }}
         >
-          <Text style={{ 
+          <OneLineText style={{ 
             fontWeight: '800', 
             fontSize: 15, 
             color: THEME.text,
@@ -16143,7 +16142,7 @@ const HourSlotRow = ({ item }) => {
             textShadowRadius: 2,
           }}>
             {formatWeekRangeLabel(currentWs, currentWe)}
-          </Text>
+          </OneLineText>
         </View>
 
         <Pressable
