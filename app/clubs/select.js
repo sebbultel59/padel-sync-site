@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Text, UIManager, View } from "react-native";
+import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 let NativeSlider = null;
@@ -31,6 +32,7 @@ export default function ClubSelectScreen() {
   const [preferredId, setPreferredId] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const [radiusKm, setRadiusKm] = useState(30);
+  const [coords, setCoords] = useState(null); // position actuelle du joueur { lat, lng }
   const goBackOr = (fallback) => {
     if (router?.canGoBack?.()) router.back();
     else router.replace(fallback);
@@ -58,7 +60,7 @@ export default function ClubSelectScreen() {
           supabase.from("zones").select("*").eq("id", profile.zone_id).maybeSingle(),
           supabase
             .from("clubs")
-            .select("id, name, lat, lng, zone_id, is_active")
+            .select("id, name, address, lat, lng, zone_id, is_active")
             .eq("zone_id", profile.zone_id)
             .eq("is_active", true)
             .order("name"),
@@ -91,17 +93,37 @@ export default function ClubSelectScreen() {
   }, []);
 
   const filteredClubs = useMemo(() => {
-    if (!zone?.lat_center || !zone?.lng_center) return clubs;
+    // point de référence : position actuelle si connue, sinon centre de zone
+    const origin = coords || (zone?.lat_center && zone?.lng_center
+      ? { lat: zone.lat_center, lng: zone.lng_center }
+      : null);
+
+    if (!origin) return clubs;
     if (showAll) return clubs;
     return (clubs || []).filter((c) => {
       if (c.lat == null || c.lng == null) return false;
-      const dist = haversineKm(
-        { lat: zone.lat_center, lng: zone.lng_center },
-        { lat: c.lat, lng: c.lng }
-      );
+      const dist = haversineKm(origin, { lat: c.lat, lng: c.lng });
       return dist <= radiusKm;
     });
-  }, [clubs, radiusKm, showAll, zone]);
+  }, [clubs, radiusKm, showAll, zone, coords]);
+
+  useEffect(() => {
+    // Récupérer la position actuelle pour filtrer les clubs par distance
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          setCoords(null);
+          return;
+        }
+        const pos = await Location.getCurrentPositionAsync({});
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      } catch (e) {
+        console.warn("[ClubSelect] Erreur GPS:", e?.message || e);
+        setCoords(null);
+      }
+    })();
+  }, []);
 
   const toggleClub = (clubId) => {
     const next = new Set(selectedIds);
@@ -147,7 +169,8 @@ export default function ClubSelectScreen() {
 
     await supabase.from("profiles").update({ comfort_radius_km: Math.round(radiusKm) }).eq("id", userId);
     Alert.alert("Enregistré", "Tes clubs acceptés ont été mis à jour.");
-    goBackOr("/(tabs)/matches");
+    // Après avoir choisi ses clubs, on revient toujours sur l'onglet Profil
+    router.replace("/(tabs)/profil");
   };
 
   if (loading) {
@@ -251,9 +274,31 @@ export default function ClubSelectScreen() {
             }}
           >
             <Text style={{ color: "#ffffff", fontWeight: "700" }}>{club.name}</Text>
+            {club.address ? (
+              <Text style={{ color: "#9bb6d6", marginTop: 2, fontSize: 12 }}>
+                {(() => {
+                  // Exemple d'input: "2 rue du Commerce, 62500 Saint-Martin-au-Laërt, France"
+                  const parts = String(club.address).split(",").map((p) => p.trim()).filter(Boolean);
+                  if (parts.length === 0) return "";
+                  const cityPart = parts.length === 1 ? parts[0] : parts[parts.length - 2];
+                  const tokens = cityPart.split(" ").filter(Boolean);
+                  if (tokens.length === 0) return "";
+                  // Si le premier token est un code postal (5 chiffres), on l'enlève
+                  const withoutPostal =
+                    tokens.length > 1 && /^[0-9]{5}$/.test(tokens[0])
+                      ? tokens.slice(1).join(" ")
+                      : cityPart;
+                  return withoutPostal;
+                })()}
+              </Text>
+            ) : null}
             {isSelected ? (
               <Pressable
-                onPress={() => setPreferredId(isPreferred ? null : String(club.id))}
+                onPress={(e) => {
+                  // Empêcher de déclencher le onPress du container (toggleClub)
+                  if (e?.stopPropagation) e.stopPropagation();
+                  setPreferredId(isPreferred ? null : String(club.id));
+                }}
                 style={{ marginTop: 6 }}
               >
                 <Text style={{ color: isPreferred ? "#e0ff00" : "#9bb6d6" }}>

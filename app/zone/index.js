@@ -76,7 +76,7 @@ export default function ZoneScreen() {
       return;
     }
     if (zone.id === currentZoneId) {
-      goBackOr("/(tabs)/matches");
+      router.replace("/(tabs)/profil");
       return;
     }
     const doChange = async () => {
@@ -146,6 +146,12 @@ export default function ZoneScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: "#001831" }} contentContainerStyle={{ padding: 16, paddingTop: 46, paddingBottom: insets.bottom + 24 }}>
+      <Pressable
+        onPress={() => router.replace("/(tabs)/profil")}
+        style={{ alignSelf: "flex-start", paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", marginBottom: 8 }}
+      >
+        <Text style={{ color: "#cfe9ff", fontWeight: "800" }}>← Retour</Text>
+      </Pressable>
       <Text style={{ color: "#e0ff00", fontSize: 20, fontWeight: "900", marginBottom: 6 }}>
         Choisir ma zone
       </Text>

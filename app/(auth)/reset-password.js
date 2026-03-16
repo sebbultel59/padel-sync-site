@@ -8,23 +8,46 @@ import { supabase } from "../../lib/supabase";
 
 const BRAND = "#1a4b97";
 
+// Récupère le token depuis les query params ou le hash (Supabase redirige avec #access_token=... sur le web)
+function getAccessTokenFromUrl(params) {
+  const fromParams = params?.access_token;
+  if (fromParams) return Array.isArray(fromParams) ? fromParams[0] : fromParams;
+  if (typeof window !== 'undefined' && window.location?.hash) {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const token = hashParams.get('access_token');
+    const type = hashParams.get('type');
+    if (token && type === 'recovery') return token;
+  }
+  return null;
+}
+
 export default function ResetPasswordScreen() {
-  const { access_token } = useLocalSearchParams();
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
-  
+  const access_token = getAccessTokenFromUrl(params);
+
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [passwordMismatch, setPasswordMismatch] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
 
-  // Vérifier le token au chargement
+  // Vérifier le token au chargement (query params + hash sur web)
   useEffect(() => {
-    if (access_token) {
-      // Essayer de définir la session avec le token
+    const token = getAccessTokenFromUrl(params);
+    if (typeof window !== 'undefined' && window.location?.hash && token) {
+      // Nettoyer l’URL en remplaçant le hash par des query params (évite de réafficher l’alerte au refresh)
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const newPath = `/reset-password?access_token=${encodeURIComponent(token)}`;
+      if (window.history?.replaceState) {
+        window.history.replaceState(null, '', newPath);
+      }
+    }
+
+    if (token) {
       supabase.auth.setSession({
-        access_token: Array.isArray(access_token) ? access_token[0] : access_token,
-        refresh_token: '', // Pas nécessaire pour la réinitialisation
+        access_token: token,
+        refresh_token: '',
       }).then(({ data, error }) => {
         if (error) {
           Alert.alert(
@@ -53,7 +76,7 @@ export default function ResetPasswordScreen() {
         ]
       );
     }
-  }, [access_token]);
+  }, [params?.access_token]);
 
   const canSubmit = password.length >= 6 && password === passwordConfirm && passwordConfirm.length >= 6;
 

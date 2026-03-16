@@ -20,6 +20,7 @@ import {
     TextInput,
     View,
 } from "react-native";
+import * as Location from "expo-location";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingModal } from "../../components/OnboardingModal";
 import OnFireLabel from "../../components/OnFireLabel";
@@ -74,6 +75,13 @@ const LEVELS = [
 const SHOW_ADDRESS_SECTION = false;
 const colorForLevel = (n) => (LEVELS.find(x => x.v === Number(n))?.color) || '#9ca3af';
 const levelMeta = (n) => LEVELS.find((x) => x.v === n) ?? null;
+
+const extractCityFromAddress = (address) => {
+  if (!address || typeof address !== 'string') return '';
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return '';
+  return parts[parts.length - 1];
+};
 
 const formatAddressCompact = (value) => {
   if (!value) return '';
@@ -275,7 +283,9 @@ export default function ProfilScreen() {
   const [cotePickerVisible, setCotePickerVisible] = useState(false);
   const [clubPickerVisible, setClubPickerVisible] = useState(false);
   const [clubsList, setClubsList] = useState([]);
+  const [clubRadiusKm, setClubRadiusKm] = useState(30);
   const [loadingClubs, setLoadingClubs] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null); // { lat, lng } position actuelle
   
   // États pour les popups d'onboarding
   const [incompleteProfileModalVisible, setIncompleteProfileModalVisible] = useState(false);
@@ -431,12 +441,16 @@ export default function ProfilScreen() {
         to += pageSize;
       }
 
-      // Si le joueur a un domicile, trier par distance
-      if (addressHome?.lat && addressHome?.lng) {
-        const clubsWithDist = allClubs.map(c => ({
-          ...c,
-          distance: haversineKm(addressHome, { lat: c.lat, lng: c.lng })
-        }));
+      // Si on a la position actuelle du joueur (ou à défaut son domicile), trier par distance et filtrer par rayon choisi
+      const origin = currentLocation || (addressHome?.lat && addressHome?.lng ? { lat: addressHome.lat, lng: addressHome.lng } : null);
+      if (origin) {
+        const clubsWithDist = allClubs
+          .map(c => ({
+            ...c,
+            distance: haversineKm(origin, { lat: c.lat, lng: c.lng })
+          }))
+          .filter(c => !clubRadiusKm || c.distance <= clubRadiusKm);
+
         clubsWithDist.sort((a, b) => a.distance - b.distance);
         setClubsList(clubsWithDist);
       } else {
@@ -456,12 +470,28 @@ export default function ProfilScreen() {
     } finally {
       setLoadingClubs(false);
     }
-  }, [addressHome, haversineKm, zoneId]);
+  }, [addressHome, currentLocation, haversineKm, zoneId, clubRadiusKm]);
 
   // Charger les clubs quand on ouvre le picker
   useEffect(() => {
     if (clubPickerVisible) {
-      loadClubs();
+      (async () => {
+        try {
+          // Essayer d'abord de récupérer la position actuelle pour filtrer par distance
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === "granted") {
+            const pos = await Location.getCurrentPositionAsync({});
+            setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          } else {
+            setCurrentLocation(null);
+          }
+        } catch (e) {
+          console.warn("[Profil] Erreur GPS pour clubs:", e?.message || e);
+          setCurrentLocation(null);
+        } finally {
+          loadClubs();
+        }
+      })();
     }
   }, [clubPickerVisible, loadClubs]);
 
@@ -2762,7 +2792,38 @@ export default function ProfilScreen() {
                   <Text style={{ marginTop: 12, color: '#ffffff' }}>Chargement des clubs...</Text>
                 </View>
               ) : (
-                <ScrollView style={{ maxHeight: 500 }}>
+                <>
+                  {/* Filtre de distance autour de la position actuelle du joueur (ou de son domicile si GPS indisponible) */}
+                  {(currentLocation || addressHome?.lat && addressHome?.lng) && (
+                    <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>
+                      <Text style={{ color: '#ffffff', fontSize: 12, marginBottom: 6 }}>
+                        Rayon autour de ta position : {clubRadiusKm} km
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {[10, 20, 30, 50].map((v) => (
+                          <Pressable
+                            key={v}
+                            onPress={() => setClubRadiusKm(v)}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 999,
+                              backgroundColor: clubRadiusKm === v ? '#1a4b97' : '#0b2445',
+                              borderWidth: clubRadiusKm === v ? 0 : 1,
+                              borderColor: '#1f2937',
+                              marginRight: 8,
+                            }}
+                          >
+                            <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: clubRadiusKm === v ? '700' : '400' }}>
+                              {v} km
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <ScrollView style={{ maxHeight: 500 }}>
                   {clubsList.map((c, idx) => (
                     <Pressable
                       key={c.id || idx}
@@ -2784,8 +2845,8 @@ export default function ProfilScreen() {
                             {c.name}
                           </Text>
                           {c.address && (
-                            <Text style={{ fontSize: 12, color: '#ffffff', marginTop: 2, opacity: 0.9 }}>
-                              {c.address}
+                            <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+                              {extractCityFromAddress(c.address)}
                             </Text>
                           )}
                           {c.distance !== undefined && c.distance !== Infinity && (
@@ -2803,7 +2864,8 @@ export default function ProfilScreen() {
                       <Text style={{ color: '#ffffff' }}>Aucun club disponible</Text>
                     </View>
                   )}
-                </ScrollView>
+                  </ScrollView>
+                </>
               )}
             </View>
           </Pressable>
