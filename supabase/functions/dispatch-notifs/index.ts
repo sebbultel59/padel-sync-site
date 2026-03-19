@@ -26,13 +26,19 @@ function renderMessage(
       case "group_match_validated": return { title: "🎾 Tu as été sélectionné.e pour un match 🎾", body: "Consulte tes matchs validés" };
       case "group_join_request_approved": return { title: "Demande acceptée ✅", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été acceptée." };
       case "group_join_request_rejected": return { title: "Demande refusée", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été refusée." };
+      case "new_week_dispos": return { title: "Nouvelle semaine : Renseigne tes dispos", body: "Nouvelle semaine : Renseigne tes dispos" };
   
       // --- badges et trophées
       case "badge_unlocked": return { title: "Nouveau trophée débloqué 🏆", body: ctx.payload?.message || "Tu as débloqué un nouveau badge !" };
   
       // --- seuils de dispo (NOUVEAU)
       case "group_slot_hot_3":      return { title: "Ça se chauffe à 3 🔥", body: "Un créneau atteint 3 joueurs disponibles." };
-      case "group_slot_ready_4":    return { title: "Match possible ✅", body: "Un créneau atteint 4 joueurs disponibles." };
+  case "group_slot_ready_4": {
+    const groupName = ctx.group_name ?? "ton groupe";
+    const text = `Nouveaux matchs possibles dans "${groupName}"`;
+    return { title: text, body: text };
+  }
+      case "availability_missing_all": return { title: "Nouvelle semaine : Renseigne tes dispos", body: "Nouvelle semaine : Renseigne tes dispos" };
       case "availability_reminder": {
         const weekStart = ctx.payload?.week_start;
         const weekLabel = weekStart ? `Semaine du ${formatShortDate(weekStart)}` : "";

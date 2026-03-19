@@ -101,9 +101,21 @@
 
 #### 20. **group_slot_ready_4**
 - **Quand** : Un créneau atteint 4 joueurs disponibles (match possible)
-- **Titre** : "Match possible ✅"
-- **Message** : "Un créneau atteint 4 joueurs disponibles."
+- **Titre** : "Nouveaux matchs possibles dans \"[Nom du groupe]\""
+- **Message** : "Nouveaux matchs possibles dans \"[Nom du groupe]\""
 - **Destinataires** : Les membres du groupe
+
+#### 20b. **new_week_dispos**
+- **Quand** : Tous les dimanches à 20h (rappel hebdomadaire)
+- **Titre** : "Nouvelle semaine : Renseigne tes dispos"
+- **Message** : "Nouvelle semaine : Renseigne tes dispos"
+- **Destinataires** : Tous les membres d'au moins un groupe
+
+#### 20c. **availability_missing_all**
+- **Quand** : Toutes les 48h (si aucune dispo n’est renseignée dans aucun groupe pour la semaine à venir)
+- **Titre** : "Nouvelle semaine : Renseigne tes dispos"
+- **Message** : "Nouvelle semaine : Renseigne tes dispos"
+- **Destinataires** : Membres d’au moins un groupe, uniquement si aucune dispo n’est saisie
 
 ### 🏆 Notifications de badges et trophées
 

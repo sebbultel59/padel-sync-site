@@ -45,6 +45,9 @@ export default function TabsLayout() {
     match_result_recorded: true,
     group_join_request_approved: true,
     group_join_request_rejected: true,
+    availability_reminder: true,
+    availability_missing_all: true,
+    new_week_dispos: true,
   });
   const [notifyGroupMatches, setNotifyGroupMatches] = useState(true);
 
@@ -57,7 +60,7 @@ export default function TabsLayout() {
       // Fetch last seen timestamp
       const { data: meProfile } = await supabase
         .from('profiles')
-        .select('notifications_last_seen')
+        .select('notifications_last_seen, display_name, name')
         .eq('id', uid)
         .single();
       const lastSeen = meProfile?.notifications_last_seen ? new Date(meProfile.notifications_last_seen) : null;
@@ -202,17 +205,31 @@ export default function TabsLayout() {
         'group_member_join': 'Nouveau membre',
         'member_joined': 'Nouveau membre',
         'group_member_left': 'Membre parti',
+        'group_member_leave': 'Membre parti',
         'member_left': 'Membre parti',
+
+        // availability reminders
+        'availability_missing_all': 'Aucune dispo renseignée',
       };
 
       const mapped = finalRows.map((job) => {
         const kind = String(job?.kind || '').toLowerCase();
         const actor = profilesById[job.actor_id] || {};
+        const meName =
+          meProfile?.display_name?.trim?.() ||
+          meProfile?.name?.trim?.() ||
+          'Quelqu’un';
         const actorName =
           actor.display_name?.trim?.() ||
           actor.name?.trim?.() ||
           (job?.payload?.actor_name || '').toString().trim() ||
-          'Quelqu’un';
+          // Pour les notifs "self" sans actor_id (ex: availability_missing_all),
+          // afficher le pseudo du destinataire (utilisateur connecté).
+          ((Array.isArray(job?.recipients) &&
+            job.recipients.length === 1 &&
+            String(job.recipients[0]) === String(uid))
+            ? meName
+            : 'Quelqu’un');
 
         const group = groupsById[job.group_id] || {};
         const groupName =
@@ -366,6 +383,9 @@ export default function TabsLayout() {
           match_result_recorded: true,
           group_join_request_approved: true,
           group_join_request_rejected: true,
+          availability_reminder: true,
+          availability_missing_all: true,
+          new_week_dispos: true,
         };
         setNotificationPreferences({ ...defaults, ...profile.notification_preferences });
       }
@@ -431,6 +451,24 @@ export default function TabsLayout() {
   }
 
   function toggleNotificationType(type) {
+    // Toggle global "rappels dispos" => pilote plusieurs clés serveur
+    if (type === 'availability_reminders') {
+      const currentlyEnabled =
+        notificationPreferences.availability_reminder !== false &&
+        notificationPreferences.availability_missing_all !== false &&
+        notificationPreferences.new_week_dispos !== false;
+      const next = !currentlyEnabled;
+      const newPrefs = {
+        ...notificationPreferences,
+        availability_reminder: next,
+        availability_missing_all: next,
+        new_week_dispos: next,
+      };
+      setNotificationPreferences(newPrefs);
+      saveNotificationPreferences(newPrefs).catch(e => console.warn('[notifications] Error saving preferences:', e));
+      return;
+    }
+
     const currentValue = notificationPreferences[type] !== false; // true par défaut
     const newPrefs = {
       ...notificationPreferences,
@@ -1014,6 +1052,7 @@ export default function TabsLayout() {
                 </Text>
                 <FlatList
                   data={[
+                    { key: 'availability_reminders', label: 'Rappels dispos', icon: 'calendar-outline' },
                     { key: 'match_created', label: 'Nouveau match créé', icon: 'tennisball-outline' },
                     { key: 'match_confirmed', label: 'Match confirmé', icon: 'checkmark-circle-outline' },
                     { key: 'match_validated', label: 'Match validé', icon: 'checkmark-done-outline' },
@@ -1032,7 +1071,13 @@ export default function TabsLayout() {
                   ]}
                   keyExtractor={(item) => item.key}
                   renderItem={({ item }) => {
-                    const isEnabled = notificationPreferences[item.key] !== false;
+                    const isEnabled = item.key === 'availability_reminders'
+                      ? (
+                        notificationPreferences.availability_reminder !== false &&
+                        notificationPreferences.availability_missing_all !== false &&
+                        notificationPreferences.new_week_dispos !== false
+                      )
+                      : notificationPreferences[item.key] !== false;
                     return (
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f3f4f6' }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>

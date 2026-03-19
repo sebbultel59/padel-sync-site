@@ -98,13 +98,31 @@ export default function ClubSelectScreen() {
       ? { lat: zone.lat_center, lng: zone.lng_center }
       : null);
 
-    if (!origin) return clubs;
-    if (showAll) return clubs;
-    return (clubs || []).filter((c) => {
+    const withDistance = (list) =>
+      (list || []).map((c) => {
+        if (!origin || c.lat == null || c.lng == null) {
+          return { ...c, distanceKm: null };
+        }
+        const dist = haversineKm(origin, { lat: c.lat, lng: c.lng });
+        return { ...c, distanceKm: dist };
+      });
+
+    if (!origin) {
+      // Pas de position dispo : on renvoie la liste telle quelle, sans distance
+      return withDistance(clubs || []);
+    }
+
+    if (showAll) {
+      return withDistance(clubs || []);
+    }
+
+    const filtered = (clubs || []).filter((c) => {
       if (c.lat == null || c.lng == null) return false;
       const dist = haversineKm(origin, { lat: c.lat, lng: c.lng });
       return dist <= radiusKm;
     });
+
+    return withDistance(filtered);
   }, [clubs, radiusKm, showAll, zone, coords]);
 
   useEffect(() => {
@@ -288,7 +306,11 @@ export default function ClubSelectScreen() {
                     tokens.length > 1 && /^[0-9]{5}$/.test(tokens[0])
                       ? tokens.slice(1).join(" ")
                       : cityPart;
-                  return withoutPostal;
+                  const dist =
+                    typeof club.distanceKm === "number" && isFinite(club.distanceKm)
+                      ? `${Math.round(club.distanceKm)} km`
+                      : null;
+                  return dist ? `${withoutPostal} - ${dist}` : withoutPostal;
                 })()}
               </Text>
             ) : null}
