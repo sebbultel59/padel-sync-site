@@ -65,9 +65,23 @@
             // Vérifier si l'URL contient un token de réinitialisation de mot de passe
             const hash = window.location.hash;
             
-            if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
-                // Construire l'URL du deep link avec le hash
-                const deepLink = 'syncpadel://reset-password' + hash;
+            if (hash && hash.includes('access_token')) {
+                // Si on a un access_token, on tente d'ouvrir l'app.
+                // - type=recovery => page reset-password
+                // - autres types (signup / magiclink / etc.) => callback auth
+                const params = new URLSearchParams(hash.replace(/^#/, ''));
+                const type = params.get('type');
+
+                const deepLinkBase = (type === 'recovery')
+                    ? 'syncpadel://reset-password'
+                    : 'syncpadel://auth/callback';
+
+                // Construire l'URL du deep link.
+                // Pour recovery, on convertit le hash (#access_token=...) en query (?access_token=...)
+                // pour que Expo Router puisse le lire sur mobile/native.
+                const deepLink = (type === 'recovery')
+                    ? deepLinkBase + '?' + hash.replace(/^#/, '')
+                    : deepLinkBase + hash;
                 
                 // Fonction pour rediriger vers le deep link
                 function redirectToApp() {
@@ -143,6 +157,22 @@
                     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
                     const isAndroid = /Android/.test(navigator.userAgent);
                     const hasAccessToken = hash && hash.includes('access_token');
+                    const params = hash ? new URLSearchParams(hash.replace(/^#/, '')) : null;
+                    const errorCode = params?.get('error_code');
+                    const error = params?.get('error');
+
+                    // Si Supabase renvoie "otp_expired", le magic link n'est plus utilisable.
+                    // Dans ce cas, la redirection automatique vers l'app ne peut pas fonctionner.
+                    if (errorCode === 'otp_expired' || error === 'access_denied') {
+                        const deepLinkSignin = 'syncpadel://signin';
+                        container.innerHTML = `
+                            <h1>Connexion impossible</h1>
+                            <p>Le lien reçu par email a expiré (ou n'est plus valide).</p>
+                            <p style="margin-top: 0.75rem;">Demande un nouveau lien de connexion, puis cliquez dessus à nouveau.</p>
+                            <a href="${deepLinkSignin}" class="button" style="margin-top: 1rem; display: inline-block; padding: 12px 24px; background: #1a4b97; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Ouvrir l'application</a>
+                        `;
+                        return;
+                    }
                     
                     let downloadLinks = '';
                     
