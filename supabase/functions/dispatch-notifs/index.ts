@@ -5,6 +5,16 @@ function formatShortDate(iso?: string) {
   return d.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short" });
 }
 
+function formatWeekdayAndTimeFr(iso?: string) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const weekday = d.toLocaleDateString('fr-FR', { weekday: 'long' });
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${weekday} ${hh}h${mm}`;
+}
+
 function renderMessage(
     kind: string,
     ctx: { actor_name?: string; starts_at?: string; ends_at?: string; group_name?: string; payload?: any }
@@ -27,6 +37,26 @@ function renderMessage(
       case "group_join_request_approved": return { title: "Demande acceptée ✅", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été acceptée." };
       case "group_join_request_rejected": return { title: "Demande refusée", body: ctx.payload?.message || "Ta demande pour rejoindre le groupe a été refusée." };
       case "new_week_dispos": return { title: "Nouvelle semaine : Renseigne tes dispos", body: "Nouvelle semaine : Renseigne tes dispos" };
+
+      // --- V1 opportunités de match (Trouver)
+      case "match_proposed": {
+        const slot = formatWeekdayAndTimeFr(ctx.payload?.starts_at);
+        const remaining = Number(ctx.payload?.remaining_slots ?? ctx.payload?.places_to_fill ?? 0);
+        const plural = remaining > 1 ? 's' : '';
+        return {
+          title: '🔥 Nouvelle partie proposée',
+          body: slot
+            ? `${slot} • ${remaining} place${plural} à compléter`
+            : 'Nouvelle partie à compléter disponible',
+        };
+      }
+      case "match_almost_full": {
+        const slot = formatWeekdayAndTimeFr(ctx.payload?.starts_at);
+        return {
+          title: '⚡ Plus qu’une place pour jouer',
+          body: slot ? `Rejoins la partie de ${slot}` : 'Plus qu’une place pour jouer',
+        };
+      }
   
       // --- badges et trophées
       case "badge_unlocked": return { title: "Nouveau trophée débloqué 🏆", body: ctx.payload?.message || "Tu as débloqué un nouveau badge !" };

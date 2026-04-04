@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useGlobalSearchParams, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActionSheetIOS,
@@ -30,19 +30,50 @@ import clickIcon from '../../../assets/icons/click.png';
 import racketIcon from '../../../assets/icons/racket.png';
 import { Step, useCopilot } from '../../../components/AppCopilot';
 import { OnboardingModal } from '../../../components/OnboardingModal';
+import { EmptyStateMatch } from '../../../components/EmptyStateMatch';
+import { FindGameWizardModal } from '../../../features/group-activity/components/FindGameWizardModal';
+import { FormeDuMomentSection } from '../../../features/matches/components/FormeDuMomentSection';
+import { FindGameFeedCard } from '../../../features/matches/components/FindGameFeedCard';
+import { buildUnifiedFeed, filterUnifiedFeedByTab } from '../../../features/matches/unifiedFeed';
+import { HorizontalPillToggle } from '../../../components/ui/HorizontalPillToggle';
 import { OneLineText } from '../../../components/ui/OneLineText';
 import { useActiveGroup } from "../../../lib/activeGroup";
+import {
+  getEligibleUsersForMatchNotification,
+  enqueueMatchOpportunityNotifications,
+} from '../../../lib/matchOpportunityNotifications';
+import {
+  PENDING_FIND_GAME_ASYNC_KEY,
+  peekPendingFindGameConfirmSearchId,
+  takePendingFindGameConfirmSearchId,
+} from "../../../lib/pendingFindGameConfirm";
 import { filterAndSortPlayers, haversineKm, levelCompatibility } from "../../../lib/geography";
+import {
+  filterAndSortClubsByRadius,
+  getEffectiveRadius,
+  getRadiusFilterCapKm,
+  logClubRadiusFilter,
+  logMatchFilterResults,
+  normalizeStoredRadiusKm,
+} from "../../../lib/matchingFilters";
 import { popInviteJoinedBanner } from "../../../lib/invite";
+import { allowedClubIdsAfterRefusals, logClubsRefusalFilter } from "../../../lib/userAllowedClubs";
 import { supabase } from "../../../lib/supabase";
 import { formatPlayerName, press } from "../../../lib/uiSafe";
+import {
+  GEO_ACTIVE_SOURCE,
+  getUserGeoSettings,
+  inferLegacyGeoActiveSource,
+  logUserGeoDebug,
+} from "../../../lib/userGeoSettings";
 let NativeSlider = null;
 try {
   NativeSlider = require("@react-native-community/slider").default;
 } catch {}
 const hasNativeSlider = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RNCSlider");
 const GEO_PREFS_KEY = (groupId) => `geo_filter_prefs:${groupId}`;
-const FLASH_MATCH_ENABLED = false;
+/** Match éclair : FAB sur l’onglet Prêts uniquement (`possible`). */
+const FLASH_MATCH_ENABLED = true;
 
 const THEME = {
   bg: '#061A2B',
@@ -54,6 +85,14 @@ const THEME = {
   accent: '#E5FF00',
   accentSoft: 'rgba(229, 255, 0, 0.16)',
   ink: '#0B1526',
+};
+
+/** Contour des cartes match : même logique que `hotCard` (borderWidth 1, couleur en alpha 0.25) ; teinte #e0ff00 ; ombre froide séparée. */
+const MATCH_CARD_HALO = {
+  shadowColor: '#4DB8D8',
+  borderSoft: 'rgba(224, 255, 0, 0.25)',
+  surfaceSlot: '#111D32',
+  surfaceCard: '#182337',
 };
 
 const COLORS = {
@@ -74,6 +113,24 @@ const matchWord = (n) => (n <= 1 ? 'match' : 'matchs');
 const possibleWord = (n) => (n <= 1 ? 'possible' : 'possibles');
 const valideWord = (n) => (n <= 1 ? 'validé' : 'validés');
 
+/** Coéquipiers encore à choisir sur la carte « match prêt » (3 places, toi = créateur). */
+function remainingCoPlayersSelectFr(remaining) {
+  const r = Math.max(0, Math.min(3, remaining));
+  if (r === 0) return 'Prêt à créer le match';
+  if (r === 1) return 'Sélectionne 1 joueur';
+  return `Sélectionne ${r} joueurs`;
+}
+
+async function recordGroupMatchActivityEvent(groupId, matchId) {
+  if (!groupId || !matchId) return;
+  try {
+    const mod = await import('../../../features/group-activity/api/recordMatchCreated');
+    await mod.recordMatchCreatedActivity({ groupId, matchId });
+  } catch (e) {
+    console.warn('[recordGroupMatchActivityEvent]', e?.message || e);
+  }
+}
+
 // Helper pour la durée en minutes
 function durationMinutes(startIso, endIso) {
   try {
@@ -83,6 +140,54 @@ function durationMinutes(startIso, endIso) {
   } catch {
     return 0;
   }
+}
+
+/** Logs temporaires pour le pré-filtre clubs par distance (écran Matchs). */
+const GEO_CLUBS_DEBUG = typeof __DEV__ !== 'undefined' && __DEV__;
+function logGeoClubsMatches(payload) {
+  if (!GEO_CLUBS_DEBUG) return;
+  console.log('[GeoClubs/Matches]', payload);
+}
+
+/**
+ * Point de référence pour la distance club — aligné sur `resolve_user_geo_point` / `getUserGeoSettings` (profil).
+ */
+async function resolveGeoClubsRefPointMatches({
+  locationPermission,
+  zonesList,
+  myZoneId,
+  preferredClubCoords,
+  myProfile,
+}) {
+  let liveCoords = null;
+  const activeSrc = inferLegacyGeoActiveSource(myProfile);
+  if (
+    activeSrc === GEO_ACTIVE_SOURCE.LIVE &&
+    myProfile?.geo_use_live_location &&
+    locationPermission === 'granted'
+  ) {
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      liveCoords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+    } catch (e) {
+      logGeoClubsMatches({ step: 'gps_failed', message: e?.message });
+    }
+  }
+  const zone = (zonesList || []).find((x) => String(x.id) === String(myZoneId));
+  const settings = getUserGeoSettings({
+    profile: myProfile,
+    zone,
+    preferredClub: preferredClubCoords,
+    addressHome: myProfile?.address_home,
+    liveCoords,
+    locationPermission,
+  });
+  logUserGeoDebug('resolveGeoClubsRefPointMatches', settings);
+  return {
+    lat: settings.lat,
+    lng: settings.lng,
+    source: settings.source,
+  };
 }
 
 // Week helpers
@@ -153,6 +258,29 @@ function formatRange(sIso, eIso) {
   return `${wd} ${dd} ${mo} - ${sh} à ${eh}`;
 }
 
+/** Date seule (ligne 1) pour cartes « match en feu » — jour + mois en toutes lettres, sans année. */
+function formatHotMatchDateLine(sIso, eIso) {
+  if (!sIso || !eIso) return '';
+  const s = new Date(sIso);
+  const line = s.toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+  return line ? line.charAt(0).toUpperCase() + line.slice(1) : '';
+}
+
+/** Heures seules (ligne 2) pour cartes « match en feu ». */
+function formatHotMatchTimeLine(sIso, eIso) {
+  if (!sIso || !eIso) return '';
+  const s = new Date(sIso);
+  const e = new Date(eIso);
+  const timeOpts = { hour: '2-digit', minute: '2-digit' };
+  const sh = s.toLocaleTimeString('fr-FR', timeOpts);
+  const eh = e.toLocaleTimeString('fr-FR', timeOpts);
+  return `🕥 ${sh} à ${eh}`;
+}
+
 const LEVELS = [
   { v: 1, label: "Débutant", color: "#a3e635" },
   { v: 2, label: "Perfectionnement", color: "#86efac" },
@@ -170,14 +298,61 @@ const colorForLevel = (level) => {
 };
 
 export default function MatchesScreen() {
+  /** Réinitialise le compte à rebours du bouton « Confirmer le match » (assigné plus bas). */
+  const resetConfirmMatchCountdownRef = useRef(() => {});
   const navigation = useNavigation();
   const router = useRouter();
   const params = useLocalSearchParams();
+  const globalParams = useGlobalSearchParams();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { start } = useCopilot();
   const startRef = useRef(null);
+  const MATCH_COPY = {
+    tabs: {
+      possible: '⚡ Prêts',
+      validated: '✅ Validés',
+      complete: 'Compléter',
+    },
+    hot: {
+      intro: "🔥 À 1 ou 2 joueurs d'une partie",
+      introSubline: 'Propose pour la lancer',
+      cardCta: 'Créer une partie à compléter sur ce créneau',
+      ctaLaunch: 'Proposer la partie',
+    },
+    possible: {
+      intro: 'Consulte et lance des parties prêtes à jouer',
+    },
+    complete: {
+      intro: '🔥 Propose ou complète une partie',
+    },
+    validated: {
+      intro: 'Consulte les matchs validés',
+    },
+  };
+
+  const getHotMatchLabel = (playerCount) => {
+    const n = Number(playerCount) || 0;
+    if (n <= 1) return '🔥 1 joueur déjà dispo';
+    return `🔥 ${n} joueurs déjà dispo`;
+  };
+
+  const CONTENT_FILTERS = React.useMemo(
+    () => [
+      {
+        key: 'complete',
+        label: MATCH_COPY.tabs.complete,
+        leadingText: '+',
+        leadingTextColor: '#ff8c00',
+      },
+      { key: 'possible', label: MATCH_COPY.tabs.possible },
+      { key: 'validated', label: MATCH_COPY.tabs.validated },
+    ],
+    []
+  );
   const [freezeVersion, setFreezeVersion] = useState(0);
+  /** Refus clubs (état déclaré plus bas — ref pour effets définis avant les useState). */
+  const myRefusedClubIdsRef = useRef(new Set());
   const isFetchingRef = useRef(false);
   const pendingFetchRef = useRef(false);
   const lastFetchAtRef = useRef(0);
@@ -189,6 +364,8 @@ export default function MatchesScreen() {
   const weekLoadingUntilRef = useRef(0);
   const weekLoadingTimerRef = useRef(null);
   const freezeDisplayUntilRef = useRef(0);
+  /** Incrémenté à chaque fetchData : ignore les callbacks différés (queueMicrotask) d’un fetch précédent. */
+  const fetchDataGenerationRef = useRef(0);
 
   const freezeDisplay = useCallback((ms = 700) => {
     freezeDisplayUntilRef.current = Date.now() + ms;
@@ -308,7 +485,7 @@ export default function MatchesScreen() {
     setFlashGeoRefPoint(null);
     setFlashGeoCityQuery('');
     setFlashGeoCitySuggestions([]);
-    setFlashGeoRadiusKm(null);
+    setFlashGeoRadiusKm(25);
     setFlashGeoFilterVisible(false);
     setFlashAvailabilityFilter(false);
     setFlashAvailableMemberIds(new Set());
@@ -316,6 +493,8 @@ export default function MatchesScreen() {
 
   const MATCH_CREATED_UNDO_SECONDS = 10;
   const MATCH_CREATE_CONFIRM_SECONDS = 10;
+  /** Maintien sur « Confirmer le match » avant création effective (barre qui se vide). */
+  const CONFIRM_MATCH_HOLD_MS = 3000;
   const clearMatchCreatedUndoState = useCallback(() => {
     if (matchCreatedUndoIntervalRef.current) {
       clearInterval(matchCreatedUndoIntervalRef.current);
@@ -328,10 +507,23 @@ export default function MatchesScreen() {
 
   const closeConfirm = useCallback((reason = 'close') => {
     console.log('[MatchesConfirm] close', { reason, pendingPlayers: pendingCreateRef.current?.selectedUserIds || [] });
+    resetConfirmMatchCountdownRef.current?.();
     confirmFiredRef.current = false;
     pendingCreateRef.current = null;
     setPendingCreate(null);
     setConfirmClubId(null);
+  }, []);
+
+  const persistGeoPrefs = useCallback(async (groupId, patch) => {
+    if (!groupId) return;
+    try {
+      const key = GEO_PREFS_KEY(groupId);
+      const prevRaw = await AsyncStorage.getItem(key);
+      const prev = prevRaw ? JSON.parse(prevRaw) : {};
+      const next = { ...prev, ...patch, updated_at: Date.now() };
+      delete next.comfort_radius_km;
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+    } catch {}
   }, []);
 
   const changeZone = useCallback(async (zone, options = {}) => {
@@ -339,18 +531,18 @@ export default function MatchesScreen() {
     if (String(zone.id) === String(myZoneId)) return;
     const { skipConfirm = false } = options || {};
     const applyZone = async () => {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ zone_id: zone.id, comfort_radius_km: zone.default_radius_km })
-        .eq("id", meId);
+      const { error } = await supabase.from("profiles").update({ zone_id: zone.id }).eq("id", meId);
       if (error) {
         Alert.alert("Erreur", error.message);
         return;
       }
       setMyZoneId(zone.id);
-      setComfortRadiusKm(zone.default_radius_km);
-      persistGeoPrefs(activeGroup?.id, { zone_id: zone.id, comfort_radius_km: zone.default_radius_km });
-      Alert.alert("Zone mise à jour", "Sélectionne maintenant tes clubs acceptés.");
+      setMatchFilterRadiusKm(25);
+      persistGeoPrefs(activeGroup?.id, {
+        zone_id: zone.id,
+        radius_km: 25,
+      });
+      Alert.alert("Zone mise à jour", "Tu peux ajuster les clubs à masquer depuis ton profil si besoin.");
       router.replace("/clubs/select");
     };
     if (skipConfirm) {
@@ -367,65 +559,99 @@ export default function MatchesScreen() {
     );
   }, [meId, myZoneId, activeGroup?.id, persistGeoPrefs]);
 
-  const openConfirm = useCallback(async ({ startsAt, endsAt, selectedUserIds, commonClubIds, forcedClubId }) => {
+  /** Normalise les clubs passés depuis la carte / openConfirm (objets complets, pas seulement des ids). */
+  const normalizePossibleClubsForConfirm = React.useCallback((arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return [];
+    return arr
+      .map((c) => ({
+        id: String(c?.id ?? ''),
+        name: c?.name || 'Club',
+        phone: c?.phone ?? null,
+        lat: c?.lat != null ? Number(c.lat) : null,
+        lng: c?.lng != null ? Number(c.lng) : null,
+        zone_id: c?.zone_id != null ? String(c.zone_id) : null,
+      }))
+      .filter((row) => row.id);
+  }, []);
+
+  const openConfirm = useCallback(
+    async ({
+      startsAt,
+      endsAt,
+      selectedUserIds,
+      forcedClubId,
+      fromFindGame = false,
+      /** Clubs complets transmis depuis la carte au clic (source unique — pas de recalcul dans la modale). */
+      possibleClubs = null,
+      /** @deprecated alias de possibleClubs */
+      clubsSnapshot = null,
+   }) => {
+    const raw =
+      Array.isArray(possibleClubs) && possibleClubs.length > 0
+        ? possibleClubs
+        : Array.isArray(clubsSnapshot) && clubsSnapshot.length > 0
+          ? clubsSnapshot
+          : [];
+    const normalized = normalizePossibleClubsForConfirm(raw);
+    const hasDirectClubs = normalized.length > 0;
+    const fid = forcedClubId || null;
+    /** Liste figée côté carte : pas de fetch rayon / géo tant que ce flag est true. */
+    const clubsFromCard = hasDirectClubs && !fid && !fromFindGame;
+
     const snapshot = {
       startsAt,
       endsAt,
       selectedUserIds: Array.isArray(selectedUserIds) ? [...selectedUserIds] : [],
-      commonClubIds: Array.isArray(commonClubIds) ? [...commonClubIds] : [],
-      forcedClubId: forcedClubId || null,
-      clubId: forcedClubId || null,
+      forcedClubId: fid,
+      clubId: fid,
+      fromFindGame: !!fromFindGame,
+      possibleClubs: hasDirectClubs ? normalized : null,
+      clubsSnapshot: hasDirectClubs ? normalized : null,
+      clubsFromCard,
+      readyMatchHadClubs: hasDirectClubs,
     };
-    console.log('OPEN_MODAL_2', snapshot);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      // eslint-disable-next-line no-console
+      console.log('[ConfirmMatchModal] openConfirm — clubs reçus (args → snapshot)', {
+        rawCount: raw.length,
+        normalizedCount: normalized.length,
+        ids: normalized.map((c) => c.id),
+        names: normalized.map((c) => c.name),
+        clubsFromCard,
+        forcedClubId: fid,
+      });
+    }
     pendingCreateRef.current = snapshot;
     setPendingCreate(snapshot);
     confirmFiredRef.current = false;
-    confirmClubIdRef.current = forcedClubId || null;
-    setConfirmClubId(forcedClubId || null);
+    confirmClubIdRef.current = fid || null;
+    setConfirmClubId(fid || null);
     setConfirmClubSearch('');
-    setConfirmCommonClubs([]);
-    setConfirmCreatorId(meId || null);
-    try {
-      setConfirmClubsLoading(true);
-      const ids = snapshot.forcedClubId ? [snapshot.forcedClubId] : (snapshot.commonClubIds || []);
-      console.log('[HotMatch] openConfirm fetch clubs by ids', ids);
-      const { data, error } = await supabase
-        .from('clubs')
-        .select('id,name,phone')
-        .in('id', ids);
-      console.log('[HotMatch] openConfirm fetch result', {
-        count: data?.length ?? 0,
-        error: error?.message ?? null,
-        sample: data?.[0] ?? null,
-      });
-      setConfirmCommonClubs(data ?? []);
-    } catch (e) {
-      console.log('[HotMatch] openConfirm fetch exception', e?.message ?? String(e));
+    if (fid) {
       setConfirmCommonClubs([]);
-    } finally {
-      setConfirmClubsLoading(false);
+    } else if (hasDirectClubs) {
+      setConfirmCommonClubs(normalized);
+    } else {
+      setConfirmCommonClubs([]);
     }
-  }, [meId]);
+    setConfirmCreatorId(meId || null);
+    resetConfirmMatchCountdownRef.current?.();
+  },
+    [meId, normalizePossibleClubsForConfirm]
+  );
 
   const handleConfirmCreate = useCallback((source = 'confirm') => {
     if (confirmFiredRef.current) return;
     const refClubId = pendingCreateRef.current?.clubId ?? null;
     const forcedClubId = pendingCreateRef.current?.forcedClubId ?? null;
-    const selectedClubId = forcedClubId ?? confirmClubId ?? refClubId ?? null;
-    const finalClubId = confirmClubId || forcedClubId || selectedClubId || refClubId || null;
+    const finalClubId = forcedClubId ?? confirmClubId ?? refClubId ?? null;
     console.log('[HotMatch] confirm pressed', {
       confirmClubId,
       refClubId,
       forcedClubId,
-      selectedClubId,
       finalClubId,
       confirmCommonClubsLen: (confirmCommonClubs ?? []).length,
-      pendingIds: pendingCreate?.commonClubIds?.length ?? 0,
     });
-    if (!finalClubId) {
-      Alert.alert('Aucun club commun sélectionné', 'Sélectionne un club pour confirmer.');
-      return;
-    }
     confirmFiredRef.current = true;
     const payload = pendingCreateRef.current;
     console.log('[MatchesConfirm] create', { source, pendingPlayers: payload?.selectedUserIds || [] });
@@ -433,11 +659,12 @@ export default function MatchesScreen() {
     if (payload?.startsAt && payload?.endsAt) {
       onCreateIntervalMatch(payload.startsAt, payload.endsAt, payload.selectedUserIds, 'confirmed', {
         skipPostCreateModal: true,
-        selectedClubId: finalClubId,
+        selectedClubId: finalClubId || null,
+        fromFindGame: !!payload?.fromFindGame,
       });
       setTab('valides');
     }
-  }, [closeConfirm, onCreateIntervalMatch, confirmClubId, confirmCommonClubs, pendingCreate, setTab]);
+  }, [closeConfirm, onCreateIntervalMatch, confirmClubId, pendingCreate, setTab]);
 
   const handleConfirmClubPress = useCallback((club) => {
     const id = club?.id ?? null;
@@ -464,47 +691,230 @@ export default function MatchesScreen() {
   const effectiveClubId = forcedClubId ?? confirmClubId;
 
   useEffect(() => {
-    const forcedClubId = pendingCreate?.forcedClubId ?? null;
-    const ids = forcedClubId ? [forcedClubId] : (pendingCreate?.commonClubIds ?? []);
-
-    console.log('[HotMatch] effect fired', { isConfirmOpen, idsLen: ids.length, ids });
-
     if (!isConfirmOpen) return;
 
-    if (ids.length === 0) {
-      setConfirmCommonClubs([]);
-      setConfirmClubsLoading(false);
-      return;
-    }
+    const forcedClubId = pendingCreate?.forcedClubId ?? null;
+    const selected = pendingCreate?.selectedUserIds || [];
+    const playerIds = Array.from(new Set([...selected, meId].filter(Boolean).map(String)));
 
     let mounted = true;
+
+    /** Clubs passés au clic depuis la carte — déjà appliqués dans openConfirm ; on resynchronise si l’effet se rejoue. */
+    const applyPossibleClubsFromCard = () => {
+      const pc = pendingCreateRef.current;
+      if (!pc?.clubsFromCard || !Array.isArray(pc.possibleClubs) || pc.possibleClubs.length === 0) return false;
+      const mapped = pc.possibleClubs.map((c) => ({
+        id: String(c.id),
+        name: c.name || 'Club',
+        phone: c.phone ?? null,
+        lat: c.lat ?? null,
+        lng: c.lng ?? null,
+        zone_id: c.zone_id ?? null,
+      }));
+      setConfirmCommonClubs(mapped);
+      if (mapped.length === 1) setConfirmClubId(mapped[0].id);
+      logClubRadiusFilter({
+        players_count: playerIds.length,
+        clubs_found: mapped.length,
+        filters: { radius_km: matchFilterRadiusKm, source: 'possibleClubs_from_card' },
+      });
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        // eslint-disable-next-line no-console
+        console.log('[ConfirmMatchModal] modale — liste = possibleClubs (carte, pas de recompute)', {
+          count: mapped.length,
+          ids: mapped.map((c) => c.id),
+          names: mapped.map((c) => c.name),
+        });
+      }
+      return true;
+    };
+
+    /** Même source que « Clubs possibles » sur les cartes Prêts (évite un 2ᵉ GPS + requête qui diverge). */
+    const applyGeoClubsList = () => {
+      const list = geoClubsList || [];
+      if (!Array.isArray(list) || list.length === 0) return false;
+      const refusedSnap = myRefusedClubIdsRef.current;
+      const allowed = new Set(
+        allowedClubIdsAfterRefusals(
+          list.map((c) => String(c.id)),
+          refusedSnap
+        )
+      );
+      const mapped = list
+        .filter((c) => allowed.has(String(c.id)))
+        .map((c) => ({
+          id: String(c.id),
+          name: c.name || 'Club',
+          phone: c.phone ?? null,
+          lat: c.lat ?? null,
+          lng: c.lng ?? null,
+          zone_id: c.zone_id ?? null,
+        }));
+      setConfirmCommonClubs(mapped);
+      if (mapped.length === 1) setConfirmClubId(mapped[0].id);
+      logClubRadiusFilter({
+        players_count: playerIds.length,
+        clubs_found: mapped.length,
+        filters: { radius_km: matchFilterRadiusKm, source: 'geoClubsList' },
+      });
+      return true;
+    };
+
+    if (forcedClubId) {
+      (async () => {
+        try {
+          setConfirmClubsLoading(true);
+          const { data, error } = await supabase
+            .from('clubs')
+            .select('id,name,phone,lat,lng')
+            .eq('id', forcedClubId)
+            .maybeSingle();
+          if (error) throw error;
+          if (mounted) {
+            setConfirmCommonClubs(data ? [data] : []);
+            if (data?.id) setConfirmClubId(data.id);
+          }
+          logClubRadiusFilter({
+            players_count: playerIds.length,
+            clubs_found: data ? 1 : 0,
+            filters: { radius_km: matchFilterRadiusKm },
+          });
+        } catch (e) {
+          console.log('[HotMatch] confirm clubs load (forced)', e?.message ?? String(e));
+          if (mounted) setConfirmCommonClubs([]);
+        } finally {
+          if (mounted) setConfirmClubsLoading(false);
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }
+
+    if (applyPossibleClubsFromCard()) {
+      setConfirmClubsLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    /** Liste carte verrouillée : pas de fallback rayon / fetch. */
+    if (pendingCreateRef.current?.clubsFromCard) {
+      setConfirmClubsLoading(false);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn('[ConfirmMatchModal] clubsFromCard actif — pas de recompute geo/fetch', {
+          possibleLen: pendingCreateRef.current?.possibleClubs?.length ?? 0,
+        });
+      }
+      return () => {
+        mounted = false;
+      };
+    }
+
+    if (applyGeoClubsList()) {
+      setConfirmClubsLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
     (async () => {
       try {
+        if (pendingCreateRef.current?.clubsFromCard) {
+          if (mounted) setConfirmClubsLoading(false);
+          return;
+        }
         setConfirmClubsLoading(true);
-        console.log('[HotMatch] fetch clubs by ids', ids);
 
-        const { data, error } = await supabase
-          .from('clubs')
-          .select('id,name,phone')
-          .in('id', ids);
+        const [{ data: clubsData }, { data: prefRow }] = await Promise.all([
+          supabase
+            .from('clubs')
+            .select('id, name, phone, zone_id, is_active, lat, lng')
+            .eq('is_active', true)
+            .not('lat', 'is', null)
+            .not('lng', 'is', null)
+            .order('name'),
+          supabase
+            .from('user_clubs')
+            .select('club_id, clubs(lat, lng, name)')
+            .eq('user_id', meId)
+            .eq('is_preferred', true)
+            .eq('is_refused', false)
+            .limit(1)
+            .maybeSingle(),
+        ]);
 
-        console.log('[HotMatch] fetch result', {
-          count: data?.length ?? 0,
-          error: error?.message ?? null,
-          sample: data?.[0] ?? null,
+        let preferredClubCoords = null;
+        const pr = prefRow?.clubs;
+        if (pr && typeof pr === 'object' && !Array.isArray(pr)) {
+          preferredClubCoords = { lat: pr.lat, lng: pr.lng, name: pr.name };
+        } else if (Array.isArray(pr) && pr[0]) {
+          preferredClubCoords = { lat: pr[0].lat, lng: pr[0].lng, name: pr[0].name };
+        }
+
+        const { data: profileGeo } = await supabase
+          .from('profiles')
+          .select(
+            'geo_ref_lat, geo_ref_lng, geo_use_live_location, geo_radius_km, geo_active_source, geo_ref_type, address_home'
+          )
+          .eq('id', meId)
+          .maybeSingle();
+
+        const ref = await resolveGeoClubsRefPointMatches({
+          locationPermission,
+          zonesList,
+          myZoneId,
+          preferredClubCoords,
+          myProfile: profileGeo,
+        });
+
+        const capKm = getRadiusFilterCapKm({
+          radius_km:
+            matchFilterRadiusKm === null
+              ? null
+              : profileGeo?.geo_radius_km != null && Number.isFinite(Number(profileGeo.geo_radius_km))
+                ? Number(profileGeo.geo_radius_km)
+                : matchFilterRadiusKm,
+        });
+        /** Point déjà calculé pour les cartes : prioritaire sur un nouveau GPS (souvent instable à l’ouverture de modale). */
+        const refPoint =
+          geoClubsDistanceRefPoint &&
+          geoClubsDistanceRefPoint.lat != null &&
+          geoClubsDistanceRefPoint.lng != null
+            ? geoClubsDistanceRefPoint
+            : ref.lat != null && ref.lng != null && ref.source !== 'none'
+              ? { lat: ref.lat, lng: ref.lng }
+              : null;
+        const list = filterAndSortClubsByRadius(refPoint, clubsData || [], capKm);
+        const refusedSnap = myRefusedClubIdsRef.current;
+        const allowedIds = new Set(
+          allowedClubIdsAfterRefusals(
+            list.map((c) => String(c.id)),
+            refusedSnap
+          )
+        );
+        const listAfterRefusal = list.filter((c) => allowedIds.has(String(c.id)));
+        logClubsRefusalFilter({
+          tag: 'Matches/confirmCommonClubs',
+          clubsInRadius: list.map((c) => String(c.id)),
+          refusedIds: [...refusedSnap],
+          allowedIds: [...allowedIds],
+        });
+
+        logClubRadiusFilter({
+          players_count: playerIds.length,
+          clubs_found: listAfterRefusal.length,
+          filters: { radius_km: capKm, source: 'fallback_fetch' },
         });
 
         if (mounted) {
-          setConfirmCommonClubs(data ?? []);
-          if ((data || []).length === 1) {
-            setConfirmClubId(data[0].id);
-          }
+          setConfirmCommonClubs(listAfterRefusal);
+          if (listAfterRefusal.length === 1) setConfirmClubId(listAfterRefusal[0].id);
         }
       } catch (e) {
-        console.log('[HotMatch] fetch exception', e?.message ?? String(e));
-        if (mounted) {
-          setConfirmCommonClubs([]);
-        }
+        console.log('[HotMatch] confirm clubs load', e?.message ?? String(e));
+        if (mounted) setConfirmCommonClubs([]);
       } finally {
         if (mounted) setConfirmClubsLoading(false);
       }
@@ -513,37 +923,55 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
     };
-  }, [isConfirmOpen, pendingCreate?.commonClubIds?.join(','), pendingCreate?.forcedClubId]);
+  }, [
+    isConfirmOpen,
+    pendingCreate?.selectedUserIds?.join?.(','),
+    pendingCreate?.forcedClubId,
+    pendingCreate?.clubsFromCard,
+    pendingCreate?.possibleClubs?.map?.((c) => c.id).join?.(',') ??
+      pendingCreate?.clubsSnapshot?.map?.((c) => c.id).join?.(',') ??
+      '',
+    pendingCreate?.startsAt,
+    meId,
+    matchFilterRadiusKm,
+    locationPermission,
+    zonesList,
+    myZoneId,
+    geoClubsList,
+    geoClubsDistanceRefPoint,
+  ]);
 
   // Filtre temporairement désactivé pour diagnostic
 
 
 
-  const notifyMatchCreated = useCallback(async (matchId, playerIds = []) => {
+  const notifyMatchCreated = useCallback(async (matchId, playerIds = [], creatorUserId = null) => {
     const ids = Array.from(new Set((playerIds || []).map(String).filter(Boolean)));
     if (!matchId || ids.length === 0 || !groupId) return;
     const key = `match_confirmed:${matchId}`;
     if (notifiedMatchesRef.current.has(key)) return;
-    notifiedMatchesRef.current.add(key);
     try {
       const { error } = await supabase.rpc('create_notification_job', {
         p_kind: 'match_confirmed',
         p_match_id: matchId,
         p_group_id: groupId,
         p_recipients: ids,
-        p_payload: { allow_after_countdown: true },
+        p_payload: {
+          allow_after_countdown: true,
+          ...(creatorUserId ? { creator_id: creatorUserId } : {}),
+        },
       });
       if (error) throw error;
+      notifiedMatchesRef.current.add(key);
     } catch (e) {
       console.warn('[notifyMatchCreated] failed:', e?.message || e);
     }
   }, [groupId]);
 
-  const notifyGroupMatchCreated = useCallback(async (matchId, excludeUserIds = []) => {
+  const notifyGroupMatchCreated = useCallback(async (matchId, excludeUserIds = [], creatorUserId = null) => {
     if (!matchId || !groupId) return;
     const key = `group_match_created:${matchId}`;
     if (notifiedMatchesRef.current.has(key)) return;
-    notifiedMatchesRef.current.add(key);
     try {
       const { data: members, error } = await supabase
         .from('group_members')
@@ -560,13 +988,43 @@ export default function MatchesScreen() {
         p_match_id: matchId,
         p_group_id: groupId,
         p_recipients: recipients,
-        p_payload: { allow_after_countdown: true },
+        p_payload: {
+          allow_after_countdown: true,
+          ...(creatorUserId ? { creator_id: creatorUserId } : {}),
+        },
       });
       if (rpcError) throw rpcError;
+      notifiedMatchesRef.current.add(key);
     } catch (e) {
       console.warn('[notifyGroupMatchCreated] failed:', e?.message || e);
     }
   }, [groupId]);
+
+  /** Après RSVPs stables : notifie les joueurs du match (match_confirmed) + le reste du groupe (group_match_created). */
+  const sendNotificationsForMatch = useCallback(
+    async (matchId, fallbackUserIds = [], creatorUserId = null) => {
+      if (!matchId || !groupId) return;
+      try {
+        const { data: rows, error } = await supabase
+          .from('match_rsvps')
+          .select('user_id')
+          .eq('match_id', matchId);
+        if (error) throw error;
+        const fromDb = [...new Set((rows || []).map((r) => String(r.user_id)).filter(Boolean))];
+        const fallback = [...new Set((fallbackUserIds || []).map(String).filter(Boolean))];
+        const recipientIds = fromDb.length > 0 ? fromDb : fallback;
+        if (recipientIds.length === 0) {
+          console.warn('[sendNotificationsForMatch] aucun destinataire pour match', matchId);
+          return;
+        }
+        await notifyMatchCreated(matchId, recipientIds, creatorUserId);
+        await notifyGroupMatchCreated(matchId, recipientIds, creatorUserId);
+      } catch (e) {
+        console.warn('[sendNotificationsForMatch] failed:', e?.message || e);
+      }
+    },
+    [groupId, notifyMatchCreated, notifyGroupMatchCreated]
+  );
 
   const showMatchCreatedUndo = useCallback((matchId, { seconds = MATCH_CREATED_UNDO_SECONDS, onExpire, onConfirm } = {}) => {
     if (!matchId) return;
@@ -644,13 +1102,9 @@ export default function MatchesScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const safeBottomInset = Math.max(insets.bottom || 0, 0);
   const BUTTON_BAR_HEIGHT = 12;
-  const WEEK_BAR_HEIGHT = 22;
-  const FILTER_BAR_HEIGHT = 28;
   const STACK_SPACING = 4;
   const BUTTON_BAR_GAP = -2;
   const [buttonBarMeasuredHeight, setButtonBarMeasuredHeight] = useState(BUTTON_BAR_HEIGHT);
-  const [weekBarMeasuredHeight, setWeekBarMeasuredHeight] = useState(WEEK_BAR_HEIGHT);
-  const [filterBarMeasuredHeight, setFilterBarMeasuredHeight] = useState(FILTER_BAR_HEIGHT);
   const updateMeasuredHeight = useCallback(
     (setter, min = 0) => (event) => {
       const nextHeight = Math.max(event?.nativeEvent?.layout?.height || 0, min);
@@ -660,17 +1114,17 @@ export default function MatchesScreen() {
   );
 
   const buttonBarBottom = Math.max((tabBarHeight || 0) + BUTTON_BAR_GAP, safeBottomInset) - 5;
-  const weekNavigatorBottom = buttonBarBottom + buttonBarMeasuredHeight + STACK_SPACING - 16;
-  const filterButtonsBottom = weekNavigatorBottom + weekBarMeasuredHeight + STACK_SPACING - 8;
-  const filterConfigBottom = filterButtonsBottom + filterBarMeasuredHeight + STACK_SPACING;
   const { activeGroup, setActiveGroup } = useActiveGroup();
   const groupId = activeGroup?.id ?? null;
   const groupClubId = activeGroup?.club_id ?? null;
   const isClubGroup = !!groupClubId;
   const [inviteBanner, setInviteBanner] = useState(null);
-  const [acceptedClubsByUser, setAcceptedClubsByUser] = useState({});
-  const [myAcceptedClubs, setMyAcceptedClubs] = useState(new Set());
+  /** Par user : club_ids refusés (masqués) — intersection côté serveur via zone, ici pour noms / futurs filtres. */
+  const [refusedClubsByUser, setRefusedClubsByUser] = useState({});
+  const [myRefusedClubIds, setMyRefusedClubIds] = useState(new Set());
+  myRefusedClubIdsRef.current = myRefusedClubIds;
   const [myZoneId, setMyZoneId] = useState(null);
+  const [clubNamesById, setClubNamesById] = useState({});
 
   // États principaux
   const [meId, setMeId] = useState(null);
@@ -681,6 +1135,8 @@ export default function MatchesScreen() {
     const urlTab = params?.tab;
     return (urlTab === 'valides' ? 'valides' : 'proposes');
   });
+  const [contentFilter, setContentFilter] = useState('possible'); // possible | complete | validated
+
   React.useEffect(() => {
     if (tab === 'rsvp') {
     }
@@ -702,6 +1158,9 @@ export default function MatchesScreen() {
   const [allGroupMemberIds, setAllGroupMemberIds] = useState([]);
   const [dataVersion, setDataVersion] = useState(0); // Version pour forcer le re-render des listes
   const [historyMatches, setHistoryMatches] = useState([]); // 5 derniers matchs validés avec résultats
+  const [historyProfilesById, setHistoryProfilesById] = useState({});
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
   // États pour les données affichées (mis à jour explicitement)
   const [displayLongSections, setDisplayLongSections] = useState([]);
   const [displayHourReady, setDisplayHourReady] = useState([]);
@@ -715,6 +1174,8 @@ export default function MatchesScreen() {
   const popupSnapshotActiveRef = useRef(false);
   const proposesTabSnapshotRef = useRef(null);
   const displayUpdateTimerRef = useRef(null);
+  const showComplete = contentFilter === 'complete';
+  const showValidated = contentFilter === 'validated';
   // État pour la popup "choisis un groupe"
   const [noGroupModalVisible, setNoGroupModalVisible] = useState(false);
   // Bandeau réseau
@@ -731,6 +1192,7 @@ export default function MatchesScreen() {
   const matchCreatedUndoOnConfirmRef = useRef(null);
   const matchCreatedUndoVisibleRef = useRef(false);
   const pendingCreateRef = useRef(null);
+  const findGameConfirmInFlightRef = useRef(false);
   const confirmFiredRef = useRef(false);
   const handleConfirmCreateRef = useRef(null);
   const [confirmCommonClubs, setConfirmCommonClubs] = useState([]);
@@ -740,7 +1202,47 @@ export default function MatchesScreen() {
   const [confirmClubsLoading, setConfirmClubsLoading] = useState(false);
   const [confirmCreatorId, setConfirmCreatorId] = useState(null);
   const notifiedMatchesRef = useRef(new Set());
-  
+  const confirmBarAnim = useRef(new Animated.Value(1)).current;
+  const confirmCountdownActiveRef = useRef(false);
+  const [confirmMatchCountdownActive, setConfirmMatchCountdownActive] = useState(false);
+
+  const resetConfirmMatchCountdown = useCallback(() => {
+    confirmBarAnim.stopAnimation();
+    confirmBarAnim.setValue(1);
+    confirmCountdownActiveRef.current = false;
+    setConfirmMatchCountdownActive(false);
+  }, [confirmBarAnim]);
+
+  useEffect(() => {
+    resetConfirmMatchCountdownRef.current = resetConfirmMatchCountdown;
+    return () => {
+      resetConfirmMatchCountdownRef.current = () => {};
+    };
+  }, [resetConfirmMatchCountdown]);
+
+  const onPressConfirmMatch = useCallback(() => {
+    if (confirmCountdownActiveRef.current) {
+      resetConfirmMatchCountdown();
+      return;
+    }
+    confirmCountdownActiveRef.current = true;
+    setConfirmMatchCountdownActive(true);
+    confirmBarAnim.setValue(1);
+    Animated.timing(confirmBarAnim, {
+      toValue: 0,
+      duration: CONFIRM_MATCH_HOLD_MS,
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      confirmCountdownActiveRef.current = false;
+      setConfirmMatchCountdownActive(false);
+      if (finished) {
+        handleConfirmCreate('confirm');
+      } else {
+        confirmBarAnim.setValue(1);
+      }
+    });
+  }, [confirmBarAnim, resetConfirmMatchCountdown, handleConfirmCreate]);
+
   // Group selector states
   const [myGroups, setMyGroups] = useState([]);
   const [groupSelectorOpen, setGroupSelectorOpen] = useState(false);
@@ -753,11 +1255,11 @@ export default function MatchesScreen() {
   const [flashQuery, setFlashQuery] = useState('');
   const [flashLevelFilter, setFlashLevelFilter] = useState([]); // Liste de niveaux individuels sélectionnés [1, 2, 3, etc.]
   const [flashLevelFilterVisible, setFlashLevelFilterVisible] = useState(false); // Visibilité de la zone de configuration des niveaux
-  const [flashGeoLocationType, setFlashGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [flashGeoLocationType, setFlashGeoLocationType] = useState(null); // null | 'current' | 'city'
   const [flashGeoRefPoint, setFlashGeoRefPoint] = useState(null); // { lat, lng, address }
   const [flashGeoCityQuery, setFlashGeoCityQuery] = useState('');
   const [flashGeoCitySuggestions, setFlashGeoCitySuggestions] = useState([]);
-  const [flashGeoRadiusKm, setFlashGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
+  const [flashGeoRadiusKm, setFlashGeoRadiusKm] = useState(25); // 10 | 25 | 50 | null
   const [flashGeoFilterVisible, setFlashGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
   const [flashAvailabilityFilter, setFlashAvailabilityFilter] = useState(false); // Filtre par disponibilité
   const [flashAvailableMemberIds, setFlashAvailableMemberIds] = useState(new Set()); // IDs des membres disponibles sur le créneau
@@ -787,18 +1289,31 @@ export default function MatchesScreen() {
 
   // Geo Match states
   const [geoModalOpen, setGeoModalOpen] = useState(false);
-  const [locationType, setLocationType] = useState('current'); // 'current' | 'home' | 'work' | 'city'
+  const [locationType, setLocationType] = useState('current'); // 'current' | 'city'
   const [refPoint, setRefPoint] = useState(null); // { lat, lng, address }
   const [cityQuery, setCityQuery] = useState('');
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [radiusKm, setRadiusKm] = useState(20);
   const [zonesList, setZonesList] = useState([]);
-  const [comfortRadiusKm, setComfortRadiusKm] = useState(null);
+  /** Filtre distance unique : 10 | 25 | 50 | null (illimité). Persistance AsyncStorage `radius_km`. */
+  const [matchFilterRadiusKm, setMatchFilterRadiusKm] = useState(25);
   const [geoZonePickerOpen, setGeoZonePickerOpen] = useState(false);
   const [geoClubsModalOpen, setGeoClubsModalOpen] = useState(false);
   const [geoClubsLoading, setGeoClubsLoading] = useState(false);
   const [geoClubsList, setGeoClubsList] = useState([]);
+  /** Tous les clubs actifs de la zone (coords incluses) — utilisé pour sauvegarde + noms « hors rayon ». */
+  const [geoClubsAllInZone, setGeoClubsAllInZone] = useState([]);
+  /** Point de référence utilisé pour les distances (aligné sur le chargement liste clubs). */
+  const [geoClubsDistanceRefPoint, setGeoClubsDistanceRefPoint] = useState(null);
+  /** Dernier chargement non vide — si l’effet géo vide la liste un instant, le clic « Confirmer » garde les mêmes clubs que la carte. */
+  const lastGeoClubsListRef = useRef([]);
+  useEffect(() => {
+    if ((geoClubsList || []).length > 0) {
+      lastGeoClubsListRef.current = geoClubsList;
+    }
+  }, [geoClubsList]);
   const [geoClubsSelected, setGeoClubsSelected] = useState(new Set());
+  const [preferredClubNameForGeo, setPreferredClubNameForGeo] = useState(null);
   const [restoringGeoPrefs, setRestoringGeoPrefs] = useState(false);
   const currentZone = React.useMemo(
     () => (zonesList || []).find((z) => String(z.id) === String(myZoneId)),
@@ -829,6 +1344,20 @@ export default function MatchesScreen() {
   const [geoCreating, setGeoCreating] = useState(false);
   const [myProfile, setMyProfile] = useState(null);
   const [locationPermission, setLocationPermission] = useState(null);
+  /** Sous-titre « Distance max » : wording produit (GPS vs fallback club préféré). */
+  const geoDistanceMaxSubtitle = React.useMemo(() => {
+    if (myProfile?.geo_use_live_location && locationPermission === 'granted') return 'Position actuelle (GPS)';
+    return 'Zone de jeu (profil)';
+  }, [locationPermission, myProfile?.geo_use_live_location]);
+
+  /** Rayon effectif : `profiles.geo_radius_km` si défini, sinon filtre local matchs. */
+  const effectivePlayRadiusKm = React.useMemo(() => {
+    if (matchFilterRadiusKm === null) return null;
+    const p = myProfile?.geo_radius_km;
+    if (p != null && Number.isFinite(Number(p))) return Number(p);
+    return matchFilterRadiusKm;
+  }, [matchFilterRadiusKm, myProfile?.geo_radius_km]);
+
   const [availablePlayers, setAvailablePlayers] = useState([]);
   const [availablePlayersLoading, setAvailablePlayersLoading] = useState(false);
   const [clubFallbackModalOpen, setClubFallbackModalOpen] = useState(false);
@@ -845,16 +1374,18 @@ export default function MatchesScreen() {
   
   // Filtre géographique
   const [filterGeoVisible, setFilterGeoVisible] = useState(false); // Visibilité de la zone de configuration géographique
-  const [filterGeoLocationType, setFilterGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [filterGeoLocationType, setFilterGeoLocationType] = useState(null); // null | 'current' | 'city'
   const [filterGeoRefPoint, setFilterGeoRefPoint] = useState(null); // { lat, lng, address }
   const [filterGeoCityQuery, setFilterGeoCityQuery] = useState('');
   const [filterGeoCitySuggestions, setFilterGeoCitySuggestions] = useState([]);
-  const [filterGeoRadiusKm, setFilterGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
-  
+
   // Modale des matchs en feu
   const [hotMatchesModalVisible, setHotMatchesModalVisible] = useState(false);
   const [hotMatchesLevelFilter, setHotMatchesLevelFilter] = useState([]); // Niveaux sélectionnés pour filtrer la liste des matchs en feu
-  
+  const [findGameRequests, setFindGameRequests] = useState([]);
+  const [findGameWizardOpen, setFindGameWizardOpen] = useState(false);
+  const [findGameWizardPrefill, setFindGameWizardPrefill] = useState(null);
+
   // Modale d'invitation de membres pour les matchs en feu
   const [inviteHotMatchModalVisible, setInviteHotMatchModalVisible] = useState(false);
   const [hotMatchMembers, setHotMatchMembers] = useState([]);
@@ -863,11 +1394,11 @@ export default function MatchesScreen() {
   const [hotMatchSearchQuery, setHotMatchSearchQuery] = useState('');
   const [hotMatchLevelFilter, setHotMatchLevelFilter] = useState([]); // Liste de niveaux individuels sélectionnés [1, 2, 3, etc.]
   const [hotMatchLevelFilterVisible, setHotMatchLevelFilterVisible] = useState(false); // Visibilité de la zone de configuration des niveaux
-  const [hotMatchGeoLocationType, setHotMatchGeoLocationType] = useState(null); // null | 'current' | 'home' | 'work' | 'city'
+  const [hotMatchGeoLocationType, setHotMatchGeoLocationType] = useState(null); // null | 'current' | 'city'
   const [hotMatchGeoRefPoint, setHotMatchGeoRefPoint] = useState(null); // { lat, lng, address }
   const [hotMatchGeoCityQuery, setHotMatchGeoCityQuery] = useState('');
   const [hotMatchGeoCitySuggestions, setHotMatchGeoCitySuggestions] = useState([]);
-  const [hotMatchGeoRadiusKm, setHotMatchGeoRadiusKm] = useState(null); // null | 10 | 20 | 30 | 40 | 50
+  const [hotMatchGeoRadiusKm, setHotMatchGeoRadiusKm] = useState(25); // 10 | 25 | 50 | null
   const [hotMatchGeoFilterVisible, setHotMatchGeoFilterVisible] = useState(false); // Visibilité de la zone de configuration géographique
   // Modale de profil depuis la liste d'invitation
   const [hotMatchProfileModalVisible, setHotMatchProfileModalVisible] = useState(false);
@@ -878,14 +1409,15 @@ export default function MatchesScreen() {
   
   // Le filtre géographique est actif si un point de référence est défini
   const filterByGeo = filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null;
-  
-  // Réinitialiser le rayon à null quand aucune position n'est sélectionnée
-  useEffect(() => {
-    if (!filterGeoLocationType) {
-      setFilterGeoRadiusKm(null);
-    }
-  }, [filterGeoLocationType]);
-  
+
+  const geoClubsInRadiusIdSet = React.useMemo(
+    () => new Set((geoClubsList || []).map((c) => String(c.id))),
+    [geoClubsList]
+  );
+
+  /** Ancien cas « acceptés hors rayon » : avec refus optionnel, on n’affiche plus ce bandeau. */
+  const geoClubsOutsideSelection = React.useMemo(() => [], []);
+
   // Réinitialiser les filtres quand le groupe change
   useEffect(() => {
     if (groupId) {
@@ -896,7 +1428,7 @@ export default function MatchesScreen() {
       setFilterGeoRefPoint(null);
       setFilterGeoCityQuery('');
       setFilterGeoCitySuggestions([]);
-      setFilterGeoRadiusKm(null);
+      setMatchFilterRadiusKm(25);
     }
   }, [groupId]);
   
@@ -911,6 +1443,51 @@ const { ws: currentWs, we: currentWe } = React.useMemo(
   },
   [weekOffset]
 );
+
+  /** Rechargement explicite : ne pas dépendre uniquement de dataVersion (fetchData peut être throttlé / sans bump). */
+  const loadFindGameRequests = React.useCallback(async () => {
+    if (!groupId) {
+      setFindGameRequests([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('group_match_searches')
+        .select(
+          'id, group_id, creator_user_id, starts_at, club_id, places_to_fill, status, created_at, clubs(name), group_match_search_players(user_id)'
+        )
+        .eq('group_id', groupId)
+        .eq('status', 'open')
+        .gte('starts_at', currentWs.toISOString())
+        .lte('starts_at', currentWe.toISOString())
+        .order('starts_at', { ascending: true });
+      if (error) throw error;
+      const mapped = (data || []).map((row) => {
+        const players = Array.isArray(row.group_match_search_players)
+          ? row.group_match_search_players.map((p) => String(p.user_id))
+          : [];
+        return {
+          id: String(row.id),
+          starts_at: row.starts_at,
+          club_name: row.clubs?.name || 'Club',
+          club_id: row.club_id != null ? String(row.club_id) : null,
+          places_to_fill: Number(row.places_to_fill || 0),
+          players_count: players.length,
+          created_at: row.created_at || null,
+          creator_user_id: row.creator_user_id ? String(row.creator_user_id) : null,
+          player_ids: players,
+        };
+      });
+      setFindGameRequests(mapped);
+    } catch (e) {
+      console.warn('[Matches] load find_game requests', e);
+      setFindGameRequests([]);
+    }
+  }, [groupId, currentWs, currentWe]);
+
+  useEffect(() => {
+    void loadFindGameRequests();
+  }, [loadFindGameRequests]);
 
   // Calcul du padding bottom
   const bottomPad = React.useMemo(() => Math.max(140, insets.bottom + 140), [insets.bottom]);
@@ -1014,85 +1591,43 @@ const longReadyWeek = React.useMemo(
         }
       }
       
-      // Filtrer par distance géographique si activé
-      if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
-        finalFiltered = finalFiltered.filter(slot => {
-          const userIds = slot.ready_user_ids || [];
-          
-          // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
-          const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
-          if (!isUserAvailable) return false;
-          
-          // Filtrer les joueurs qui sont dans le rayon sélectionné
-          const filteredUserIds = userIds.filter(uid => {
-            const profile = profilesById[String(uid)];
-            if (!profile) return false;
-            
-            // Utiliser domicile, puis travail, comme position du joueur
-            let playerLat = null;
-            let playerLng = null;
-            if (profile.address_home?.lat && profile.address_home?.lng) {
-              playerLat = profile.address_home.lat;
-              playerLng = profile.address_home.lng;
-            } else if (profile.address_work?.lat && profile.address_work?.lng) {
-              playerLat = profile.address_work.lat;
-              playerLng = profile.address_work.lng;
-            }
-            
-            if (!playerLat || !playerLng) return false; // Pas de position = exclu
-            
-            // Calculer la distance
-            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-            return distanceKm <= filterGeoRadiusKm;
-          });
-          
-          // Le créneau doit avoir au moins 4 joueurs au total dans le rayon
-          // filteredUserIds inclut l'utilisateur s'il est dans le rayon, donc on a besoin de 4 joueurs au total
-          return filteredUserIds.length >= 4;
-        }).map(slot => {
-          // Filtrer ready_user_ids pour ne garder que les joueurs dans le rayon
-          const userIds = slot.ready_user_ids || [];
-          const filteredUserIds = userIds.filter(uid => {
-            const profile = profilesById[String(uid)];
-            if (!profile) return false;
-            
-            let playerLat = null;
-            let playerLng = null;
-            if (profile.address_home?.lat && profile.address_home?.lng) {
-              playerLat = profile.address_home.lat;
-              playerLng = profile.address_home.lng;
-            } else if (profile.address_work?.lat && profile.address_work?.lng) {
-              playerLat = profile.address_work.lat;
-              playerLng = profile.address_work.lng;
-            }
-            
-            if (!playerLat || !playerLng) return false;
-            
-            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-            return distanceKm <= filterGeoRadiusKm;
-          });
-          
-          return {
-            ...slot,
-            ready_user_ids: filteredUserIds,
-          };
-        });
-        console.log('[longReadyWeek] Après filtrage géographique:', finalFiltered.length, 'sur', (sorted || []).length);
+      if (filterByGeo && filterGeoRefPoint) {
+        finalFiltered = [...finalFiltered].sort(
+          (a, b) =>
+            minDistanceKmForReadySlot(a, profilesById, filterGeoRefPoint) -
+            minDistanceKmForReadySlot(b, profilesById, filterGeoRefPoint)
+        );
       }
 
-      // Filtrer par zone + clubs acceptés
       finalFiltered = finalFiltered
-        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId, groupClubId))
+        .map((slot) => enrichMatchSlotForGroupDisplay(slot, meId, groupClubId))
         .filter(Boolean);
       
-      // Log les créneaux valides
+      logMatchFilterResults({
+        radius: filterByGeo ? getEffectiveRadius({ radius_km: matchFilterRadiusKm }) : getEffectiveRadius({ radius_km: undefined }),
+        results_count: finalFiltered.length,
+        screen: 'longReadyWeek',
+      });
       finalFiltered.slice(0, 5).forEach(it => {
         console.log('[longReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
       });
       console.log('[longReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', longReady?.length || 0);
       return finalFiltered;
     },
-    [longReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId, myZoneId, acceptedClubsByUser, myAcceptedClubs]
+    [
+      longReady,
+      currentWs,
+      currentWe,
+      filterByLevel,
+      filterLevels,
+      profilesById,
+      filterByGeo,
+      filterGeoRefPoint,
+      matchFilterRadiusKm,
+      dataVersion,
+      meId,
+      groupClubId,
+    ]
   );
   
 const hourReadyWeek = React.useMemo(
@@ -1193,86 +1728,51 @@ const hourReadyWeek = React.useMemo(
         }
       }
       
-      // Filtrer par distance géographique si activé
-      if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
-        finalFiltered = finalFiltered.filter(slot => {
-          const userIds = slot.ready_user_ids || [];
-          
-          // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
-          const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
-          if (!isUserAvailable) return false;
-          
-          // Filtrer les joueurs qui sont dans le rayon sélectionné
-          const filteredUserIds = userIds.filter(uid => {
-            const profile = profilesById[String(uid)];
-            if (!profile) return false;
-            
-            // Utiliser domicile, puis travail, comme position du joueur
-            let playerLat = null;
-            let playerLng = null;
-            if (profile.address_home?.lat && profile.address_home?.lng) {
-              playerLat = profile.address_home.lat;
-              playerLng = profile.address_home.lng;
-            } else if (profile.address_work?.lat && profile.address_work?.lng) {
-              playerLat = profile.address_work.lat;
-              playerLng = profile.address_work.lng;
-            }
-            
-            if (!playerLat || !playerLng) return false; // Pas de position = exclu
-            
-            // Calculer la distance
-            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-            return distanceKm <= filterGeoRadiusKm;
-          });
-          
-          // Le créneau doit avoir au moins 4 joueurs au total dans le rayon
-          // filteredUserIds inclut l'utilisateur s'il est dans le rayon, donc on a besoin de 4 joueurs au total
-          return filteredUserIds.length >= 4;
-        }).map(slot => {
-          // Filtrer ready_user_ids pour ne garder que les joueurs dans le rayon
-          const userIds = slot.ready_user_ids || [];
-          const filteredUserIds = userIds.filter(uid => {
-            const profile = profilesById[String(uid)];
-            if (!profile) return false;
-            
-            let playerLat = null;
-            let playerLng = null;
-            if (profile.address_home?.lat && profile.address_home?.lng) {
-              playerLat = profile.address_home.lat;
-              playerLng = profile.address_home.lng;
-            } else if (profile.address_work?.lat && profile.address_work?.lng) {
-              playerLat = profile.address_work.lat;
-              playerLng = profile.address_work.lng;
-            }
-            
-            if (!playerLat || !playerLng) return false;
-            
-            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-            return distanceKm <= filterGeoRadiusKm;
-          });
-          
-          return {
-            ...slot,
-            ready_user_ids: filteredUserIds,
-          };
-        });
-        console.log('[hourReadyWeek] Après filtrage géographique:', finalFiltered.length, 'sur', (sorted || []).length);
+      if (filterByGeo && filterGeoRefPoint) {
+        finalFiltered = [...finalFiltered].sort(
+          (a, b) =>
+            minDistanceKmForReadySlot(a, profilesById, filterGeoRefPoint) -
+            minDistanceKmForReadySlot(b, profilesById, filterGeoRefPoint)
+        );
       }
 
-      // Filtrer par zone + clubs acceptés
       finalFiltered = finalFiltered
-        .map((slot) => filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedClubsByUser, myAcceptedClubs, meId, groupClubId))
+        .map((slot) => enrichMatchSlotForGroupDisplay(slot, meId, groupClubId))
         .filter(Boolean);
       
-      // Log les créneaux valides
+      logMatchFilterResults({
+        radius: filterByGeo ? getEffectiveRadius({ radius_km: matchFilterRadiusKm }) : getEffectiveRadius({ radius_km: undefined }),
+        results_count: finalFiltered.length,
+        screen: 'hourReadyWeek',
+      });
       finalFiltered.forEach(it => {
         console.log('[hourReadyWeek] ✅ Créneau valide:', it.time_slot_id, 'starts_at:', it.starts_at, 'joueurs:', it.ready_user_ids?.length || 0);
       });
       console.log('[hourReadyWeek] Créneaux après filtrage et tri:', finalFiltered.length, 'sur', hourReady?.length || 0);
       // Forcer une nouvelle référence pour garantir que React détecte le changement
-      return finalFiltered.map(item => ({ ...item }));
+      // Clé stable pour les listes React (item.key n'est pas toujours fourni par la donnée brute)
+      return finalFiltered.map((item, idx) => ({
+        ...item,
+        key:
+          item.key != null && item.key !== ''
+            ? String(item.key)
+            : `hour-${String(item.time_slot_id ?? '')}-${String(item.starts_at ?? '')}-${String(item.ends_at ?? '')}-${idx}`,
+      }));
     },
-  [hourReady, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, dataVersion, meId, myZoneId, acceptedClubsByUser, myAcceptedClubs]
+  [
+    hourReady,
+    currentWs,
+    currentWe,
+    filterByLevel,
+    filterLevels,
+    profilesById,
+    filterByGeo,
+    filterGeoRefPoint,
+    matchFilterRadiusKm,
+    dataVersion,
+    meId,
+    groupClubId,
+  ]
 );
   
 // Fonction helper pour vérifier si un match n'est pas périmé
@@ -1321,30 +1821,8 @@ const confirmedWeek = React.useMemo(
     [matchesConfirmed, meId, rsvpsByMatch]
   );
   
-const pendingHourWeek = React.useMemo(
-  () => {
-    if (!meId) return [];
-    return pendingWeek.filter(m => {
-      // Vérifier la durée (1h max)
-      if (durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) > 60) return false;
-      
-      // Filtrer par semaine
-      if (m?.time_slots?.starts_at && m?.time_slots?.ends_at) {
-        const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-        if (!inRange) {
-          console.log('[pendingHourWeek] Match exclu par isInWeekRange:', m.id, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at, 'week:', currentWs.toISOString().split('T')[0], 'to', currentWe.toISOString().split('T')[0]);
-          return false;
-        }
-      }
-      
-      // Ne montrer que les matchs où le joueur a un RSVP (accepted ou maybe)
-      const rsvps = rsvpsByMatch[m.id] || [];
-      const mine = rsvps.find((r) => String(r.user_id) === String(meId));
-      return mine && (mine.status === 'accepted' || mine.status === 'maybe');
-    });
-  },
-  [pendingWeek, rsvpsByMatch, meId, currentWs, currentWe]
-);
+/** Plus de matchs « 1h » sur l’écran Matchs — liste réservée vide. */
+const pendingHourWeek = React.useMemo(() => [], []);
   
 const pendingLongWeek = React.useMemo(
   () => {
@@ -1371,12 +1849,8 @@ const pendingLongWeek = React.useMemo(
   [pendingWeek, rsvpsByMatch, meId, currentWs, currentWe]
 );
 
-const confirmedHourWeek = React.useMemo(
-  () => confirmedWeek.filter(m =>
-    durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60
-  ),
-  [confirmedWeek]
-);
+/** Plus de matchs « 1h » sur l’écran Matchs — liste réservée vide. */
+const confirmedHourWeek = React.useMemo(() => [], []);
   
 const confirmedLongWeek = React.useMemo(
   () => confirmedWeek.filter(m =>
@@ -1385,8 +1859,23 @@ const confirmedLongWeek = React.useMemo(
   [confirmedWeek]
 );
 
-// Calculer les matchs en feu : 3 joueurs disponibles dont l'utilisateur authentifié
-// Utilise la même logique que longReadyWeek/hourReadyWeek mais avec condition stricte à 3 joueurs
+const matchesValidatedForWeek = React.useMemo(
+  () =>
+    (confirmedWeek || [])
+      .filter((m) => {
+        if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return true;
+        return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
+      })
+      .sort((a, b) => {
+        const as = a?.time_slots?.starts_at ? new Date(a.time_slots.starts_at).getTime() : 0;
+        const bs = b?.time_slots?.starts_at ? new Date(b.time_slots.starts_at).getTime() : 0;
+        return as - bs;
+      }),
+  [confirmedWeek, currentWs, currentWe]
+);
+
+// Calculer les matchs en feu : au moins 2 joueurs disponibles dont l'utilisateur authentifié
+// Utilise la même logique que longReadyWeek/hourReadyWeek mais avec seuil à 2 joueurs minimum
 // Et en tenant compte des joueurs déjà engagés (comme adjusted)
 const hotMatches = React.useMemo(
   () => {
@@ -1405,8 +1894,10 @@ const hotMatches = React.useMemo(
     const now = new Date();
     const filtered = allSlots.filter(it => {
       if (!it.starts_at || !it.ends_at) return false;
+      if (durationMinutes(it.starts_at, it.ends_at) <= 60) return false;
+      const startTime = new Date(it.starts_at);
       const endTime = new Date(it.ends_at);
-      return endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
+      return startTime > now && endTime > now && isInWeekRange(it.starts_at, it.ends_at, currentWs, currentWe);
     });
     
     // Trier par ordre chronologique
@@ -1443,8 +1934,8 @@ const hotMatches = React.useMemo(
             if (!Number.isFinite(playerLevel)) return false;
             return allowedLevels.has(playerLevel);
           });
-          // Le créneau doit avoir 3 joueurs disponibles ET l'utilisateur doit être disponible
-          return filteredUserIds.length === 3;
+          // Au moins 2 joueurs (niveau filtré) ET l'utilisateur doit être disponible
+          return filteredUserIds.length >= 2;
         }).map(slot => {
           const userIds = slot.ready_user_ids || [];
           const filteredUserIds = userIds.filter(uid => {
@@ -1462,93 +1953,33 @@ const hotMatches = React.useMemo(
       }
     }
     
-    // Appliquer le filtre géographique si activé (même logique que longReadyWeek)
-    if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
-      finalFiltered = finalFiltered.filter(slot => {
-        const userIds = slot.ready_user_ids || [];
-        
-        // Vérifier d'abord que l'utilisateur authentifié est disponible sur ce créneau
-        const isUserAvailable = meId && userIds.some(uid => String(uid) === String(meId));
-        if (!isUserAvailable) return false;
-        
-        const filteredUserIds = userIds.filter(uid => {
-          const profile = profilesById[String(uid)];
-          if (!profile) return false;
-          
-          let playerLat = null;
-          let playerLng = null;
-          if (profile.address_home?.lat && profile.address_home?.lng) {
-            playerLat = profile.address_home.lat;
-            playerLng = profile.address_home.lng;
-          } else if (profile.address_work?.lat && profile.address_work?.lng) {
-            playerLat = profile.address_work.lat;
-            playerLng = profile.address_work.lng;
-          }
-          
-          if (!playerLat || !playerLng) return false;
-          
-          const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-          return distanceKm <= filterGeoRadiusKm;
-        });
-        
-        // Le créneau doit avoir 3 joueurs disponibles ET l'utilisateur doit être disponible
-        return filteredUserIds.length === 3;
-      }).map(slot => {
-        const userIds = slot.ready_user_ids || [];
-        const filteredUserIds = userIds.filter(uid => {
-          const profile = profilesById[String(uid)];
-          if (!profile) return false;
-          
-          let playerLat = null;
-          let playerLng = null;
-          if (profile.address_home?.lat && profile.address_home?.lng) {
-            playerLat = profile.address_home.lat;
-            playerLng = profile.address_home.lng;
-          } else if (profile.address_work?.lat && profile.address_work?.lng) {
-            playerLat = profile.address_work.lat;
-            playerLng = profile.address_work.lng;
-          }
-          
-          if (!playerLat || !playerLng) return false;
-          
-          const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-          return distanceKm <= filterGeoRadiusKm;
-        });
-        return {
-          ...slot,
-          ready_user_ids: filteredUserIds,
-        };
-      });
-    }
-    
-    // Filtrer les créneaux avec exactement 3 joueurs disponibles ET où l'utilisateur est disponible
-    // Si aucun filtre n'est activé, utiliser directement adjusted
+    // Créneaux avec au moins 2 joueurs disponibles ET où l'utilisateur est disponible
     if (!filterByLevel && !filterByGeo) {
       finalFiltered = adjusted.filter(slot => {
         const readyUserIds = slot.ready_user_ids || [];
-        // Vérifier que l'utilisateur authentifié est disponible sur ce créneau
         const isUserAvailable = meId && readyUserIds.some(uid => String(uid) === String(meId));
-        // Le créneau doit avoir 3 joueurs disponibles ET l'utilisateur doit être disponible
-        return readyUserIds.length === 3 && isUserAvailable;
+        return readyUserIds.length >= 2 && isUserAvailable;
       });
     }
     
     // Exclure les créneaux où l'utilisateur a déjà un RSVP (match accepté ou en attente)
-    // Mais INCLURE les matchs existants avec 3 joueurs acceptés où l'utilisateur n'a pas encore de RSVP
+    // Mais INCLURE les matchs existants avec au moins 2 joueurs acceptés où l'utilisateur n'a pas encore de RSVP
     if (meId) {
+      const allMatchesCombined = [...(matchesPending || []), ...(matchesConfirmed || [])];
+      const matchByIntervalKey = new Map();
+      for (const m of allMatchesCombined) {
+        const ms = m?.time_slots?.starts_at;
+        const me = m?.time_slots?.ends_at;
+        if (ms != null && me != null) {
+          matchByIntervalKey.set(`${String(ms)}\0${String(me)}`, m);
+        }
+      }
+
       finalFiltered = finalFiltered.filter(slot => {
-        // Vérifier si l'utilisateur a un RSVP pour un match sur ce créneau
         const slotStart = slot.starts_at;
         const slotEnd = slot.ends_at;
-        
-        // Parcourir tous les matchs pour trouver ceux sur ce créneau
-        const allMatches = [...(matchesPending || []), ...(matchesConfirmed || [])];
-        const matchOnThisSlot = allMatches.find(m => {
-          const matchStart = m?.time_slots?.starts_at;
-          const matchEnd = m?.time_slots?.ends_at;
-          return matchStart === slotStart && matchEnd === slotEnd;
-        });
-        
+        const matchOnThisSlot = matchByIntervalKey.get(`${String(slotStart)}\0${String(slotEnd)}`);
+
         if (matchOnThisSlot) {
           // Si un match existe déjà sur ce créneau, vérifier si l'utilisateur a un RSVP
           const rsvps = rsvpsByMatch[matchOnThisSlot.id] || [];
@@ -1565,14 +1996,13 @@ const hotMatches = React.useMemo(
         return true;
       });
       
-      // Ajouter les matchs existants avec exactement 3 joueurs acceptés où l'utilisateur n'a pas de RSVP
-      const allMatches = [...(matchesPending || []), ...(matchesConfirmed || [])];
-      const existingHotMatches = allMatches.filter(m => {
+      // Matchs existants : au moins 2 joueurs acceptés, pas encore complet (moins de 4), pas de RSVP pour moi
+      const existingHotMatches = allMatchesCombined.filter(m => {
         // Vérifier que le match est dans la semaine courante
         if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) return false;
         const matchStart = new Date(m.time_slots.starts_at);
         const matchEnd = new Date(m.time_slots.ends_at);
-        if (matchEnd <= now || !isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)) {
+        if (matchStart <= now || matchEnd <= now || !isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe)) {
           return false;
         }
         
@@ -1585,9 +2015,8 @@ const hotMatches = React.useMemo(
           return false;
         }
         
-        // Vérifier le nombre de joueurs acceptés (doit être exactement 3)
         const acceptedRsvps = rsvps.filter(r => r.status === 'accepted');
-        if (acceptedRsvps.length !== 3) {
+        if (acceptedRsvps.length < 2 || acceptedRsvps.length >= 4) {
           return false;
         }
         
@@ -1611,36 +2040,12 @@ const hotMatches = React.useMemo(
           }
         }
         
-        // Appliquer les filtres géographiques si activés
-        if (filterByGeo && filterGeoRefPoint && filterGeoRefPoint.lat != null && filterGeoRefPoint.lng != null && filterGeoRadiusKm != null) {
-          const acceptedUserIds = acceptedRsvps.map(r => r.user_id);
-          const allInRange = acceptedUserIds.every(uid => {
-            const profile = profilesById[String(uid)];
-            if (!profile) return false;
-            
-            let playerLat = null;
-            let playerLng = null;
-            if (profile.address_home?.lat && profile.address_home?.lng) {
-              playerLat = profile.address_home.lat;
-              playerLng = profile.address_home.lng;
-            } else if (profile.address_work?.lat && profile.address_work?.lng) {
-              playerLat = profile.address_work.lat;
-              playerLng = profile.address_work.lng;
-            }
-            
-            if (!playerLat || !playerLng) return false;
-            
-            const distanceKm = haversineKm(filterGeoRefPoint, { lat: playerLat, lng: playerLng });
-            return distanceKm <= filterGeoRadiusKm;
-          });
-          if (!allInRange) return false;
-        }
-        
         return true;
       });
       
       // Convertir les matchs existants en format slot pour les ajouter à finalFiltered
       existingHotMatches.forEach(m => {
+        if (durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at) <= 60) return;
         const acceptedRsvps = (rsvpsByMatch[m.id] || []).filter(r => r.status === 'accepted');
         const acceptedUserIds = acceptedRsvps.map(r => r.user_id);
         
@@ -1651,17 +2056,20 @@ const hotMatches = React.useMemo(
           ready_user_ids: acceptedUserIds,
           is_existing_match: true,
           match_id: m.id,
+          club_id: m.club_id ?? null,
         });
       });
     }
     
-    console.log('[hotMatches] 🔥 Matchs en feu trouvés:', finalFiltered.length);
-    if (finalFiltered.length > 0) {
-      console.log('[hotMatches] Exemples:', finalFiltered.slice(0, 3).map(s => ({
-        id: s.time_slot_id,
-        starts_at: s.starts_at,
-        joueurs: s.ready_user_ids?.length || 0
-      })));
+    if (__DEV__) {
+      console.log('[hotMatches] 🔥 Matchs en feu trouvés:', finalFiltered.length);
+      if (finalFiltered.length > 0) {
+        console.log('[hotMatches] Exemples:', finalFiltered.slice(0, 3).map(s => ({
+          id: s.time_slot_id,
+          starts_at: s.starts_at,
+          joueurs: s.ready_user_ids?.length || 0
+        })));
+      }
     }
     
     // Dédupliquer les créneaux basés sur starts_at et ends_at (même créneau peut avoir plusieurs time_slot_id)
@@ -1676,22 +2084,144 @@ const hotMatches = React.useMemo(
       }
     }
     
+    logMatchFilterResults({
+      radius: filterByGeo ? getEffectiveRadius({ radius_km: matchFilterRadiusKm }) : getEffectiveRadius({ radius_km: undefined }),
+      results_count: uniqueSlots.length,
+      screen: 'hotMatches',
+    });
+    if (filterByGeo && filterGeoRefPoint && uniqueSlots.length > 0) {
+      uniqueSlots.sort(
+        (a, b) =>
+          minDistanceKmForReadySlot(a, profilesById, filterGeoRefPoint) -
+          minDistanceKmForReadySlot(b, profilesById, filterGeoRefPoint)
+      );
+    }
+    
     // Convertir les créneaux en format "match" pour l'affichage
-    return uniqueSlots.map(slot => ({
-      id: slot.match_id || slot.time_slot_id || `hot-${slot.starts_at}`,
-      time_slot_id: slot.time_slot_id,
-      match_id: slot.match_id, // Pour les matchs existants
-      is_existing_match: slot.is_existing_match || false,
-      time_slots: {
-        starts_at: slot.starts_at,
-        ends_at: slot.ends_at,
-      },
-      available_user_ids: slot.ready_user_ids || [],
-      me_id: meId,
-    }));
+    // Match en feu = incomplet (2 ou 3 joueurs), avec moi inclus.
+    return uniqueSlots
+      .map(slot => ({
+        id: slot.match_id || slot.time_slot_id || `hot-${slot.starts_at}`,
+        time_slot_id: slot.time_slot_id,
+        match_id: slot.match_id, // Pour les matchs existants
+        is_existing_match: slot.is_existing_match || false,
+        club_id: slot.club_id ?? null,
+        time_slots: {
+          starts_at: slot.starts_at,
+          ends_at: slot.ends_at,
+        },
+        available_user_ids: slot.ready_user_ids || [],
+        me_id: meId,
+      }))
+      .filter((slot) => {
+        const userIds = slot.available_user_ids || [];
+        const hasMe = userIds.some((uid) => String(uid) === String(meId));
+        return hasMe && userIds.length >= 2 && userIds.length < 4;
+      });
   },
-  [readyAll, meId, groupId, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, filterGeoRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
+  [readyAll, meId, groupId, currentWs, currentWe, filterByLevel, filterLevels, profilesById, filterByGeo, filterGeoRefPoint, matchFilterRadiusKm, rsvpsByMatch, matchesPending, matchesConfirmed]
 );
+
+  const getPossibleClubsForHotCard = React.useCallback(
+    (m, geoOverride) => {
+      if (m?.is_existing_match && m?.club_id) {
+        const cid = String(m.club_id);
+        return [{ id: cid, name: clubNamesById[cid] || 'Club' }];
+      }
+      if (isClubGroup && groupClubId) {
+        const cid = String(groupClubId);
+        return [{ id: cid, name: clubNamesById[cid] || 'Club du groupe' }];
+      }
+      const geo = geoOverride !== undefined && geoOverride !== null ? geoOverride : geoClubsList;
+      return (geo || []).slice(0, 20).map((c) => ({
+        id: String(c.id),
+        name: c.name || 'Club',
+      }));
+    },
+    [isClubGroup, groupClubId, clubNamesById, geoClubsList]
+  );
+
+  /** Même logique que les cartes « clubs possibles », avec lat/lng/zone pour le wizard (source unique). */
+  const getPossibleClubsPrefillForHotCard = React.useCallback(
+    (m) => {
+      const rowToPrefill = (c) => ({
+        id: String(c.id),
+        name: c.name || 'Club',
+        lat: c.lat != null ? Number(c.lat) : null,
+        lng: c.lng != null ? Number(c.lng) : null,
+        zone_id: c.zone_id != null ? String(c.zone_id) : null,
+        phone: c.phone != null ? String(c.phone) : null,
+      });
+      if (m?.is_existing_match && m?.club_id) {
+        const cid = String(m.club_id);
+        const row = (geoClubsList || []).find((x) => String(x.id) === cid);
+        if (row) return [rowToPrefill(row)];
+        return [
+          {
+            id: cid,
+            name: clubNamesById[cid] || 'Club',
+            lat: null,
+            lng: null,
+            zone_id: null,
+            phone: null,
+          },
+        ];
+      }
+      if (isClubGroup && groupClubId) {
+        const cid = String(groupClubId);
+        const row = (geoClubsList || []).find((x) => String(x.id) === cid);
+        if (row) return [rowToPrefill(row)];
+        return [
+          {
+            id: cid,
+            name: clubNamesById[cid] || 'Club du groupe',
+            lat: null,
+            lng: null,
+            zone_id: null,
+            phone: null,
+          },
+        ];
+      }
+      return (geoClubsList || []).slice(0, 20).map(rowToPrefill);
+    },
+    [isClubGroup, groupClubId, clubNamesById, geoClubsList]
+  );
+
+  useEffect(() => {
+    const ids = new Set();
+    if (groupClubId) ids.add(String(groupClubId));
+    Object.values(refusedClubsByUser || {}).forEach((arr) => {
+      (arr || []).forEach((cid) => ids.add(String(cid)));
+    });
+    (hotMatches || []).forEach((hm) => {
+      if (hm?.club_id) ids.add(String(hm.club_id));
+    });
+    const list = [...ids].filter(Boolean);
+    if (list.length === 0) return;
+    let cancelled = false;
+    const chunk = 120;
+    (async () => {
+      try {
+        const merged = {};
+        for (let i = 0; i < list.length; i += chunk) {
+          const slice = list.slice(i, i + chunk);
+          const { data, error } = await supabase.from('clubs').select('id,name').in('id', slice);
+          if (error) throw error;
+          (data || []).forEach((row) => {
+            merged[String(row.id)] = row.name;
+          });
+        }
+        if (!cancelled) {
+          setClubNamesById((prev) => ({ ...prev, ...merged }));
+        }
+      } catch (e) {
+        console.warn('[Matches] club names load:', e?.message || e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refusedClubsByUser, groupClubId, hotMatches]);
 
 // Filtre local par niveau pour la liste des matchs en feu dans la modale
 const filteredHotMatches = React.useMemo(
@@ -1728,22 +2258,330 @@ const filteredHotMatches = React.useMemo(
   [hotMatches, hotMatchesLevelFilter, profilesById]
 );
 
-  const confirmedHour = React.useMemo(
-    () => {
-      const filtered = confirmedWeek.filter(m => {
-        const duration = durationMinutes(m?.time_slots?.starts_at, m?.time_slots?.ends_at);
-        const isHour = duration <= 60;
-        if (!isHour) {
-          console.log('[Matches] Match filtered out from Hour (duration > 60):', m.id, 'duration:', duration, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at);
-        }
-        return isHour;
-      });
-      console.log('[Matches] ConfirmedHour matches:', filtered.length);
-      return filtered;
+  const hotFeedCardWidthCompact = Math.min(Math.round(width * 0.82), 320);
+
+  const renderHotMatchFeedCard = React.useCallback(
+    (m, compact = false) => {
+      const availableUserIds = m.available_user_ids || [];
+      const allAvailableIds = [...new Set(availableUserIds)];
+      const slot = m.time_slots || {};
+      const openSpots = Math.max(0, 4 - allAvailableIds.length);
+      const prefillClubsForSlot = getPossibleClubsPrefillForHotCard(m);
+      const canCompleteSlot =
+        !!groupId &&
+        !!slot.starts_at &&
+        openSpots > 0 &&
+        prefillClubsForSlot.length > 0;
+      const prefillClubId = groupClubId ? String(groupClubId) : '';
+      const prefillClubName = '';
+      const hotDurationPill = slot.starts_at && slot.ends_at ? '1h30' : null;
+
+      return (
+        <View
+          style={{
+            marginBottom: compact ? 0 : 12,
+            width: compact ? hotFeedCardWidthCompact : '100%',
+            alignSelf: 'stretch',
+          }}
+        >
+          <View style={[styles.hotCard, { width: '100%', alignSelf: 'stretch' }]}>
+            <View style={styles.hotCardContent}>
+              <View style={[styles.matchDateRowWithPill, { alignItems: 'flex-start' }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={[
+                      styles.matchDate,
+                      styles.matchDateInRow,
+                      { color: '#FFFFFF', fontWeight: '700', marginBottom: 4 },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    🔥{' '}
+                    {slot.starts_at && slot.ends_at
+                      ? formatHotMatchDateLine(slot.starts_at, slot.ends_at)
+                      : 'Date à définir'}
+                  </Text>
+                  {slot.starts_at && slot.ends_at ? (
+                    <Text
+                      style={[
+                        styles.matchDate,
+                        styles.matchDateInRow,
+                        {
+                          color: '#FFFFFF',
+                          fontWeight: '600',
+                          fontSize: 15,
+                          opacity: 0.92,
+                          marginBottom: 0,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatHotMatchTimeLine(slot.starts_at, slot.ends_at)}
+                    </Text>
+                  ) : null}
+                </View>
+                {hotDurationPill ? (
+                  <View style={[styles.durationPillHot, { marginTop: 2 }]} pointerEvents="none">
+                    <Text style={styles.durationPillTextHot}>{hotDurationPill}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {(() => {
+                const clubs = getPossibleClubsForHotCard(m);
+                if (clubs.length > 0) {
+                  return (
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: THEME.muted,
+                        marginBottom: 8,
+                        textAlign: 'left',
+                        lineHeight: 17,
+                      }}
+                    >
+                      <Text style={{ fontWeight: '800', color: THEME.text }}>Clubs possibles : </Text>
+                      {clubs.map((c) => c.name).join(' · ')}
+                    </Text>
+                  );
+                }
+                if (!isClubGroup && allAvailableIds.length > 0) {
+                  return (
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: THEME.muted,
+                        marginBottom: 8,
+                        textAlign: 'left',
+                        lineHeight: 17,
+                      }}
+                    >
+                      <Text style={{ fontWeight: '800', color: THEME.text }}>Clubs : </Text>
+                      Aucun club commun disponible — ajuste ton rayon ou tes clubs acceptés.
+                    </Text>
+                  );
+                }
+                return null;
+              })()}
+
+              <View style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {allAvailableIds.map((userId) => {
+                    const profile = profilesById[String(userId)] || {};
+                    return (
+                      <Pressable
+                        key={userId}
+                        onLongPress={() => {
+                          if (profile?.id) openProfile(profile);
+                        }}
+                        delayLongPress={400}
+                        style={styles.hotAvailableAvatarWrap}
+                      >
+                        {profile.avatar_url ? (
+                          <Image
+                            source={{ uri: profile.avatar_url }}
+                            style={{ width: 64, height: 64, borderRadius: 32 }}
+                          />
+                        ) : (
+                          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: THEME.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ color: THEME.accent, fontWeight: '700', fontSize: 18 }}>
+                              {formatPlayerName(profile.display_name || profile.email || 'J').substring(0, 1).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+
+                        {profile?.cote ? (
+                          <View style={styles.hotAvailableSideBadge}>
+                            <Ionicons
+                              name={
+                                String(profile.cote || '').toLowerCase().includes('both') ||
+                                (String(profile.cote || '').toLowerCase().includes('gauche') && String(profile.cote || '').toLowerCase().includes('droite'))
+                                  ? 'swap-horizontal'
+                                  : String(profile.cote || '').toLowerCase().includes('gauche') || String(profile.cote || '').toLowerCase().includes('left')
+                                    ? 'arrow-back'
+                                    : 'arrow-forward'
+                              }
+                              size={10}
+                              color="#ffffff"
+                            />
+                          </View>
+                        ) : null}
+
+                        {profile.niveau != null && profile.niveau !== '' && (
+                          <View style={{ position: 'absolute', right: -2, bottom: -2, width: 20, height: 20, borderRadius: 10, backgroundColor: colorForLevel(profile.niveau), borderWidth: 0.5, borderColor: '#ffffff', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ color: '#000000', fontWeight: '900', fontSize: 10 }}>
+                              {String(profile.niveau)}
+                            </Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                  {openSpots > 0 &&
+                    Array.from({ length: openSpots }).map((_, idx) => (
+                      <View key={`hot-empty-${idx}`} style={styles.partnerSlotCircleEmpty}>
+                        <Ionicons name="add" size={26} color="#6d6aff" />
+                      </View>
+                    ))}
+                </View>
+              </View>
+
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: openSpots === 1 ? '#FF8A3D' : THEME.accent,
+                  fontWeight: '800',
+                  marginTop: 10,
+                }}
+              >
+                {openSpots > 0
+                  ? (openSpots === 1
+                      ? "🔥 Plus qu’1 place à compléter"
+                      : `🔥 Il reste ${openSpots} place${openSpots > 1 ? 's' : ''} à compléter`)
+                  : '✅ Créneau déjà complet'}
+              </Text>
+
+              {canCompleteSlot ? (
+                <Pressable
+                  onPress={() => {
+                    const selectedStart = String(slot.starts_at);
+                    setFindGameWizardPrefill({
+                      prefillDate: null,
+                      prefillStartAt: selectedStart,
+                      prefillEndAt: slot.ends_at ? String(slot.ends_at) : null,
+                      prefillGroupId: String(groupId),
+                      prefillClubId: prefillClubId || null,
+                      prefillClubName: prefillClubName || null,
+                      prefillOpenSpots: openSpots,
+                      prefillPlayerIds: allAvailableIds.map((id) => String(id)),
+                      prefillGoToClub: true,
+                      prefillPossibleClubs: getPossibleClubsPrefillForHotCard(m),
+                    });
+                    setFindGameWizardOpen(true);
+                  }}
+                  style={({ pressed }) => [
+                    {
+                      backgroundColor: '#FF6B00',
+                      padding: 14,
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: '#FF8C00',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: 10,
+                      gap: 6,
+                      shadowColor: '#FF6B00',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 8,
+                      elevation: 6,
+                      opacity: pressed ? 0.88 : 1,
+                    },
+                    Platform.OS === 'web' && { cursor: 'pointer' },
+                  ]}
+                >
+                  <Text style={{ fontSize: 18 }}>🎯</Text>
+                  <Text style={{ color: '#ffffff', fontWeight: '900', fontSize: 17 }}>
+                    {MATCH_COPY.hot.ctaLaunch}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      );
     },
-    [confirmedWeek]
+    [
+      groupId,
+      groupClubId,
+      isClubGroup,
+      meId,
+      profilesById,
+      openProfile,
+      getPossibleClubsPrefillForHotCard,
+      hotFeedCardWidthCompact,
+      MATCH_COPY.hot.ctaLaunch,
+      setFindGameWizardPrefill,
+      setFindGameWizardOpen,
+    ]
   );
-  
+
+  /** Onglet Compléter : évite de monter toutes les cartes « Presque prêts » d’un coup (ScrollView) → FlatList horizontal virtualisé. */
+  const matchesFeedListHeader = React.useMemo(() => {
+    if (contentFilter !== 'complete') return null;
+    const hotLen = filteredHotMatches.length;
+    return (
+      <>
+        {hotLen > 0 ? (
+          <>
+            <Text
+              style={{
+                fontSize: 15,
+                fontWeight: '600',
+                color: '#FF8A3D',
+                marginBottom: 6,
+                paddingHorizontal: 16,
+              }}
+            >
+              🔥 Presque prêts
+            </Text>
+            <FlatList
+              horizontal
+              data={filteredHotMatches}
+              keyExtractor={(m) => String(m.id)}
+              renderItem={({ item, index }) => (
+                <View
+                  style={{
+                    marginRight: index < hotLen - 1 ? 12 : 0,
+                    width: hotFeedCardWidthCompact,
+                  }}
+                >
+                  {renderHotMatchFeedCard(item, true)}
+                </View>
+              )}
+              showsHorizontalScrollIndicator={false}
+              style={{ marginBottom: 12 }}
+              contentContainerStyle={{ paddingBottom: 4, paddingLeft: 16, paddingRight: 8 }}
+              windowSize={5}
+              maxToRenderPerBatch={4}
+              initialNumToRender={4}
+              removeClippedSubviews={Platform.OS === 'android'}
+              nestedScrollEnabled
+            />
+            <View
+              style={{
+                height: 1,
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                marginVertical: 8,
+                marginHorizontal: 16,
+              }}
+            />
+          </>
+        ) : null}
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '700',
+            color: '#FEFCE8',
+            marginTop: 10,
+            marginBottom: 6,
+            paddingHorizontal: 16,
+          }}
+        >
+          🎯 Parties proposées
+        </Text>
+      </>
+    );
+  }, [
+    contentFilter,
+    filteredHotMatches,
+    renderHotMatchFeedCard,
+    hotFeedCardWidthCompact,
+  ]);
+
+  const confirmedHour = React.useMemo(() => [], []);
+
   const confirmedLong = React.useMemo(
     () => {
       const filtered = confirmedWeek.filter(m => {
@@ -1850,6 +2688,66 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.bg,
     overflow: 'visible',
   },
+  hotCard: {
+    backgroundColor: "#1A2740",
+    borderWidth: 1,
+    borderColor: "rgba(255, 120, 0, 0.25)",
+    borderRadius: 22,
+    overflow: "hidden",
+    shadowColor: "#FF6B00",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  hotCardContent: {
+    padding: 16,
+  },
+  hotAvailableAvatarWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#e0ff00',
+    position: 'relative',
+    width: 64,
+    height: 64,
+    shadowColor: "#22C55E",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+  },
+  hotAvailableAvatarWrapSm: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#e0ff00',
+    position: 'relative',
+    width: 48,
+    height: 48,
+    shadowColor: "#22C55E",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+  },
+  hotAvailableSideBadge: {
+    position: 'absolute',
+    left: -3,
+    bottom: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#22C55E',
+    borderWidth: 1,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   networkNotice: {
     backgroundColor: 'rgba(229, 255, 0, 0.14)',
     paddingVertical: 6,
@@ -1863,12 +2761,6 @@ const styles = StyleSheet.create({
     color: THEME.accent,
     fontWeight: '800',
     textAlign: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
   },
   headerTitle: {
     color: THEME.text,
@@ -2027,18 +2919,53 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   matchCard: {
-    backgroundColor: THEME.card,
+    backgroundColor: MATCH_CARD_HALO.surfaceCard,
     padding: 16,
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: THEME.cardBorder,
+    borderColor: MATCH_CARD_HALO.borderSoft,
     overflow: 'visible',
+    ...Platform.select({
+      ios: {
+        shadowColor: MATCH_CARD_HALO.shadowColor,
+        shadowOpacity: 0.11,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 3 },
+      },
+      android: {
+        elevation: 5,
+      },
+    }),
   },
   matchCardGlow: {
     marginBottom: 14,
     borderRadius: 28,
     backgroundColor: 'transparent',
-    overflow: 'hidden',
+    overflow: 'visible',
+  },
+  /** Cartes créneaux Prêts (1h30) : ombre visible (overflow non masqué sur le wrapper). */
+  matchCardGlowSlot: {
+    overflow: 'visible',
+    borderRadius: 20,
+  },
+  matchCardSlotPropose: {
+    backgroundColor: MATCH_CARD_HALO.surfaceSlot,
+    borderWidth: 1,
+    borderColor: MATCH_CARD_HALO.borderSoft,
+    borderRadius: 20,
+    padding: 16,
+    overflow: 'visible',
+    ...Platform.select({
+      ios: {
+        shadowColor: MATCH_CARD_HALO.shadowColor,
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 3 },
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   matchCardReserved: {
     borderColor: 'rgba(229,255,0,0.9)',
@@ -2054,6 +2981,49 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 16,
     marginBottom: 10,
+  },
+  matchDateRowWithPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 10,
+  },
+  matchDateInRow: {
+    flex: 1,
+    marginBottom: 0,
+    minWidth: 0,
+  },
+  durationPill: {
+    flexShrink: 0,
+    alignSelf: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(229, 255, 0, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  durationPillText: {
+    color: '#E5FF00',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  /** Pastille durée sur cartes « En feu » : même orange que la bordure de hotCard */
+  durationPillHot: {
+    flexShrink: 0,
+    alignSelf: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 120, 0, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 120, 0, 0.25)',
+  },
+  durationPillTextHot: {
+    color: '#FFB366',
+    fontWeight: '800',
+    fontSize: 13,
   },
   matchDateCentered: {
     textAlign: 'center',
@@ -2121,15 +3091,15 @@ const styles = StyleSheet.create({
   avatarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: 4,
+    paddingBottom: 2,
     overflow: 'visible',
     flexWrap: 'wrap',
     rowGap: 8,
   },
   avatarItem: {
     marginRight: 10,
-    paddingBottom: 6,
+    paddingBottom: 2,
   },
   avatarPlus: {
     color: THEME.text,
@@ -2154,75 +3124,6 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontWeight: '800',
     fontSize: 14,
-  },
-  emptyStateWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 24,
-  },
-  emptyStateCard: {
-    backgroundColor: 'rgba(14, 34, 56, 0.75)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    alignItems: 'center',
-  },
-  emptyStateTitle: {
-    color: THEME.text,
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    color: THEME.muted,
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  emptyStateButtons: {
-    width: '100%',
-    marginTop: 16,
-    gap: 10,
-  },
-  emptyStatePrimary: {
-    backgroundColor: THEME.accent,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyStatePrimaryText: {
-    color: THEME.ink,
-    fontWeight: '900',
-    fontSize: 15,
-  },
-  emptyStateSecondary: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-  },
-  emptyStateSecondaryText: {
-    color: THEME.text,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  emptyStateButtonPressed: {
-    opacity: 0.9,
-  },
-  emptyStateTip: {
-    color: THEME.muted,
-    fontSize: 12,
-    marginTop: 12,
-    textAlign: 'center',
   },
   partnerSlotsRow: {
     flexDirection: 'row',
@@ -2285,22 +3186,7 @@ const styles = StyleSheet.create({
     color: THEME.muted,
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 6,
-  },
-  filtersBar: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    flexWrap: 'nowrap',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    backgroundColor: 'transparent',
-    zIndex: 1000,
-    elevation: 8,
+    marginBottom: 2,
   },
   fabWrap: {
     position: 'absolute',
@@ -2322,6 +3208,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 10,
+  },
+  /** Onglet compléter : FAB orange « + » (partie à compléter) */
+  completeFindFab: {
+    position: 'absolute',
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    zIndex: 1000,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeFindFabPress: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#ff8c00',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.38,
+    shadowRadius: 10,
+    elevation: 12,
   },
 });
 function normalizeRsvp(s) {
@@ -2370,73 +3280,48 @@ function computeAvailableUsersForInterval(startsAt, endsAt, availabilityData) {
   return intersection ? [...intersection] : [];
 }
 
-function pickClubGroup(userIds, acceptedMap, myAccepted) {
-  if (!Array.isArray(userIds) || userIds.length < 4) return null;
-  if (!myAccepted || myAccepted.size === 0) return null;
-  const counts = new Map();
-  for (const uidRaw of userIds) {
-    const uid = String(uidRaw);
-    const clubs = acceptedMap[uid];
-    if (!Array.isArray(clubs)) return null; // données clubs pas encore chargées
-    for (const clubId of clubs) {
-      if (!myAccepted.has(clubId)) continue;
-      if (!counts.has(clubId)) counts.set(clubId, new Set());
-      counts.get(clubId).add(uid);
-    }
+function getPlayerLatLngFromProfile(profile) {
+  if (!profile) return null;
+  if (profile.address_home?.lat != null && profile.address_home?.lng != null) {
+    return { lat: profile.address_home.lat, lng: profile.address_home.lng };
   }
-  let best = null;
-  for (const [clubId, set] of counts.entries()) {
-    if (set.size < 4) continue;
-    if (!best || set.size > best.userIds.length) {
-      best = { clubId, userIds: Array.from(set) };
-    }
+  if (profile.address_work?.lat != null && profile.address_work?.lng != null) {
+    return { lat: profile.address_work.lat, lng: profile.address_work.lng };
   }
-  return best;
+  return null;
 }
 
-function getCommonAcceptedClubs(userIds, acceptedMap) {
-  if (!Array.isArray(userIds) || userIds.length === 0) return [];
-  let common = null;
-  for (const uidRaw of userIds) {
-    const uid = String(uidRaw);
-    const clubs = new Set(acceptedMap[uid] || []);
-    if (common === null) {
-      common = clubs;
-    } else {
-      common = new Set([...common].filter((c) => clubs.has(c)));
-    }
-    if (common.size === 0) return [];
-  }
-  return Array.from(common || []);
-}
-
-function filterReadyByZoneAndClubs(slot, profilesById, myZoneId, acceptedMap, myAccepted, meId, groupClubId) {
-  if (!slot) return null;
-  if (!myZoneId || !meId) return null;
+function minDistanceKmForReadySlot(slot, profilesById, refPoint) {
+  if (!refPoint || refPoint.lat == null || refPoint.lng == null) return Infinity;
   const userIds = slot.ready_user_ids || [];
-  const filtered = userIds.filter((uid) => {
-    const profile = profilesById[String(uid)];
-    return profile?.zone_id && String(profile.zone_id) === String(myZoneId);
-  });
-  const hasMe = meId ? filtered.some((id) => String(id) === String(meId)) : true;
+  let min = Infinity;
+  for (const uid of userIds) {
+    const ll = getPlayerLatLngFromProfile(profilesById[String(uid)]);
+    if (!ll) continue;
+    const d = haversineKm(refPoint, ll);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/** Enrichit le créneau (club du groupe / méta) sans filtrer par zone ni clubs acceptés. */
+function enrichMatchSlotForGroupDisplay(slot, meId, groupClubId) {
+  if (!slot) return null;
+  const userIds = slot.ready_user_ids || [];
+  if (userIds.length < 4) return null;
+  const hasMe = meId && userIds.some((id) => String(id) === String(meId));
   if (!hasMe) return null;
   if (groupClubId) {
-    if (!Array.isArray(filtered) || filtered.length < 4) return null;
     return {
       ...slot,
-      ready_user_ids: filtered,
       common_club_id: groupClubId,
       common_club_ids: [],
     };
   }
-  const clubGroup = pickClubGroup(filtered, acceptedMap, myAccepted);
-  if (!clubGroup || !Array.isArray(clubGroup.userIds) || clubGroup.userIds.length < 4) return null;
-  const commonClubIds = getCommonAcceptedClubs(clubGroup.userIds, acceptedMap);
   return {
     ...slot,
-    ready_user_ids: clubGroup.userIds,
-    common_club_id: clubGroup.clubId,
-    common_club_ids: commonClubIds,
+    common_club_id: null,
+    common_club_ids: [],
   };
 }
 
@@ -2771,49 +3656,6 @@ const Avatar = ({ uri, size = 56, rsvpStatus, fallback, phone, onPress, selected
   );
 };
 
-const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClubs }) => {
-  return (
-    <View style={styles.emptyStateWrap}>
-      <View style={styles.emptyStateCard}>
-        <Text style={styles.emptyStateTitle}>Pas encore de matchs possibles</Text>
-        <Text style={styles.emptyStateText}>
-          Les matchs se créent à partir des disponibilités des joueurs. Ajoute les tiennes pour lancer la dynamique.
-        </Text>
-        {showMissingClubs ? (
-          <Text style={[styles.emptyStateText, { marginTop: 6, fontWeight: '700', color: '#e0ff00' }]}>
-            Sélectionne au moins 1 club accepté pour recevoir des propositions.
-          </Text>
-        ) : null}
-        <View style={styles.emptyStateButtons}>
-          <Pressable
-            onPress={onAddAvailability}
-            accessibilityRole="button"
-            accessibilityLabel="Ajouter mes disponibilités"
-            style={({ pressed }) => [
-              styles.emptyStatePrimary,
-              pressed ? styles.emptyStateButtonPressed : null,
-            ]}
-          >
-            <Text style={styles.emptyStatePrimaryText}>Ajouter mes disponibilités</Text>
-          </Pressable>
-          <Pressable
-            onPress={onInvitePlayers}
-            accessibilityRole="button"
-            accessibilityLabel="Inviter des joueurs"
-            style={({ pressed }) => [
-              styles.emptyStateSecondary,
-              pressed ? styles.emptyStateButtonPressed : null,
-            ]}
-          >
-            <Text style={styles.emptyStateSecondaryText}>Inviter des joueurs</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.emptyStateTip}>Astuce : invite 3 amis → tu multiplies les chances de match.</Text>
-      </View>
-    </View>
-  );
-};
-
   // Compteurs pour les onglets (filtrer par semaine aussi)
   const isDisplayFrozen = Date.now() < freezeDisplayUntilRef.current || isCreatingMatchRef.current || matchCreatedUndoVisibleRef.current;
   const frozenHourReady = isDisplayFrozen ? displayHourReadyStable : displayHourReady;
@@ -2829,6 +3671,28 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
   const listKeySeed = matchCreatedUndoVisible ? 'popup' : String(dataVersion);
   const longListExtraData = React.useMemo(() => ({ profilesById, dataVersion }), [profilesById, dataVersion]);
   const hourListExtraData = React.useMemo(() => ({ profilesById, dataVersion }), [profilesById, dataVersion]);
+
+  // Source de vérité : longSectionsWeek / hourReadyWeek (pas render* qui suit display avec délai → évite « tout vide » alors qu’il y a des créneaux)
+  const longWeekSlotCount = (longSectionsWeek || []).reduce(
+    (n, s) => n + (s.data || []).length,
+    0
+  );
+  const possibleEmpty = !loadingWeek && longWeekSlotCount === 0;
+  const unifiedFeedAll = React.useMemo(
+    () =>
+      buildUnifiedFeed({
+        longSections: longSectionsWeek || [],
+        findGameRequests: findGameRequests || [],
+        validatedWeek: matchesValidatedForWeek,
+        historyMatches: historyMatches || [],
+      }),
+    [longSectionsWeek, findGameRequests, matchesValidatedForWeek, historyMatches]
+  );
+
+  const unifiedFeedFiltered = React.useMemo(
+    () => filterUnifiedFeedByTab(unifiedFeedAll, contentFilter),
+    [unifiedFeedAll, contentFilter]
+  );
 
   const proposedTabCount = React.useMemo(() => 
     (frozenHourReady || []).filter(it => {
@@ -2969,6 +3833,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     }
     isFetchingRef.current = true;
     lastFetchAtRef.current = now;
+    const fetchGen = ++fetchDataGenerationRef.current;
     if (!skipLoadingState && !hasDataRef.current) {
       setLoading(true);
     } else if (skipLoadingState) {
@@ -2976,7 +3841,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       if (!loadingWeek) {
         setLoadingWeek(true);
       }
-      weekLoadingUntilRef.current = Math.max(weekLoadingUntilRef.current, nowWeek + 600);
+      weekLoadingUntilRef.current = Math.max(weekLoadingUntilRef.current, nowWeek + 220);
     }
     try {
       setNetworkNotice(null);
@@ -3071,8 +3936,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
           console.log('[Matches] Exemple de disponibilité:', availabilityData[0]);
         }
         
-        // D'abord, traiter les time_slots existants
+        // D'abord, traiter les time_slots existants (uniquement durée > 1h, donc 1h30+)
         for (const ts of availableTimeSlots) {
+          if (durationMinutes(ts.starts_at, ts.ends_at) <= 60) continue;
           let availUserIds = computeAvailableUsersForInterval(ts.starts_at, ts.ends_at, availabilityData);
           // Conserver tous les joueurs disponibles (y compris l'utilisateur) pour le calcul des matchs en feu
           const allAvailUserIds = availUserIds || [];
@@ -3120,20 +3986,18 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             }
           }
 
-          console.log('[Matches] 🎯 Nombre de slots (ticks 30min) dans la semaine:', allSlots.size);
+          const ticks30Count = allSlots.size;
+          let virtual60Suppressed = 0;
+          let virtual90Kept = 0;
 
-          // Pour chaque tick de départ, créer des créneaux si 4+ joueurs disponibles
+          // Pour chaque tick de départ : uniquement créneaux virtuels 1h30 (3 demi-heures), plus de 1h (2 demi-heures)
           for (const slotStartISO of allSlots) {
             const slotStart = new Date(slotStartISO);
             const slotEnd60 = new Date(slotStart.getTime() + 60 * 60 * 1000);
             const slotEnd90 = new Date(slotStart.getTime() + 90 * 60 * 1000);
 
-            // Joueurs qui COUVRENT l'intervalle entier (intersection sur ticks 30 min)
-            // Conserver tous les joueurs disponibles (y compris l'utilisateur) pour le calcul des matchs en feu
             const allPlayers60 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd60.toISOString(), availabilityData);
             const allPlayers90 = computeAvailableUsersForInterval(slotStart.toISOString(), slotEnd90.toISOString(), availabilityData);
-            // Exclure l'utilisateur pour l'affichage normal (4+ joueurs)
-            const uniquePlayers60 = (allPlayers60 || []).filter(uid => String(uid) !== String(meId));
             const uniquePlayers90 = (allPlayers90 || []).filter(uid => String(uid) !== String(meId));
 
             // Vérifier si ce créneau virtuel chevauche avec un time_slot existant qui a un match bloquant
@@ -3157,29 +4021,11 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
               });
             };
 
-            // Afficher les créneaux avec 4+ joueurs disponibles OU 3 joueurs (pour les matchs en feu)
-            if (uniquePlayers60.length >= 3) {
-              const slotStartISO = slotStart.toISOString();
-              const slotEnd60ISO = slotEnd60.toISOString();
-              
-              // Ne bloquer que si un match confirmed chevauche, sinon permettre la création du créneau virtuel
-              if (!overlapsWithBlockingMatch(slotStart, slotEnd60)) {
-                ready.push({
-                  time_slot_id: `virtual-60-${slotStart.getTime()}`,
-                  starts_at: slotStartISO,
-                  ends_at: slotEnd60ISO,
-                  ready_user_ids: allPlayers60 || [], // Inclure tous les joueurs disponibles (y compris l'utilisateur)
-                  ready_user_ids_without_me: uniquePlayers60, // Pour l'affichage normal
-                  hot_user_ids: [],
-                });
-                console.log('[Matches] ✅ Créneau virtuel 1h:', slotStartISO, 'avec', uniquePlayers60.length, 'joueurs');
-              } else {
-                console.log('[Matches] ⚠️ Créneau virtuel 1h ignoré (chevauche avec match confirmed bloquant):', slotStartISO);
-              }
+            if ((allPlayers60 || []).length >= 2 && !overlapsWithBlockingMatch(slotStart, slotEnd60)) {
+              virtual60Suppressed++;
             }
 
-            // Afficher les créneaux avec 4+ joueurs disponibles OU 3 joueurs (pour les matchs en feu)
-            if (uniquePlayers90.length >= 3) {
+            if ((allPlayers90 || []).length >= 2) {
               const slotStartISO = slotStart.toISOString();
               const slotEnd90ISO = slotEnd90.toISOString();
               
@@ -3193,12 +4039,18 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
                   ready_user_ids_without_me: uniquePlayers90, // Pour l'affichage normal
                   hot_user_ids: [],
                 });
-                console.log('[Matches] ✅ Créneau virtuel 1h30:', slotStartISO, 'avec', uniquePlayers90.length, 'joueurs');
+                virtual90Kept++;
+                console.log('[Matches] ✅ Créneau virtuel 1h30:', slotStartISO, 'avec', (allPlayers90 || []).length, 'joueurs (total)');
               } else {
                 console.log('[Matches] ⚠️ Créneau virtuel 1h30 ignoré (chevauche avec match confirmed bloquant):', slotStartISO);
               }
             }
           }
+          console.log('[Matches][Slots1h30only]', JSON.stringify({
+            ticks30min: ticks30Count,
+            creneauxVirtuels1hNonCrees: virtual60Suppressed,
+            creneauxVirtuels1h30Crees: virtual90Kept,
+          }));
         }
       } // Fin du if (timeSlotsData)
       
@@ -3381,9 +4233,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             try {
               const { data: clubsData, error: clubsError } = await supabase
                 .from("user_clubs")
-                .select("user_id, club_id, is_preferred")
+                .select("user_id, club_id, is_preferred, is_refused")
                 .in("user_id", memberIds)
-                .eq("is_accepted", true);
+                .eq("is_refused", true);
               if (clubsError) throw clubsError;
               const map = {};
               (clubsData || []).forEach((row) => {
@@ -3391,9 +4243,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
                 if (!map[uid]) map[uid] = [];
                 map[uid].push(String(row.club_id));
               });
-              setAcceptedClubsByUser(map);
+              setRefusedClubsByUser(map);
               const mine = map[String(meId)] || [];
-              setMyAcceptedClubs(new Set(mine));
+              setMyRefusedClubIds(new Set(mine));
             } catch (e) {
               console.warn('[Matches] user_clubs load error:', e?.message || e);
             }
@@ -3516,9 +4368,15 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
 
         console.log('[Matches] Après filtrage par conflits (joueurs déjà engagés):', adjusted.length, 'créneaux');
 
-        // Final split by duration
-        const longReadyFiltered = adjusted.filter(s => durationMinutes(s.starts_at, s.ends_at) > 60);
-        const hourReadyFiltered = adjusted.filter(s => durationMinutes(s.starts_at, s.ends_at) <= 60);
+        // Final split : uniquement créneaux 1h30 (plus de branche 1h)
+        const ecartes1h = adjusted.filter((s) => durationMinutes(s.starts_at, s.ends_at) <= 60).length;
+        const longReadyFiltered = adjusted.filter((s) => durationMinutes(s.starts_at, s.ends_at) > 60);
+        const hourReadyFiltered = [];
+        console.log('[Matches][Slots1h30only]', JSON.stringify({
+          apresConflits_total: adjusted.length,
+          creneaux1h30: longReadyFiltered.length,
+          ecartesDuree1h: ecartes1h,
+        }));
 
         setReady(adjusted);
         setLongReady(longReadyFiltered);
@@ -3566,15 +4424,17 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             return new Date(a0) - new Date(b0);
           });
           
-          // Mettre à jour immédiatement les états display
-          InteractionManager.runAfterInteractions(() => {
-            if (isFetchingRef.current) {
+          // Mise à jour display sans InteractionManager (runAfterInteractions retardait l’UI quand beaucoup de créneaux)
+          queueMicrotask(() => {
+            if (fetchGen !== fetchDataGenerationRef.current) {
               return;
             }
             if (Date.now() < freezeDisplayUntilRef.current || isCreatingMatchRef.current || matchCreatedUndoVisibleRef.current) {
               return;
             }
-            console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile, sections:', sections.length, 'hour:', hourFiltered.length);
+            if (__DEV__) {
+              console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile, sections:', sections.length, 'hour:', hourFiltered.length);
+            }
             setDisplayLongSections(sections.map(section => ({
               ...section,
               data: section.data.map(item => ({ ...item }))
@@ -3584,8 +4444,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         }
       } catch (e) {
         console.warn('[Matches] Post-process propositions failed, falling back to raw ready list:', e?.message || e);
-        const longReadyFiltered = (tempReady || []).filter(s => durationMinutes(s.starts_at, s.ends_at) > 60);
-        const hourReadyFiltered = (tempReady || []).filter(s => durationMinutes(s.starts_at, s.ends_at) <= 60);
+        const longReadyFiltered = (tempReady || []).filter((s) => durationMinutes(s.starts_at, s.ends_at) > 60);
+        const hourReadyFiltered = [];
+        console.log('[Matches][Slots1h30only] fallback', JSON.stringify({ total: (tempReady || []).length, creneaux1h30: longReadyFiltered.length }));
         setReady(tempReady || []);
         setLongReady(longReadyFiltered);
         setHourReady(hourReadyFiltered);
@@ -3630,14 +4491,16 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             return new Date(a0) - new Date(b0);
           });
           
-          InteractionManager.runAfterInteractions(() => {
-            if (isFetchingRef.current) {
+          queueMicrotask(() => {
+            if (fetchGen !== fetchDataGenerationRef.current) {
               return;
             }
             if (Date.now() < freezeDisplayUntilRef.current || isCreatingMatchRef.current || matchCreatedUndoVisibleRef.current) {
               return;
             }
-            console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile (fallback), sections:', sections.length, 'hour:', hourFiltered.length);
+            if (__DEV__) {
+              console.log('[Matches] fetchData: Mise à jour directe des états display pour mobile (fallback), sections:', sections.length, 'hour:', hourFiltered.length);
+            }
             setDisplayLongSections(sections.map(section => ({
               ...section,
               data: section.data.map(item => ({ ...item }))
@@ -3665,48 +4528,52 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         }
       }
     } finally {
-      if (!skipLoadingState) {
-        setLoading(false);
-      } else {
-        if (weekLoadingTimerRef.current) {
-          clearTimeout(weekLoadingTimerRef.current);
+      if (fetchGen === fetchDataGenerationRef.current) {
+        if (!skipLoadingState) {
+          setLoading(false);
+        } else {
+          if (weekLoadingTimerRef.current) {
+            clearTimeout(weekLoadingTimerRef.current);
+          }
+          const waitMs = Math.max(0, weekLoadingUntilRef.current - Date.now());
+          weekLoadingTimerRef.current = setTimeout(() => {
+            setLoadingWeek(false);
+          }, waitMs);
         }
-        const waitMs = Math.max(0, weekLoadingUntilRef.current - Date.now());
-        weekLoadingTimerRef.current = setTimeout(() => {
-          setLoadingWeek(false);
-        }, waitMs);
-      }
-      isFetchingRef.current = false;
-      if (!matchCreatedUndoVisibleRef.current) {
-        setDisplaySyncTick((v) => v + 1);
-      }
-      if (pendingFetchRef.current) {
-        pendingFetchRef.current = false;
-        setTimeout(() => fetchData(true), 50);
+        isFetchingRef.current = false;
+        if (!matchCreatedUndoVisibleRef.current) {
+          setDisplaySyncTick((v) => v + 1);
+        }
+        if (pendingFetchRef.current) {
+          pendingFetchRef.current = false;
+          setTimeout(() => fetchData(true), 50);
+        }
       }
     }
-  }, [groupId, weekOffset]);
+  }, [groupId, weekOffset, meId]);
 
   // Charger les données au montage ou quand le groupe change
   useEffect(() => {
-    console.log('[Matches] useEffect called, groupId:', groupId, 'weekOffset:', weekOffset);
-    if (groupId) {
-      // Détecter si c'est un changement de groupe ou juste de semaine
-      const isGroupChange = previousGroupIdRef.current !== groupId;
-      const isWeekChange = !isGroupChange && previousGroupIdRef.current === groupId && previousWeekOffsetRef.current !== weekOffset;
-      
-      // Mettre à jour les références
-      previousGroupIdRef.current = groupId;
-      previousWeekOffsetRef.current = weekOffset;
-      
-      // Si c'est juste un changement de semaine, utiliser loadingWeek au lieu de loading
-      fetchData(isWeekChange); // Passer true si c'est juste un changement de semaine
-    } else {
+    console.log('[Matches] useEffect called, groupId:', groupId, 'weekOffset:', weekOffset, 'meId:', !!meId);
+    if (!groupId) {
       setLoading(false);
       previousGroupIdRef.current = null;
       previousWeekOffsetRef.current = 0;
+      return;
     }
-  }, [groupId, weekOffset, fetchData]); // ✅ relance aussi quand la semaine visible change
+    // Sans utilisateur connecté, le fetch est incomplet (zone, clubs, filtres créneaux).
+    // On attend le meId issu de getUser() pour un seul chargement cohérent.
+    if (!meId) {
+      return;
+    }
+    const isGroupChange = previousGroupIdRef.current !== groupId;
+    const isWeekChange = !isGroupChange && previousGroupIdRef.current === groupId && previousWeekOffsetRef.current !== weekOffset;
+
+    previousGroupIdRef.current = groupId;
+    previousWeekOffsetRef.current = weekOffset;
+
+    fetchData(isWeekChange);
+  }, [groupId, weekOffset, meId, fetchData]);
 
   // Mettre à jour explicitement les données affichées quand les données calculées changent
   // Utiliser useLayoutEffect pour une mise à jour synchrone avant le rendu
@@ -3728,26 +4595,28 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     
     if (displayUpdateTimerRef.current) {
       clearTimeout(displayUpdateTimerRef.current);
+      displayUpdateTimerRef.current = null;
     }
-    displayUpdateTimerRef.current = setTimeout(() => {
-      if (matchCreatedUndoVisibleRef.current) {
-        return;
-      }
-      setDisplayLongSections(newLongSections);
-      setDisplayHourReady(newHourReady);
-      setDisplayLongSectionsStable(newLongSections);
-      setDisplayHourReadyStable(newHourReady);
-      const nextCount =
-        (newHourReady || []).filter((it) => new Date(it.ends_at) > new Date()).length +
-        (newLongSections || []).reduce((sum, section) => {
-          return (
-            sum +
-            (section.data || []).filter((it) => new Date(it.ends_at) > new Date()).length
-          );
-        }, 0);
-      setProposedTabCountStable(nextCount);
-    }, 250);
-  }, [longSectionsWeek, hourReadyWeek, dataVersion, displaySyncTick]);
+    if (matchCreatedUndoVisibleRef.current) {
+      return;
+    }
+    // Mise à jour immédiate (pas de délai 250 ms) pour aligner l’UI sur longSectionsWeek / hourReadyWeek
+    setDisplayLongSections(newLongSections);
+    setDisplayHourReady(newHourReady);
+    setDisplayLongSectionsStable(newLongSections);
+    setDisplayHourReadyStable(newHourReady);
+    const nextCount =
+      (newHourReady || []).filter((it) => new Date(it.ends_at) > new Date()).length +
+      (newLongSections || []).reduce((sum, section) => {
+        return (
+          sum +
+          (section.data || []).filter((it) => new Date(it.ends_at) > new Date()).length
+        );
+      }, 0);
+    setProposedTabCountStable(nextCount);
+    // freezeVersion : quand le gel expire (setTimeout dans freezeDisplay), les autres deps
+    // peuvent être inchangées → sans cet effet, display* ne se resynchronise pas sur longSectionsWeek.
+  }, [longSectionsWeek, hourReadyWeek, dataVersion, displaySyncTick, freezeVersion]);
 
   // Mettre à jour le tab si le paramètre d'URL change
   useEffect(() => {
@@ -3757,60 +4626,157 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     }
   }, [params?.tab]);
 
-  // Charger l'historique des 5 derniers matchs validés
+  // Activité « Trouver » → ouvrir la modale « Confirmer le match » (même flux que match possible).
+  // useFocusEffect : le simple useEffect ne se rejoue pas toujours au changement d’onglet ; AsyncStorage + focus est fiable.
+  // Ne pas retirer AsyncStorage avant openConfirm : sinon Strict Mode / double effet peut vider la file avant que meId soit prêt.
+  const processPendingFindGameConfirm = useCallback(async () => {
+    let fromStorage = null;
+    try {
+      fromStorage = await AsyncStorage.getItem(PENDING_FIND_GAME_ASYNC_KEY);
+    } catch (_) {}
+
+    const fromPeek = peekPendingFindGameConfirmSearchId();
+    const fromLocal = params?.findGameConfirmSearchId;
+    const fromGlobal = globalParams?.findGameConfirmSearchId;
+    const raw = fromPeek || fromLocal || fromGlobal || fromStorage;
+    const searchId = raw != null && String(raw).length > 0 ? String(raw) : null;
+    if (!searchId) return;
+
+    if (!meId) return;
+
+    if (findGameConfirmInFlightRef.current) return;
+    findGameConfirmInFlightRef.current = true;
+
+    let completed = false;
+    takePendingFindGameConfirmSearchId();
+    try {
+      router.setParams({ findGameConfirmSearchId: undefined });
+    } catch (_) {}
+
+    try {
+      const { data: s, error: se } = await supabase
+        .from('group_match_searches')
+        .select('id, group_id, starts_at, club_id, status')
+        .eq('id', searchId)
+        .maybeSingle();
+
+      if (se || !s) {
+        Alert.alert('Introuvable', 'Cette recherche n’existe plus ou a été supprimée.');
+        return;
+      }
+
+      const { data: pls } = await supabase
+        .from('group_match_search_players')
+        .select('user_id')
+        .eq('search_id', searchId);
+      const playerIds = [...new Set((pls || []).map((r) => String(r.user_id)))];
+      if (playerIds.length < 4) {
+        Alert.alert('Pas encore prêt', 'Il faut 4 joueurs pour créer le match.');
+        return;
+      }
+
+      const { data: groupRow } = await supabase
+        .from('groups')
+        .select('id, name, avatar_url, visibility, join_policy, club_id')
+        .eq('id', s.group_id)
+        .maybeSingle();
+
+      if (String(s.group_id) !== String(groupId)) {
+        if (groupRow) await setActiveGroup(groupRow);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      const startsAt = s.starts_at;
+      const endsAt = new Date(new Date(startsAt).getTime() + 90 * 60 * 1000).toISOString();
+      const others = playerIds.filter((id) => String(id) !== String(meId));
+      if (others.length !== 3) {
+        Alert.alert(
+          'Création impossible',
+          'Tu dois faire partie des 4 joueurs pour créer le match depuis cette recherche.'
+        );
+        return;
+      }
+
+      // Trouver : club de la recherche d’abord (RPC mode p_from_find_game — sans règle « clubs communs »).
+      const forcedClubId = s.club_id ?? groupRow?.club_id ?? null;
+      await openConfirm({
+        startsAt,
+        endsAt,
+        selectedUserIds: others,
+        forcedClubId,
+        fromFindGame: true,
+      });
+      completed = true;
+    } catch (e) {
+      console.warn('[Matches] processPendingFindGameConfirm', e);
+      Alert.alert('Erreur', e?.message ?? String(e));
+    } finally {
+      findGameConfirmInFlightRef.current = false;
+      if (completed && fromStorage) {
+        try {
+          await AsyncStorage.removeItem(PENDING_FIND_GAME_ASYNC_KEY);
+        } catch (_) {}
+      }
+    }
+  }, [
+    meId,
+    groupId,
+    params?.findGameConfirmSearchId,
+    globalParams?.findGameConfirmSearchId,
+    openConfirm,
+    setActiveGroup,
+    router,
+  ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const task = InteractionManager.runAfterInteractions(() => {
+        setTimeout(() => {
+          if (cancelled) return;
+          void processPendingFindGameConfirm();
+        }, 120);
+      });
+      return () => {
+        cancelled = true;
+        task?.cancel?.();
+      };
+    }, [processPendingFindGameConfirm])
+  );
+
+  useEffect(() => {
+    if (!meId) return;
+    void processPendingFindGameConfirm();
+  }, [meId, processPendingFindGameConfirm]);
+
+  // Charger l'historique des 5 derniers matchs validés (même forme que Stats — forme du moment)
   const loadHistoryMatches = useCallback(async () => {
     if (!groupId || !meId) {
       setHistoryMatches([]);
+      setHistoryProfilesById({});
+      setHistoryError(null);
       return;
     }
 
     try {
-      // APPROCHE EN 2 ÉTAPES : Plus fiable que la jointure
-      // 1. D'abord, vérifier TOUS les RSVPs de l'utilisateur pour voir quels statuts existent
-      const { data: allUserRsvps, error: debugRsvpsError } = await supabase
-        .from('match_rsvps')
-        .select('match_id, status')
-        .eq('user_id', meId);
-      
-      if (debugRsvpsError) {
-        console.error('[History] Erreur lors du chargement de tous les RSVPs:', debugRsvpsError);
-      } else {
-        console.log('[History] Tous les RSVPs de l\'utilisateur:', allUserRsvps?.length || 0);
-        if (allUserRsvps && allUserRsvps.length > 0) {
-          const statusCounts = {};
-          allUserRsvps.forEach(r => {
-            statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
-          });
-          console.log('[History] Répartition des statuts RSVP:', statusCounts);
-        }
-      }
-      
-      // 2. Charger les RSVPs de l'utilisateur avec status 'accepted', 'yes', ou 'maybe'
-      // (peut-être que certains matches utilisent 'maybe' pour les matches confirmés)
+      setHistoryLoading(true);
+      setHistoryError(null);
+
       const { data: userRsvps, error: rsvpsError } = await supabase
         .from('match_rsvps')
         .select('match_id, status')
         .eq('user_id', meId)
         .in('status', ['accepted', 'yes', 'maybe']);
 
-      if (rsvpsError) {
-        console.error('[History] Error loading user RSVPs:', rsvpsError);
-        throw rsvpsError;
-      }
-
+      if (rsvpsError) throw rsvpsError;
       if (!userRsvps || userRsvps.length === 0) {
-        console.log('[History] Aucun RSVP accepted/yes/maybe trouvé pour l\'utilisateur:', meId);
-        console.log('[History] Vérification: meId =', meId, 'groupId =', groupId);
         setHistoryMatches([]);
+        setHistoryProfilesById({});
         return;
       }
 
-      console.log('[History] RSVPs trouvés:', userRsvps.length, userRsvps);
-      const userMatchIds = userRsvps.map(r => r.match_id);
-      console.log('[History] Match IDs où l\'utilisateur a un RSVP accepted/yes:', userMatchIds.length, userMatchIds);
+      const userMatchIds = userRsvps.map((r) => r.match_id);
 
-      // 2. Charger TOUS les matches correspondants (sans limite) puis prendre les 5 derniers
-      // Pas de limite de date - on charge tout puis on trie et on prend les 5 derniers
       const { data: allMatchesData, error: matchesError } = await supabase
         .from('matches')
         .select(`
@@ -3829,52 +4795,33 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         .eq('group_id', groupId)
         .eq('status', 'confirmed')
         .order('created_at', { ascending: false });
-      
-      console.log('[History] Requête matches exécutée:', {
-        userMatchIdsCount: userMatchIds.length,
-        groupId,
-        allMatchesFound: allMatchesData?.length || 0
-      });
-      
-      // Prendre les 5 derniers matches
+
+      if (matchesError) throw matchesError;
+
       const matchesData = (allMatchesData || []).slice(0, 5);
-
-      if (matchesError) {
-        console.error('[History] Error loading matches:', matchesError);
-        throw matchesError;
-      }
-
-      if (!matchesData || matchesData.length === 0) {
-        console.log('[History] Aucun match trouvé pour les IDs:', userMatchIds);
-        console.log('[History] Vérification: groupId =', groupId, 'status = confirmed');
-        // Vérifier si les matches existent mais ne correspondent pas aux filtres
-        if (userMatchIds.length > 0) {
-          const { data: debugMatches } = await supabase
-            .from('matches')
-            .select('id, group_id, status')
-            .in('id', userMatchIds.slice(0, 5));
-          console.log('[History] Debug - matches trouvés sans filtres:', debugMatches);
-        }
+      if (!matchesData.length) {
         setHistoryMatches([]);
+        setHistoryProfilesById({});
         return;
       }
 
-      const finalMatches = matchesData;
-      const finalMatchIds = finalMatches.map(m => m.id);
-      
-      console.log('[History] Matches trouvés:', finalMatches.length);
-      console.log('[History] meId utilisé:', meId);
-      console.log('[History] Match IDs finaux:', finalMatchIds);
-      
-      // Vérification de sécurité : s'assurer que l'utilisateur a bien un RSVP accepted pour chaque match
-      for (const match of finalMatches) {
-        const hasRsvp = userRsvps.some(r => String(r.match_id) === String(match.id));
-        if (!hasRsvp) {
-          console.error('[History] ERREUR: Match', match.id, 'n\'a pas de RSVP accepted pour l\'utilisateur!');
+      const finalMatchIds = matchesData.map((m) => m.id);
+
+      const groupIds = [...new Set(matchesData.map((m) => m.group_id).filter(Boolean))];
+      let groupsMap = {};
+      if (groupIds.length > 0) {
+        const { data: groupsData, error: groupsError } = await supabase
+          .from('groups')
+          .select('id, name')
+          .in('id', groupIds);
+        if (!groupsError && groupsData) {
+          groupsMap = groupsData.reduce((acc, g) => {
+            acc[g.id] = g;
+            return acc;
+          }, {});
         }
       }
-      
-      // Charger les résultats de ces matchs
+
       const { data: resultsData, error: resultsError } = await supabase
         .from('match_results')
         .select(`
@@ -3891,71 +4838,91 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         `)
         .in('match_id', finalMatchIds);
 
-      if (resultsError) {
-        console.warn('[History] Error loading results:', resultsError);
-      }
+      if (resultsError) console.warn('[History] match_results:', resultsError);
 
-      // Charger TOUS les RSVPs des matches sélectionnés (pour l'affichage de tous les joueurs)
       const { data: allRsvpsData, error: allRsvpsError } = await supabase
         .from('match_rsvps')
         .select('match_id, user_id, status')
         .in('match_id', finalMatchIds);
 
-      if (allRsvpsError) {
-        console.warn('[History] Error loading all RSVPs:', allRsvpsError);
-      }
+      if (allRsvpsError) console.warn('[History] match_rsvps:', allRsvpsError);
 
-      // Créer une map des résultats par match_id
       const resultsByMatchId = new Map();
-      (resultsData || []).forEach(result => {
+      (resultsData || []).forEach((result) => {
         resultsByMatchId.set(result.match_id, result);
       });
 
-      // Créer une map des RSVPs par match_id pour tous les matches sélectionnés
-      const finalRsvpsByMatchId = new Map();
-      (allRsvpsData || []).forEach(rsvp => {
-        if (!finalRsvpsByMatchId.has(rsvp.match_id)) {
-          finalRsvpsByMatchId.set(rsvp.match_id, []);
-        }
-        finalRsvpsByMatchId.get(rsvp.match_id).push(rsvp);
+      const rsvpsByMatchId = new Map();
+      (allRsvpsData || []).forEach((rsvp) => {
+        if (!rsvpsByMatchId.has(rsvp.match_id)) rsvpsByMatchId.set(rsvp.match_id, []);
+        rsvpsByMatchId.get(rsvp.match_id).push(rsvp);
       });
 
-      // Mettre à jour rsvpsByMatch pour inclure les RSVPs de l'historique
-      setRsvpsByMatch(prev => {
+      setRsvpsByMatch((prev) => {
         const next = { ...prev };
-        finalRsvpsByMatchId.forEach((rsvps, matchId) => {
+        rsvpsByMatchId.forEach((rsvps, matchId) => {
           next[matchId] = rsvps;
         });
         return next;
       });
 
-      // Combiner les matchs avec leurs résultats
-      // Pas besoin de vérifier à nouveau car on a déjà filtré via la requête RSVP
-      const matchesWithResults = finalMatches.map(match => ({
+      const allUserIds = new Set();
+      (allRsvpsData || []).forEach((r) => {
+        if (r.user_id) allUserIds.add(String(r.user_id));
+      });
+      (resultsData || []).forEach((res) => {
+        [res.team1_player1_id, res.team1_player2_id, res.team2_player1_id, res.team2_player2_id].forEach((uid) => {
+          if (uid) allUserIds.add(String(uid));
+        });
+      });
+
+      let profilesMap = {};
+      if (allUserIds.size > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, display_name, avatar_url, email, niveau')
+          .in('id', Array.from(allUserIds));
+        if (profilesError) throw profilesError;
+        profilesMap = (profilesData || []).reduce((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {});
+      }
+
+      const matchesWithDetails = matchesData.map((match) => ({
         ...match,
         result: resultsByMatchId.get(match.id) || null,
+        rsvps: rsvpsByMatchId.get(match.id) || [],
+        group: groupsMap[match.group_id] || null,
       }));
 
-      console.log('[History] Matches finaux chargés pour l\'utilisateur:', matchesWithResults.length);
-      console.log('[History] IDs des matches finaux:', matchesWithResults.map(m => m.id));
-      setHistoryMatches(matchesWithResults);
+      setHistoryMatches(matchesWithDetails);
+      setHistoryProfilesById(profilesMap);
     } catch (e) {
       console.error('[History] Error loading history matches:', e);
       setHistoryMatches([]);
+      setHistoryProfilesById({});
+      setHistoryError(e?.message || 'Erreur lors du chargement des derniers matchs.');
+    } finally {
+      setHistoryLoading(false);
     }
   }, [groupId, meId]);
 
-  // Charger l'historique quand le groupe change ou quand on passe sur l'onglet valides
+  // Historique « 5 derniers » : alimente le feed « Tous » et le bloc Forme du moment sous « Validés »
   useEffect(() => {
-    if (tab === 'valides' && groupId) {
-      loadHistoryMatches();
-    }
-  }, [tab, groupId, loadHistoryMatches]);
+    if (!groupId || !meId) return;
+    if (contentFilter !== 'validated') return;
+    loadHistoryMatches();
+  }, [groupId, meId, contentFilter, loadHistoryMatches]);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
-      setMeId(data?.user?.id ?? null);
+      const uid = data?.user?.id ?? null;
+      setMeId(uid);
+      if (!uid) {
+        setLoading(false);
+      }
     })();
   }, [groupId]);
 
@@ -3978,12 +4945,11 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       try {
         const { data: profile } = await supabase
           .from("profiles")
-          .select("zone_id, comfort_radius_km")
+          .select("zone_id")
           .eq("id", meId)
           .maybeSingle();
         if (mounted) {
           if (profile?.zone_id && !myZoneId) setMyZoneId(profile.zone_id);
-          if (profile?.comfort_radius_km != null) setComfortRadiusKm(profile.comfort_radius_km);
         }
         if (!zonesList.length) {
           const { data: z } = await supabase.from("zones").select("*").order("region").order("name");
@@ -3998,34 +4964,21 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     };
   }, [meId, myZoneId, zonesList.length]);
 
+  /** Au moment où la modale clubs s’ouvre : recharge la sélection depuis la DB (pas quand le rayon change). */
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!geoClubsModalOpen || !meId || !myZoneId) return;
+      if (!geoClubsModalOpen || !meId) return;
       try {
-        setGeoClubsLoading(true);
-        const [{ data: clubsData }, { data: userClubs }] = await Promise.all([
-          supabase
-            .from("clubs")
-            .select("id, name, zone_id, is_active")
-            .eq("zone_id", myZoneId)
-            .eq("is_active", true)
-            .order("name"),
-          supabase
-            .from("user_clubs")
-            .select("club_id")
-            .eq("user_id", meId)
-            .eq("is_accepted", true)
-        ]);
-        const selected = new Set((userClubs || []).map((r) => String(r.club_id)));
-        if (mounted) {
-          setGeoClubsList(clubsData || []);
-          setGeoClubsSelected(selected);
-        }
+        const { data: userClubs } = await supabase
+          .from('user_clubs')
+          .select('club_id')
+          .eq('user_id', meId)
+          .eq('is_refused', true);
+        if (!mounted) return;
+        setGeoClubsSelected(new Set((userClubs || []).map((r) => String(r.club_id))));
       } catch (e) {
-        Alert.alert("Erreur", "Impossible de charger les clubs.");
-      } finally {
-        if (mounted) setGeoClubsLoading(false);
+        console.warn('[GeoClubs/Matches] sync selection', e?.message);
       }
     })();
     return () => {
@@ -4033,16 +4986,166 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     };
   }, [geoClubsModalOpen, meId, myZoneId]);
 
-  const persistGeoPrefs = useCallback(async (groupId, patch) => {
-    if (!groupId) return;
-    try {
-      const key = GEO_PREFS_KEY(groupId);
-      const prevRaw = await AsyncStorage.getItem(key);
-      const prev = prevRaw ? JSON.parse(prevRaw) : {};
-      const next = { ...prev, ...patch, updated_at: Date.now() };
-      await AsyncStorage.setItem(key, JSON.stringify(next));
-    } catch {}
-  }, []);
+  /**
+   * Clubs de la zone + pré-filtre par distance max (ref : GPS → club préféré → centre de zone).
+   * Alimente la liste du sélecteur et les stats « hors rayon ».
+   */
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!meId) return;
+      if (geoClubsModalOpen) setGeoClubsLoading(true);
+      setGeoClubsAllInZone([]);
+      /** Ne pas vider geoClubsList ici : l’async laisse un trou où cartes + modale « Confirmer » voyaient [] alors que les noms étaient affichés juste avant. */
+      try {
+        const [{ data: clubsData }, { data: prefRow }] = await Promise.all([
+          supabase
+            .from('clubs')
+            .select('id, name, zone_id, is_active, lat, lng')
+            .eq('is_active', true)
+            .not('lat', 'is', null)
+            .not('lng', 'is', null)
+            .order('name'),
+          supabase
+            .from('user_clubs')
+            .select('club_id, clubs(lat, lng, name)')
+            .eq('user_id', meId)
+            .eq('is_preferred', true)
+            .eq('is_refused', false)
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        const raw = clubsData || [];
+        let preferredClubCoords = null;
+        const pr = prefRow?.clubs;
+        if (pr && typeof pr === 'object' && !Array.isArray(pr)) {
+          preferredClubCoords = { lat: pr.lat, lng: pr.lng, name: pr.name };
+        } else if (Array.isArray(pr) && pr[0]) {
+          preferredClubCoords = { lat: pr[0].lat, lng: pr[0].lng, name: pr[0].name };
+        }
+
+        const ref = await resolveGeoClubsRefPointMatches({
+          locationPermission,
+          zonesList,
+          myZoneId,
+          preferredClubCoords,
+          myProfile,
+        });
+
+        const capKm = getRadiusFilterCapKm({ radius_km: effectivePlayRadiusKm });
+        const refPoint =
+          ref.lat != null && ref.lng != null && ref.source !== 'none'
+            ? { lat: ref.lat, lng: ref.lng }
+            : null;
+        const inRadius = filterAndSortClubsByRadius(refPoint, raw, capKm);
+
+        logClubRadiusFilter({
+          players_count: 1,
+          clubs_found: inRadius.length,
+          filters: { radius_km: effectivePlayRadiusKm },
+        });
+        logGeoClubsMatches({
+          zoneId: myZoneId,
+          distanceMaxKm: capKm,
+          refSource: ref.source,
+          refLat: ref.lat,
+          refLng: ref.lng,
+          totalClubsLoaded: raw.length,
+          afterDistanceFilter: inRadius.length,
+        });
+
+        if (!mounted) return;
+        setGeoClubsDistanceRefPoint(refPoint);
+        setGeoClubsAllInZone(raw);
+        setGeoClubsList(inRadius);
+      } catch (e) {
+        console.warn('[GeoClubs/Matches] load', e?.message || e);
+        if (geoClubsModalOpen) {
+          Alert.alert('Erreur', 'Impossible de charger les clubs.');
+        }
+      } finally {
+        if (mounted && geoClubsModalOpen) setGeoClubsLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [geoClubsModalOpen, meId, myZoneId, effectivePlayRadiusKm, locationPermission, zonesList, myProfile]);
+
+  useEffect(() => {
+    const inRadiusIds = (geoClubsList || []).map((c) => String(c.id));
+    const refusedArr = [...myRefusedClubIds];
+    const allowed = allowedClubIdsAfterRefusals(inRadiusIds, refusedArr);
+    logClubsRefusalFilter({
+      tag: "Matches/geoClubsList",
+      clubsInRadius: inRadiusIds,
+      refusedIds: refusedArr,
+      allowedIds: allowed,
+    });
+  }, [geoClubsList, myRefusedClubIds]);
+
+  /** Re-log les sélections hors rayon quand la sélection change (modale ouverte). */
+  useEffect(() => {
+    if (!geoClubsModalOpen) return;
+    if (!geoClubsAllInZone.length) return;
+    const inSet = new Set((geoClubsList || []).map((c) => String(c.id)));
+    const sel = geoClubsModalOpen ? geoClubsSelected : myRefusedClubIds;
+    const outside = [];
+    for (const sid of sel || []) {
+      if (!inSet.has(String(sid))) outside.push(String(sid));
+    }
+    if (outside.length) {
+      logGeoClubsMatches({
+        event: 'selection_vs_radius',
+        selectedOutsideRadiusIds: outside,
+        count: outside.length,
+      });
+    }
+  }, [
+    geoClubsSelected,
+    myRefusedClubIds,
+    geoClubsList,
+    geoClubsModalOpen,
+    geoClubsAllInZone.length,
+  ]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!meId || !filterGeoVisible) {
+        if (mounted) setPreferredClubNameForGeo(null);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('user_clubs')
+          .select('club_id, clubs(name)')
+          .eq('user_id', meId)
+          .eq('is_preferred', true)
+          .eq('is_refused', false)
+          .limit(1)
+          .maybeSingle();
+        if (!mounted) return;
+        if (error) {
+          setPreferredClubNameForGeo(null);
+          return;
+        }
+        const c = data?.clubs;
+        const name =
+          c && typeof c === 'object' && !Array.isArray(c)
+            ? c.name
+            : Array.isArray(c) && c[0]
+              ? c[0].name
+              : null;
+        setPreferredClubNameForGeo(name ?? null);
+      } catch {
+        if (mounted) setPreferredClubNameForGeo(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [meId, filterGeoVisible]);
 
   useEffect(() => {
     let mounted = true;
@@ -4057,24 +5160,16 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
           await supabase.from("profiles").update({ zone_id: prefs.zone_id }).eq("id", meId);
           if (mounted) setMyZoneId(prefs.zone_id);
         }
-        if (prefs?.comfort_radius_km != null) {
-          await supabase.from("profiles").update({ comfort_radius_km: prefs.comfort_radius_km }).eq("id", meId);
-          if (mounted) setComfortRadiusKm(prefs.comfort_radius_km);
-        }
-        if (Array.isArray(prefs?.club_ids)) {
-          await supabase.from("user_clubs").delete().eq("user_id", meId);
-          if (prefs.club_ids.length) {
-            const payload = prefs.club_ids.map((clubId) => ({
-              user_id: meId,
-              club_id: clubId,
-              is_accepted: true,
-              is_preferred: false
-            }));
-            await supabase.from("user_clubs").upsert(payload, { onConflict: "user_id,club_id" });
-            if (mounted) setMyAcceptedClubs(new Set(prefs.club_ids.map(String)));
-          } else if (mounted) {
-            setMyAcceptedClubs(new Set());
+        if (mounted) {
+          if (prefs?.radius_km !== undefined) {
+            setMatchFilterRadiusKm(normalizeStoredRadiusKm(prefs.radius_km));
+          } else if (prefs?.search_radius_km != null) {
+            setMatchFilterRadiusKm(normalizeStoredRadiusKm(Number(prefs.search_radius_km)));
           }
+        }
+        // Ancien cache « club_ids = acceptés » : ignoré (modèle refus + profil / modale).
+        if (Array.isArray(prefs?.club_ids) && prefs.club_ids.length) {
+          console.warn("[Matches] geo prefs club_ids ignorés (modèle clubs refusés).");
         }
       } catch (e) {
         console.warn("[Matches] restore geo prefs failed:", e?.message || e);
@@ -4115,7 +5210,8 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
               user_id: meId,
               club_id: activeGroup.club_id,
               is_accepted: true,
-              is_preferred: true
+              is_preferred: true,
+              is_refused: false,
             }],
             { onConflict: "user_id,club_id" }
           );
@@ -4128,7 +5224,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
           if (mounted) setMyZoneId(club.zone_id);
         }
 
-        if (mounted) setMyAcceptedClubs(new Set([String(activeGroup.club_id)]));
+        if (mounted) setMyRefusedClubIds(new Set());
         await AsyncStorage.setItem("last_group_club_sync", syncKey);
       } catch (e) {
         console.warn("[Matches] auto sync group club failed:", e?.message || e);
@@ -4191,7 +5287,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     }, [activeGroup?.id, meId, myZoneId])
   );
 
-  // Rafraîchir les clubs acceptés au retour sur l'écran
+  // Rafraîchir les clubs refusés au retour sur l'écran
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
@@ -4202,10 +5298,10 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             .from("user_clubs")
             .select("club_id")
             .eq("user_id", meId)
-            .eq("is_accepted", true);
+            .eq("is_refused", true);
           if (mounted) {
             const ids = (data || []).map((r) => String(r.club_id));
-            setMyAcceptedClubs(new Set(ids));
+            setMyRefusedClubIds(new Set(ids));
           }
         } catch {}
       })();
@@ -4289,6 +5385,15 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       Alert.alert('Partage impossible', e?.message || String(e));
     }
   }, [activeGroup?.id, activeGroup?.name, getInviteCodeForShare]);
+
+  const openFindGameWizard = useCallback(() => {
+    if (!groupId) {
+      Alert.alert('Groupe requis', 'Sélectionne un groupe pour lancer une recherche de partie.');
+      return;
+    }
+    setFindGameWizardPrefill(null);
+    setFindGameWizardOpen(true);
+  }, [groupId]);
 
   // Activer un groupe
   const onSelectGroup = useCallback(async (g) => {
@@ -4698,7 +5803,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         setFlashLevelFilter([]);
         setFlashLevelFilterVisible(false);
         setFlashGeoRefPoint(null);
-        setFlashGeoRadiusKm(null);
+        setFlashGeoRadiusKm(25);
         setFlashGeoLocationType(null);
         setFlashGeoCityQuery("");
         setFlashGeoCitySuggestions([]);
@@ -4720,35 +5825,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         throw profileError;
       }
 
-      // Clubs acceptés des membres
-      const { data: memberClubs, error: clubsErr } = await supabase
-        .from("user_clubs")
-        .select("user_id, club_id, is_accepted")
-        .in("user_id", memberIds)
-        .eq("is_accepted", true);
-      if (clubsErr) {
-        console.warn("[FlashMatch] Erreur chargement clubs membres:", clubsErr);
-      }
-      const acceptedMap = {};
-      (memberClubs || []).forEach((row) => {
-        const id = String(row.user_id);
-        if (!acceptedMap[id]) acceptedMap[id] = [];
-        acceptedMap[id].push(String(row.club_id));
-      });
-
-      if (myAcceptedClubs?.size === 0) {
-        Alert.alert("Clubs requis", "Sélectionne au moins un club accepté pour inviter des joueurs.");
-      }
-
-      // Exclure l'utilisateur, filtrer zone + clubs acceptés
+      // Exclure l'utilisateur ; plus de filtre zone / clubs acceptés (matching = groupe + dispo + distance côté produit)
       let ms = (profiles || [])
         .filter(p => (!uid || String(p.id) !== String(uid)))
-        .filter(p => !myZoneId || String(p.zone_id) === String(myZoneId))
-        .filter(p => {
-          if (!myAcceptedClubs || myAcceptedClubs.size === 0) return false;
-          const clubs = acceptedMap[String(p.id)] || [];
-          return clubs.some((cid) => myAcceptedClubs.has(String(cid)));
-        })
         .map(p => ({
           id: p.id,
           name: formatPlayerName(p.display_name || p.name || 'Joueur inconnu'),
@@ -4768,7 +5847,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       setFlashLevelFilter([]);
       setFlashLevelFilterVisible(false);
       setFlashGeoRefPoint(null);
-      setFlashGeoRadiusKm(null);
+      setFlashGeoRadiusKm(25);
       setFlashGeoLocationType(null);
       setFlashGeoCityQuery("");
       setFlashGeoCitySuggestions([]);
@@ -4811,7 +5890,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
 
   const onCreateIntervalMatch = useCallback(
     async (starts_at_iso, ends_at_iso, selectedUserIds = [], matchStatus = 'confirmed', options = {}) => {
-      const { skipPostCreateModal = false, selectedClubId = null } = options || {};
+      const { skipPostCreateModal = false, selectedClubId = null, fromFindGame = false } = options || {};
       if (!groupId) return;
       // Preflight: prevent overlapping creation with same players
       try {
@@ -4848,22 +5927,34 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
           const playerIds = Array.from(
             new Set((selectedUserIds || []).concat(meId).filter(Boolean).map(String))
           );
-          const commonClubs = getCommonAcceptedClubs(playerIds, acceptedClubsByUser);
-          if (!selectedClubId) {
-            if (commonClubs.length === 0) {
-              Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
-              return;
-            }
-          } else if (commonClubs.length > 0 && !commonClubs.some((cid) => String(cid) === String(selectedClubId))) {
-            Alert.alert("Club invalide", "Le club choisi n'est pas commun aux 4 joueurs.");
-            return;
+          let rpcClubId = null;
+          let pFromFindGame = false;
+
+          if (fromFindGame) {
+            pFromFindGame = true;
+            rpcClubId = selectedClubId || null;
+          } else {
+            let dbGroupClubId = null;
+            try {
+              const { data: gRow } = await supabase
+                .from('groups')
+                .select('club_id')
+                .eq('id', groupId)
+                .maybeSingle();
+              dbGroupClubId = gRow?.club_id ?? null;
+            } catch (_) {}
+            const hasGroupImposedClub =
+              dbGroupClubId != null && String(dbGroupClubId).length > 0;
+            rpcClubId = hasGroupImposedClub ? dbGroupClubId : selectedClubId || null;
           }
+
           const { data, error } = await supabase.rpc('create_match_from_interval_safe', {
             p_group: groupId,
             p_starts_at: starts_at_iso,
             p_ends_at: ends_at_iso,
             p_user_ids: playerIds,
-            p_club_id: selectedClubId || null,
+            p_club_id: rpcClubId || null,
+            p_from_find_game: pFromFindGame,
           });
           console.log('[onCreateIntervalMatch] RPC result:', data, 'error:', error);
           // Ignorer les erreurs RLS sur availability car on va créer les RSVPs manuellement
@@ -5030,19 +6121,15 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         }
 
         if (newMatchId) {
-          const notifyIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
-          if (skipPostCreateModal) {
-            notifyMatchCreated(newMatchId, notifyIds);
-            notifyGroupMatchCreated(newMatchId, notifyIds);
-          } else {
+          void recordGroupMatchActivityEvent(groupId, newMatchId);
+          const notifyFallbackIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
+          if (!skipPostCreateModal) {
             showMatchCreatedUndo(newMatchId, {
               onExpire: () => {
-                notifyMatchCreated(newMatchId, notifyIds);
-                notifyGroupMatchCreated(newMatchId, notifyIds);
+                void sendNotificationsForMatch(newMatchId, notifyFallbackIds, uid);
               },
               onConfirm: () => {
-                notifyMatchCreated(newMatchId, notifyIds);
-                notifyGroupMatchCreated(newMatchId, notifyIds);
+                void sendNotificationsForMatch(newMatchId, notifyFallbackIds, uid);
               },
             });
           }
@@ -5177,6 +6264,20 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
           } catch (e) {
             console.error('[Matches] cleanup RSVPs failed:', e?.message || e);
           }
+        }
+
+        if (newMatchId && skipPostCreateModal) {
+          let uidForNotify = meId;
+          if (!uidForNotify) {
+            try {
+              const { data: u } = await supabase.auth.getUser();
+              uidForNotify = u?.user?.id ?? null;
+            } catch (_) {}
+          }
+          const notifyFallbackIds = Array.from(
+            new Set([...(selectedUserIds || []), uidForNotify].filter(Boolean))
+          );
+          await sendNotificationsForMatch(newMatchId, notifyFallbackIds, uidForNotify);
         }
 
 
@@ -5354,6 +6455,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
             console.error('[Matches] final cleanup after fetchData failed:', e?.message || e);
           }
         }
+
+        // Aligner liste « prêts » / compteurs sur longSectionsWeek après refresh (évite 0 fantôme).
+        setDisplaySyncTick((v) => v + 1);
         
       } catch (e) {
         if (Platform.OS === 'web') {
@@ -5363,7 +6467,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         }
       }
     },
-    [groupId, fetchData, showMatchCreatedUndo, meId, acceptedClubsByUser]
+    [groupId, fetchData, showMatchCreatedUndo, meId, sendNotificationsForMatch]
   );
 
   // Handler pour valider date/heure/durée et passer à la sélection des joueurs
@@ -5406,8 +6510,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     const matchStatus = requiresConfirmation ? 'pending' : 'confirmed';
     
     try {
-      await onCreateIntervalMatch(startIso, endIso, allPlayers, matchStatus);
-      
+      // Évite d’empiler la modale « Match créé » (fond plein écran) + Alert : cas répété où l’écran ne recevait plus les touches après fermeture.
+      await onCreateIntervalMatch(startIso, endIso, allPlayers, matchStatus, { skipPostCreateModal: true });
+
       // Envoyer des notifications aux joueurs sélectionnés
       try {
         await supabase.from('notification_jobs').insert(
@@ -5427,18 +6532,24 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         console.warn('[FlashMatch] notification insert failed:', e?.message || e);
       }
 
+      setFlashDateModalOpen(false);
+      setFlashDatePickerModalOpen(false);
       setFlashPickerOpen(false);
+      setFlashLoading(false);
+      resetFlashFilters();
       setFlashSelected([]);
-      
+
       if (Platform.OS === "web") {
         window.alert(`Match Éclair créé 🎾${requiresConfirmation ? ' (en attente de confirmation)' : ' (confirmé)'}`);
       } else {
-        Alert.alert(
-          "Match Éclair créé 🎾", 
-          requiresConfirmation 
-            ? "Le match a été créé et attend confirmation." 
-            : "Le match a été créé et confirmé."
-        );
+        InteractionManager.runAfterInteractions(() => {
+          Alert.alert(
+            "Match Éclair créé 🎾",
+            requiresConfirmation
+              ? "Le match a été créé et attend confirmation."
+              : "Le match a été créé et confirmé."
+          );
+        });
       }
     } catch (e) {
       if (Platform.OS === "web") {
@@ -5447,7 +6558,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         Alert.alert("Erreur", e.message ?? String(e));
       }
     }
-  }, [flashSelected, flashStart, flashDurationMin, meId, onCreateIntervalMatch]);
+  }, [flashSelected, flashStart, flashDurationMin, meId, onCreateIntervalMatch, resetFlashFilters]);
 
   // --- Geo Match helpers ---
   // Charger le profil utilisateur avec address_home/work
@@ -5457,7 +6568,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, address_home, address_work, niveau')
+          .select(
+            'id, address_home, address_work, niveau, geo_ref_type, geo_ref_lat, geo_ref_lng, geo_ref_label, geo_radius_km, geo_use_live_location, geo_active_source'
+          )
           .eq('id', meId)
           .maybeSingle();
         if (error) throw error;
@@ -5525,7 +6638,9 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
     }
   }, []);
   
-  // Calculer le point de référence géographique pour le filtre
+  /**
+   * Point de référence pour le filtre liste : position GPS ou ville choisie.
+   */
   const computeFilterGeoRefPoint = useCallback(async () => {
     let point = null;
     if (filterGeoLocationType === 'current') {
@@ -5542,22 +6657,6 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         setFilterGeoLocationType(null);
         return null;
       }
-    } else if (filterGeoLocationType === 'home') {
-      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
-        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
-        setFilterGeoLocationType(null);
-        return null;
-      }
-      const addr = myProfile.address_home;
-      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
-    } else if (filterGeoLocationType === 'work') {
-      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
-        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
-        setFilterGeoLocationType(null);
-        return null;
-      }
-      const addr = myProfile.address_work;
-      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
     }
     
     return point;
@@ -5574,7 +6673,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         return;
       }
       
-      // Pour les autres types (current, home, work), charger automatiquement
+      // Pour current, charger automatiquement
       const point = await computeFilterGeoRefPoint();
       if (point) {
         setFilterGeoRefPoint(point);
@@ -5601,22 +6700,6 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         setHotMatchGeoLocationType(null);
         return null;
       }
-    } else if (hotMatchGeoLocationType === 'home') {
-      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
-        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
-        setHotMatchGeoLocationType(null);
-        return null;
-      }
-      const addr = myProfile.address_home;
-      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
-    } else if (hotMatchGeoLocationType === 'work') {
-      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
-        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
-        setHotMatchGeoLocationType(null);
-        return null;
-      }
-      const addr = myProfile.address_work;
-      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
     }
     
     return point;
@@ -5633,7 +6716,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         return;
       }
       
-      // Pour les autres types (current, home, work), charger automatiquement
+      // Pour current, charger automatiquement
       const point = await computeHotMatchGeoRefPoint();
       if (point) {
         setHotMatchGeoRefPoint(point);
@@ -5691,22 +6774,6 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         setFlashGeoLocationType(null);
         return null;
       }
-    } else if (flashGeoLocationType === 'home') {
-      if (!myProfile?.address_home || !myProfile.address_home.lat || !myProfile.address_home.lng) {
-        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de domicile dans votre profil.');
-        setFlashGeoLocationType(null);
-        return null;
-      }
-      const addr = myProfile.address_home;
-      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
-    } else if (flashGeoLocationType === 'work') {
-      if (!myProfile?.address_work || !myProfile.address_work.lat || !myProfile.address_work.lng) {
-        Alert.alert('Erreur', 'Veuillez renseigner votre adresse de travail dans votre profil.');
-        setFlashGeoLocationType(null);
-        return null;
-      }
-      const addr = myProfile.address_work;
-      point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
     }
     
     return point;
@@ -5723,7 +6790,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         return;
       }
       
-      // Pour les autres types (current, home, work), charger automatiquement
+      // Pour current, charger automatiquement
       const point = await computeFlashGeoRefPoint();
       if (point) {
         setFlashGeoRefPoint(point);
@@ -5797,7 +6864,7 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
   // Réinitialiser le rayon quand le type de localisation change pour flash
   useEffect(() => {
     if (!flashGeoLocationType) {
-      setFlashGeoRadiusKm(null);
+      setFlashGeoRadiusKm(25);
     }
   }, [flashGeoLocationType]);
 
@@ -5808,7 +6875,10 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         const saved = await AsyncStorage.getItem('geo_match_prefs');
         if (saved) {
           const prefs = JSON.parse(saved);
-          if (prefs.locationType) setLocationType(prefs.locationType);
+          if (prefs.locationType) {
+            const lt = prefs.locationType;
+            setLocationType(lt === 'home' || lt === 'work' ? 'current' : lt);
+          }
           if (prefs.radiusKm) setRadiusKm(prefs.radiusKm);
         }
       } catch (e) {
@@ -5934,28 +7004,28 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
       const { data, error } = await supabase
         .from('clubs')
         .select('*')
+        .eq('is_active', true)
         .not('lat', 'is', null)
         .not('lng', 'is', null);
       
       if (error) throw error;
       
-      // Simplifier : tri uniquement par distance (plus besoin du tri par niveau)
-      const filtered = (data || [])
-        .map(c => ({
-          ...c,
-          distanceKm: haversineKm(refPoint, { lat: c.lat, lng: c.lng }),
-        }))
-        .filter(c => c.distanceKm <= radiusKm)
-        .sort((a, b) => a.distanceKm - b.distanceKm);
-      
-      setClubs(filtered.slice(0, 10)); // Limiter à 10 avec pagination
+      const capKm = getRadiusFilterCapKm({ radius_km: effectivePlayRadiusKm });
+      const filtered = filterAndSortClubsByRadius(refPoint, data || [], capKm);
+      const playersCount = (selectedGeoPlayers?.length ?? 0) + (meId ? 1 : 0);
+      logClubRadiusFilter({
+        players_count: playersCount,
+        clubs_found: filtered.length,
+        filters: { radius_km: effectivePlayRadiusKm },
+      });
+      setClubs(filtered.slice(0, 10));
     } catch (e) {
       Alert.alert('Erreur', e?.message ?? String(e));
       setClubs([]);
     } finally {
       setClubsLoading(false);
     }
-  }, [refPoint, radiusKm]);
+  }, [refPoint, effectivePlayRadiusKm, selectedGeoPlayers, meId]);
 
   // Calculer le point de référence selon locationType
   const computeRefPoint = useCallback(async () => {
@@ -5974,25 +7044,10 @@ const EmptyMatchesState = ({ onAddAvailability, onInvitePlayers, showMissingClub
         setLocationType('city');
         return null;
       }
-    } else if (locationType === 'home' && myProfile?.address_home) {
-      const addr = myProfile.address_home;
-      if (addr.lat && addr.lng) {
-        point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Domicile' };
-      }
-    } else if (locationType === 'work' && myProfile?.address_work) {
-      const addr = myProfile.address_work;
-      if (addr.lat && addr.lng) {
-        point = { lat: addr.lat, lng: addr.lng, address: addr.address || 'Travail' };
-      }
-    }
-    
-    if (!point && locationType !== 'city') {
-      Alert.alert('Erreur', 'Veuillez renseigner cette adresse dans votre profil.');
-      return null;
     }
     
     return point;
-  }, [locationType, locationPermission, myProfile]);
+  }, [locationType, locationPermission]);
 
   // Ouvrir modal géographique
   const openGeoModal = useCallback(async () => {
@@ -6238,11 +7293,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         const playerIds = Array.from(
           new Set((selectedUserIds || []).concat(meId).filter(Boolean).map(String))
         );
-        const commonClubs = getCommonAcceptedClubs(playerIds, acceptedClubsByUser);
-        if (commonClubs.length === 0) {
-          Alert.alert("Aucun club commun sélectionné", "Sélectionne des joueurs avec au moins un club commun accepté.");
-          return;
-        }
         const { error } = await supabase.rpc("create_match_with_players", {
           p_group: groupId,
           p_time_slot: time_slot_id,
@@ -6271,28 +7321,26 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
           }
 
           if (createdMatch?.id) {
-            createdMatchId = createdMatch.id;
+            const createdMatchId = createdMatch.id;
+            void recordGroupMatchActivityEvent(groupId, createdMatch.id);
             const notifyIds = Array.from(new Set([...(selectedUserIds || []), uid].filter(Boolean)));
-            if (skipPostCreateModal) {
-              notifyMatchCreated(createdMatchId, notifyIds);
-              notifyGroupMatchCreated(createdMatchId, notifyIds);
-            } else {
-              showMatchCreatedUndo(createdMatchId, {
-                onExpire: () => {
-                  notifyMatchCreated(createdMatchId, notifyIds);
-                  notifyGroupMatchCreated(createdMatchId, notifyIds);
-                },
-                onConfirm: () => {
-                  notifyMatchCreated(createdMatchId, notifyIds);
-                  notifyGroupMatchCreated(createdMatchId, notifyIds);
-                },
-              });
-            }
             // Confirmer le match côté backend
             await supabase.from('matches').update({ status: 'confirmed' }).eq('id', createdMatch.id);
             // Accepter tous les joueurs sélectionnés
             const toAccept = (selectedUserIds || []).map(String).filter(Boolean);
             await acceptPlayers(createdMatch.id, toAccept);
+            if (skipPostCreateModal) {
+              await sendNotificationsForMatch(createdMatchId, notifyIds, uid);
+            } else {
+              showMatchCreatedUndo(createdMatchId, {
+                onExpire: () => {
+                  void sendNotificationsForMatch(createdMatchId, notifyIds, uid);
+                },
+                onConfirm: () => {
+                  void sendNotificationsForMatch(createdMatchId, notifyIds, uid);
+                },
+              });
+            }
             // Optimisme UI: marquer tout le monde en 'accepted'
             setRsvpsByMatch((prev) => {
               const next = { ...prev };
@@ -6318,7 +7366,11 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         isCreatingMatchRef.current = true;
         freezeDisplay(2200);
         await fetchData();
-        setTimeout(() => { isCreatingMatchRef.current = false; }, 2500);
+        setTimeout(() => {
+          isCreatingMatchRef.current = false;
+          // Ref seule → pas de re-render ; sans ça isDisplayFrozen reste « figé » sur l’ancien rendu.
+          setDisplaySyncTick((v) => v + 1);
+        }, 2500);
       } catch (e) {
         if (Platform.OS === "web") {
           window.alert("Impossible de créer le match\n" + (e.message ?? String(e)));
@@ -6327,7 +7379,7 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         }
       }
     },
-    [groupId, fetchData, showMatchCreatedUndo]
+    [groupId, fetchData, showMatchCreatedUndo, sendNotificationsForMatch]
   );
 
   const onRsvpAccept = useCallback(async (match_id) => {
@@ -6950,20 +8002,30 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
     const selectedPlayerIds = canCreate
       ? Array.from(new Set((selectedIds || []).concat(meId).filter(Boolean).map(String)))
       : [];
-    const clubsMapReady = canCreate
-      ? selectedPlayerIds.every((id) => Array.isArray(acceptedClubsByUser[String(id)]))
-      : false;
-    const commonClubCount = canCreate && !isClubGroup
-      ? getCommonAcceptedClubs(selectedPlayerIds, acceptedClubsByUser).length
-      : null;
+    const unionClubCount = canCreate && !isClubGroup ? (geoClubsList || []).length : null;
     const forcedClubId = isClubGroup ? groupClubId : null;
-    const commonClubIds = isClubGroup ? [] : item.common_club_ids;
     
     // Séparer le joueur authentifié des autres joueurs
     const otherUserIds = userIds.filter(uid => String(uid) !== String(meId));
     const myProfile = meId ? profileOf(profilesById, meId) : null;
     const isMeAvailable = meId && userIds.some(uid => String(uid) === String(meId));
-    
+
+    /** Même source que la modale : objets clubs complets (prefill), pas seulement id/nom. */
+    const cardPossibleClubs = React.useMemo(
+      () => getPossibleClubsPrefillForHotCard({ available_user_ids: userIds }),
+      [getPossibleClubsPrefillForHotCard, userIds.join(',')]
+    );
+
+    React.useEffect(() => {
+      if (typeof __DEV__ === 'undefined' || !__DEV__ || type !== 'ready' || cardPossibleClubs.length === 0) return;
+      // eslint-disable-next-line no-console
+      console.log('[ConfirmMatchModal] carte SlotRow — clubs affichés', {
+        count: cardPossibleClubs.length,
+        ids: cardPossibleClubs.map((c) => c.id),
+        names: cardPossibleClubs.map((c) => c.name),
+      });
+    }, [type, cardPossibleClubs]);
+
     return (
       <View style={[cardStyle, { minHeight: 120 }]}>
         <Text style={{ fontWeight: "800", color: "#111827", fontSize: 16, marginBottom: 6 }}>
@@ -6973,34 +8035,6 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
         <View style={{ marginBottom: 8 }}>
           <Badge tone='amber' text={`${type === 'ready' ? '🎾' : '🔥'} ${userIds.length} joueurs`} />
         </View>
-        {type === "ready" && (
-          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-            <Pressable
-              disabled={!canCreate}
-              accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId })) : undefined}
-              accessibilityRole="button"
-              accessibilityLabel="Créer un match pour ce créneau"
-              style={({ pressed }) => [
-                { backgroundColor: canCreate ? '#15803d' : THEME.accent, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-                Platform.OS === "web" ? { cursor: canCreate ? 'pointer' : 'not-allowed', opacity: canCreate ? 1 : 0.85 } : null,
-                pressed && canCreate ? { opacity: 0.8 } : null,
-              ]}
-            >
-              {!canCreate ? (
-                <Image source={clickIcon} style={{ width: 28, height: 28, marginRight: 8, tintColor: 'white' }} />
-              ) : null}
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {canCreate && (
-                  <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
-                )}
-                <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
-                  {canCreate ? "Créer un match (4 joueurs)" : `Sélectionner ${3 - selectedIds.length} joueur${3 - selectedIds.length > 1 ? 's' : ''} (${selectedIds.length}/3)`}
-                </Text>
-              </View>
-            </Pressable>
-        </View>
-        )}
         {type === "ready" && (
           <View style={{ marginBottom: 8 }}>
             {isClubGroup ? (
@@ -7019,12 +8053,10 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
                 </Text>
                 <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                   {canCreate
-                    ? (!clubsMapReady
-                        ? 'Clubs en cours de chargement...'
-                        : (commonClubCount > 0
-                            ? `${commonClubCount} club${commonClubCount > 1 ? 's' : ''} commun${commonClubCount > 1 ? 's' : ''} possible${commonClubCount > 1 ? 's' : ''}`
-                            : 'Aucun club commun'))
-                    : 'Sélectionne 3 joueurs pour voir les clubs communs'}
+                    ? (unionClubCount > 0
+                        ? `${unionClubCount} club${unionClubCount > 1 ? 's' : ''} en suggestion (profils)`
+                        : 'Tu pourras choisir un lieu à la confirmation (optionnel).')
+                    : `${remainingCoPlayersSelectFr(3 - selectedIds.length)} pour affiner la liste.`}
                 </Text>
               </>
             )}
@@ -7083,12 +8115,60 @@ async function demoteNonCreatorAcceptedToMaybe(matchId, creatorUserId) {
             );
           })}
         </View>
+        {type === "ready" && (
+          <View style={{ marginTop: 12 }}>
+            <Pressable
+              disabled={!canCreate}
+              accessibilityState={{ disabled: !canCreate }}
+              onPress={
+                canCreate
+                  ? press('Créer un match', () => {
+                      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                        // eslint-disable-next-line no-console
+                        console.log('[ConfirmMatchModal] clic SlotRow — envoi possibleClubs vers modale', {
+                          count: cardPossibleClubs.length,
+                          ids: cardPossibleClubs.map((c) => c.id),
+                          names: cardPossibleClubs.map((c) => c.name),
+                        });
+                      }
+                      openConfirm({
+                        startsAt: item.starts_at,
+                        endsAt: item.ends_at,
+                        selectedUserIds: selectedIds,
+                        forcedClubId,
+                        possibleClubs: cardPossibleClubs,
+                      });
+                    })
+                  : undefined
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Créer un match pour ce créneau"
+              style={({ pressed }) => [
+                { backgroundColor: canCreate ? '#15803d' : THEME.accent, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+                Platform.OS === "web" ? { cursor: canCreate ? 'pointer' : 'not-allowed', opacity: canCreate ? 1 : 0.85 } : null,
+                pressed && canCreate ? { opacity: 0.8 } : null,
+              ]}
+            >
+              {!canCreate ? (
+                <Image source={clickIcon} style={{ width: 28, height: 28, marginRight: 8, tintColor: 'white' }} />
+              ) : null}
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {canCreate && (
+                  <Image source={racketIcon} style={{ width: 24, height: 24, marginRight: 8, tintColor: 'white' }} />
+                )}
+                <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>
+                  {canCreate ? "Créer un match (4 joueurs)" : remainingCoPlayersSelectFr(3 - selectedIds.length)}
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+        )}
       </View>
     );
   };
 
 // --- 1h30 ---
-const LongSlotRow = ({ item }) => {
+const LongSlotRow = ({ item, hotMode = false, durationPillLabel }) => {
   console.log('[LongSlotRow] Rendered for item:', item.time_slot_id, 'starts_at:', item.starts_at);
   // Utiliser tous les joueurs disponibles pour ce créneau
   const allUserIds = item.ready_user_ids || [];
@@ -7100,6 +8180,22 @@ const LongSlotRow = ({ item }) => {
   const limitedOtherIds = otherUserIds.slice(0, maxAvatars);
   const displayedOtherIds = showAllPlayers ? otherUserIds : limitedOtherIds;
   const extraCount = Math.max(0, otherUserIds.length - limitedOtherIds.length);
+
+  /** Source unique avec la modale : objets complets (prefill), identiques à l’affichage « Clubs possibles ». */
+  const cardPossibleClubs = React.useMemo(
+    () => getPossibleClubsPrefillForHotCard({ available_user_ids: allUserIds }),
+    [getPossibleClubsPrefillForHotCard, allUserIds.join(',')]
+  );
+
+  React.useEffect(() => {
+    if (typeof __DEV__ === 'undefined' || !__DEV__ || cardPossibleClubs.length === 0) return;
+    // eslint-disable-next-line no-console
+    console.log('[ConfirmMatchModal] carte LongSlotRow — clubs affichés', {
+      count: cardPossibleClubs.length,
+      ids: cardPossibleClubs.map((c) => c.id),
+      names: cardPossibleClubs.map((c) => c.name),
+    });
+  }, [cardPossibleClubs]);
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -7115,10 +8211,6 @@ const LongSlotRow = ({ item }) => {
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
   const forcedClubId = isClubGroup ? groupClubId : null;
-  const commonClubIds = isClubGroup ? [] : item.common_club_ids;
-  const remainingToSelect = Math.max(0, 3 - selectedIds.length);
-  const selectLabel = `Sélectionner ${remainingToSelect} joueur${remainingToSelect > 1 ? 's' : ''}`;
-
   const enter = useEnterAnim(!matchCreatedUndoVisible);
   const ctaScale = useRef(new Animated.Value(1)).current;
   const slotEntries = [];
@@ -7132,50 +8224,60 @@ const LongSlotRow = ({ item }) => {
   const emptySlots = Math.max(0, 4 - slotEntries.length);
 
   return (
-    <Animated.View style={[styles.matchCardGlow, enter.style]}>
-      <View style={styles.matchCard}>
-        <Text style={styles.matchDate}>{formatRange(item.starts_at, item.ends_at)}</Text>
-
-        {canCreate ? (
-          <View style={styles.ctaRow}>
-            <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
-              <Pressable
-                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId }))}
-                onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
-                onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
-                accessibilityRole="button"
-                accessibilityLabel="Créer un match pour ce créneau 1h30"
-                style={({ pressed }) => [
-                  styles.ctaPrimary,
-                  { width: '100%' },
-                  pressed ? styles.ctaButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.ctaPrimaryText}>Créer un match</Text>
-              </Pressable>
-            </Animated.View>
+    <Animated.View style={[styles.matchCardGlow, styles.matchCardGlowSlot, enter.style]}>
+      <View style={styles.matchCardSlotPropose}>
+        {durationPillLabel ? (
+          <View style={styles.matchDateRowWithPill}>
+            <Text style={[styles.matchDate, styles.matchDateInRow]} numberOfLines={2}>
+              {formatRange(item.starts_at, item.ends_at)}
+            </Text>
+            <View style={styles.durationPill} pointerEvents="none">
+              <Text style={styles.durationPillText}>{durationPillLabel}</Text>
+            </View>
           </View>
         ) : (
-          <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-            <Pressable
-              disabled={!canCreate}
-              accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId })) : undefined}
-              onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
-              onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
-              accessibilityRole="button"
-              accessibilityLabel={`${selectLabel} pour ce créneau 1h30`}
-              style={({ pressed }) => [
-                styles.ctaButton,
-                !canCreate && styles.ctaButtonDisabled,
-                pressed ? styles.ctaButtonPressed : null,
-              ]}
-            >
-              <Text style={[styles.ctaText, !canCreate && styles.ctaTextDisabled]}>
-                {selectLabel}
-              </Text>
-            </Pressable>
-          </Animated.View>
+          <Text style={styles.matchDate}>{formatRange(item.starts_at, item.ends_at)}</Text>
+        )}
+        {cardPossibleClubs.length > 0 ? (
+          <Text
+            style={{
+              fontSize: 12,
+              color: 'rgba(255,255,255,0.6)',
+              marginBottom: 8,
+              textAlign: 'left',
+              lineHeight: 17,
+            }}
+          >
+            <Text style={{ fontWeight: '800', color: 'rgba(255,255,255,0.6)' }}>Clubs possibles : </Text>
+            {cardPossibleClubs.map((c) => c.name).join(' · ')}
+          </Text>
+        ) : !isClubGroup && allUserIds.length > 0 ? (
+          <Text
+            style={{
+              fontSize: 12,
+              color: 'rgba(255,255,255,0.6)',
+              marginBottom: 8,
+              textAlign: 'left',
+              lineHeight: 17,
+            }}
+          >
+            <Text style={{ fontWeight: '800', color: 'rgba(255,255,255,0.6)' }}>Clubs : </Text>
+            Suggestions basées sur les clubs disponibles dans ton rayon.
+          </Text>
+        ) : null}
+        {hotMode && (
+          <Text
+            style={{
+              textAlign: 'center',
+              color: '#ea580c',
+              fontWeight: '900',
+              fontSize: 12,
+              marginBottom: 8,
+              letterSpacing: 0.3,
+            }}
+          >
+            {getHotMatchLabel(otherUserIds.length)}
+          </Text>
         )}
 
         <View style={styles.partnerSlotsRow}>
@@ -7198,8 +8300,26 @@ const LongSlotRow = ({ item }) => {
             </View>
           ))}
         </View>
+        {durationPillLabel ? (
+          <Text
+            style={{
+              textAlign: 'left',
+              color: '#ea580c',
+              fontWeight: '800',
+              fontSize: 12,
+              marginTop: 6,
+              marginBottom: 4,
+            }}
+          >
+            {`🔥 ${allUserIds.length} ${
+              allUserIds.length === 1 ? 'joueur disponible' : 'joueurs disponibles'
+            }`}
+          </Text>
+        ) : null}
         <View style={styles.partnerPickerRow}>
-          <Text style={styles.partnerPickerLabel}>Choisir ses partenaires</Text>
+          <Text style={[styles.partnerPickerLabel, { color: '#e0ff00' }]}>
+            👇 {remainingCoPlayersSelectFr(3 - selectedIds.length)}
+          </Text>
           <View style={styles.avatarRow}>
             {displayedOtherIds.map((uid) => {
               const p = profileOf(profilesById, uid);
@@ -7228,13 +8348,61 @@ const LongSlotRow = ({ item }) => {
             ) : null}
           </View>
         </View>
+        {canCreate ? (
+          <View style={[styles.ctaRow, { marginTop: 14 }]}>
+            <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
+              <Pressable
+                onPress={press(
+                  hotMode ? MATCH_COPY.hot.ctaLaunch : 'Créer un match',
+                  () => {
+                    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                      // eslint-disable-next-line no-console
+                      console.log('[ConfirmMatchModal] clic LongSlotRow — envoi possibleClubs vers modale', {
+                        count: cardPossibleClubs.length,
+                        ids: cardPossibleClubs.map((c) => c.id),
+                        names: cardPossibleClubs.map((c) => c.name),
+                      });
+                    }
+                    openConfirm({
+                      startsAt: item.starts_at,
+                      endsAt: item.ends_at,
+                      selectedUserIds: selectedIds,
+                      forcedClubId,
+                      possibleClubs: cardPossibleClubs,
+                    });
+                  }
+                )}
+                onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
+                onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  hotMode ? `${MATCH_COPY.hot.ctaLaunch} pour ce créneau 1h30` : 'Créer un match pour ce créneau 1h30'
+                }
+                style={({ pressed }) => [
+                  styles.ctaPrimary,
+                  { width: '100%' },
+                  pressed ? styles.ctaButtonPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.ctaPrimaryText,
+                    hotMode && { fontSize: 18 },
+                  ]}
+                >
+                  {hotMode ? MATCH_COPY.hot.ctaLaunch : 'Créer un match'}
+                </Text>
+              </Pressable>
+            </Animated.View>
+          </View>
+        ) : null}
       </View>
     </Animated.View>
   );
 };
 
-// --- 1h ---
-const HourSlotRow = ({ item }) => {
+/** Ancienne variante « 1h » — le feed n’utilise plus que `LongSlotRow` (1h30). */
+const HourSlotRow = ({ item, hotMode = false, durationPillLabel }) => {
   // Utiliser tous les joueurs disponibles pour ce créneau
   const allUserIds = item.ready_user_ids || [];
   const otherUserIds = allUserIds.filter(uid => String(uid) !== String(meId));
@@ -7245,6 +8413,21 @@ const HourSlotRow = ({ item }) => {
   const limitedOtherIds = otherUserIds.slice(0, maxAvatars);
   const displayedOtherIds = showAllPlayers ? otherUserIds : limitedOtherIds;
   const extraCount = Math.max(0, otherUserIds.length - limitedOtherIds.length);
+
+  const cardPossibleClubs = React.useMemo(
+    () => getPossibleClubsPrefillForHotCard({ available_user_ids: allUserIds }),
+    [getPossibleClubsPrefillForHotCard, allUserIds.join(',')]
+  );
+
+  React.useEffect(() => {
+    if (typeof __DEV__ === 'undefined' || !__DEV__ || cardPossibleClubs.length === 0) return;
+    // eslint-disable-next-line no-console
+    console.log('[ConfirmMatchModal] carte HourSlotRow — clubs affichés', {
+      count: cardPossibleClubs.length,
+      ids: cardPossibleClubs.map((c) => c.id),
+      names: cardPossibleClubs.map((c) => c.name),
+    });
+  }, [cardPossibleClubs]);
 
   // Selection state and helpers
   const [selectedIds, setSelectedIds] = React.useState([]);
@@ -7259,9 +8442,7 @@ const HourSlotRow = ({ item }) => {
   };
   // Création uniquement avec exactement 3 joueurs (4 au total avec le créateur)
   const canCreate = selectedIds.length === 3;
-  const remainingToSelect = Math.max(0, 3 - selectedIds.length);
-  const selectLabel = `Sélectionner ${remainingToSelect} joueur${remainingToSelect > 1 ? 's' : ''}`;
-
+  const forcedClubId = isClubGroup ? groupClubId : null;
   const enter = useEnterAnim(!matchCreatedUndoVisible);
   const ctaScale = useRef(new Animated.Value(1)).current;
   const slotEntries = [];
@@ -7275,50 +8456,60 @@ const HourSlotRow = ({ item }) => {
   const emptySlots = Math.max(0, 4 - slotEntries.length);
 
   return (
-    <Animated.View style={[styles.matchCardGlow, enter.style]}>
-      <View style={styles.matchCard}>
-        <Text style={styles.matchDate}>{formatRange(item.starts_at, item.ends_at)}</Text>
-
-        {canCreate ? (
-          <View style={styles.ctaRow}>
-            <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
-              <Pressable
-                onPress={press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId }))}
-                onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
-                onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
-                accessibilityRole="button"
-                accessibilityLabel="Créer un match pour ce créneau 1h"
-                style={({ pressed }) => [
-                  styles.ctaPrimary,
-                  { width: '100%' },
-                  pressed ? styles.ctaButtonPressed : null,
-                ]}
-              >
-                <Text style={styles.ctaPrimaryText}>Créer un match</Text>
-              </Pressable>
-            </Animated.View>
+    <Animated.View style={[styles.matchCardGlow, styles.matchCardGlowSlot, enter.style]}>
+      <View style={styles.matchCardSlotPropose}>
+        {durationPillLabel ? (
+          <View style={styles.matchDateRowWithPill}>
+            <Text style={[styles.matchDate, styles.matchDateInRow]} numberOfLines={2}>
+              {formatRange(item.starts_at, item.ends_at)}
+            </Text>
+            <View style={styles.durationPill} pointerEvents="none">
+              <Text style={styles.durationPillText}>{durationPillLabel}</Text>
+            </View>
           </View>
         ) : (
-          <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-            <Pressable
-              disabled={!canCreate}
-              accessibilityState={{ disabled: !canCreate }}
-              onPress={canCreate ? press("Créer un match", () => openConfirm({ startsAt: item.starts_at, endsAt: item.ends_at, selectedUserIds: selectedIds, commonClubIds, forcedClubId })) : undefined}
-              onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
-              onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
-              accessibilityRole="button"
-              accessibilityLabel={`${selectLabel} pour ce créneau 1h`}
-              style={({ pressed }) => [
-                styles.ctaButton,
-                !canCreate && styles.ctaButtonDisabled,
-                pressed ? styles.ctaButtonPressed : null,
-              ]}
-            >
-              <Text style={[styles.ctaText, !canCreate && styles.ctaTextDisabled]}>
-                {selectLabel}
-              </Text>
-            </Pressable>
-          </Animated.View>
+          <Text style={styles.matchDate}>{formatRange(item.starts_at, item.ends_at)}</Text>
+        )}
+        {cardPossibleClubs.length > 0 ? (
+          <Text
+            style={{
+              fontSize: 12,
+              color: 'rgba(255,255,255,0.6)',
+              marginBottom: 8,
+              textAlign: 'left',
+              lineHeight: 17,
+            }}
+          >
+            <Text style={{ fontWeight: '800', color: 'rgba(255,255,255,0.6)' }}>Clubs possibles : </Text>
+            {cardPossibleClubs.map((c) => c.name).join(' · ')}
+          </Text>
+        ) : !isClubGroup && allUserIds.length > 0 ? (
+          <Text
+            style={{
+              fontSize: 12,
+              color: 'rgba(255,255,255,0.6)',
+              marginBottom: 8,
+              textAlign: 'left',
+              lineHeight: 17,
+            }}
+          >
+            <Text style={{ fontWeight: '800', color: 'rgba(255,255,255,0.6)' }}>Clubs : </Text>
+            Suggestions basées sur les clubs disponibles dans ton rayon.
+          </Text>
+        ) : null}
+        {hotMode && (
+          <Text
+            style={{
+              textAlign: 'center',
+              color: '#ea580c',
+              fontWeight: '900',
+              fontSize: 12,
+              marginBottom: 8,
+              letterSpacing: 0.3,
+            }}
+          >
+            {getHotMatchLabel(otherUserIds.length)}
+          </Text>
         )}
 
         <View style={styles.partnerSlotsRow}>
@@ -7341,8 +8532,26 @@ const HourSlotRow = ({ item }) => {
             </View>
           ))}
         </View>
+        {durationPillLabel ? (
+          <Text
+            style={{
+              textAlign: 'left',
+              color: '#ea580c',
+              fontWeight: '800',
+              fontSize: 12,
+              marginTop: 6,
+              marginBottom: 4,
+            }}
+          >
+            {`🔥 ${allUserIds.length} ${
+              allUserIds.length === 1 ? 'joueur disponible' : 'joueurs disponibles'
+            }`}
+          </Text>
+        ) : null}
         <View style={styles.partnerPickerRow}>
-          <Text style={styles.partnerPickerLabel}>Choisir ses partenaires</Text>
+          <Text style={[styles.partnerPickerLabel, { color: '#e0ff00' }]}>
+            👇 {remainingCoPlayersSelectFr(3 - selectedIds.length)}
+          </Text>
           <View style={styles.avatarRow}>
             {displayedOtherIds.map((uid) => {
               const p = profileOf(profilesById, uid);
@@ -7371,6 +8580,54 @@ const HourSlotRow = ({ item }) => {
             ) : null}
           </View>
         </View>
+        {canCreate ? (
+          <View style={[styles.ctaRow, { marginTop: 14 }]}>
+            <Animated.View style={{ transform: [{ scale: ctaScale }], flex: 1 }}>
+              <Pressable
+                onPress={press(
+                  hotMode ? MATCH_COPY.hot.ctaLaunch : 'Créer un match',
+                  () => {
+                    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                      // eslint-disable-next-line no-console
+                      console.log('[ConfirmMatchModal] clic HourSlotRow — envoi possibleClubs vers modale', {
+                        count: cardPossibleClubs.length,
+                        ids: cardPossibleClubs.map((c) => c.id),
+                        names: cardPossibleClubs.map((c) => c.name),
+                      });
+                    }
+                    openConfirm({
+                      startsAt: item.starts_at,
+                      endsAt: item.ends_at,
+                      selectedUserIds: selectedIds,
+                      forcedClubId,
+                      possibleClubs: cardPossibleClubs,
+                    });
+                  }
+                )}
+                onPressIn={() => Animated.spring(ctaScale, { toValue: 0.98, useNativeDriver: true }).start()}
+                onPressOut={() => Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true }).start()}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  hotMode ? `${MATCH_COPY.hot.ctaLaunch} pour ce créneau 1h30` : 'Créer un match pour ce créneau 1h30'
+                }
+                style={({ pressed }) => [
+                  styles.ctaPrimary,
+                  { width: '100%' },
+                  pressed ? styles.ctaButtonPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.ctaPrimaryText,
+                    hotMode && { fontSize: 18 },
+                  ]}
+                >
+                  {hotMode ? MATCH_COPY.hot.ctaLaunch : 'Créer un match'}
+                </Text>
+              </Pressable>
+            </Animated.View>
+          </View>
+        ) : null}
       </View>
     </Animated.View>
   );
@@ -7965,26 +9222,6 @@ const HourSlotRow = ({ item }) => {
     React.useEffect(() => {
       if (replacementGeoLocationType === 'current' && userLocation) {
         setReplacementGeoRefPoint({ lat: userLocation.lat, lng: userLocation.lng, address: 'Position actuelle' });
-      } else if (replacementGeoLocationType === 'home') {
-        // Récupérer l'adresse du domicile de l'utilisateur
-        const myProfile = profilesById?.[String(meId)];
-        if (myProfile?.address_home?.lat && myProfile?.address_home?.lng) {
-          setReplacementGeoRefPoint({
-            lat: myProfile.address_home.lat,
-            lng: myProfile.address_home.lng,
-            address: myProfile.address_home.address || 'Domicile'
-          });
-        }
-      } else if (replacementGeoLocationType === 'work') {
-        // Récupérer l'adresse du travail de l'utilisateur
-        const myProfile = profilesById?.[String(meId)];
-        if (myProfile?.address_work?.lat && myProfile?.address_work?.lng) {
-          setReplacementGeoRefPoint({
-            lat: myProfile.address_work.lat,
-            lng: myProfile.address_work.lng,
-            address: myProfile.address_work.address || 'Travail'
-          });
-        }
       } else if (replacementGeoLocationType !== 'city') {
         setReplacementGeoRefPoint(null);
         setReplacementGeoRadiusKm(null);
@@ -9189,8 +10426,6 @@ const HourSlotRow = ({ item }) => {
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                               {[
                                 { key: 'current', label: '📍 Position actuelle' },
-                                { key: 'home', label: '🏠 Domicile' },
-                                { key: 'work', label: '💼 Travail' },
                                 { key: 'city', label: '🏙️ Ville' },
                               ].map(({ key, label }) => {
                                 const isSelected = replacementGeoLocationType === key;
@@ -9965,6 +11200,96 @@ const HourSlotRow = ({ item }) => {
     );
   };
 
+  const onJoinFindGameRequest = useCallback(
+    async (searchId) => {
+      try {
+        const beforeRow = (findGameRequests || []).find((r) => String(r.id) === String(searchId));
+        const beforePlayersCount = Number(beforeRow?.players_count ?? 0);
+        const beforeRemaining = 4 - beforePlayersCount;
+
+        const { error } = await supabase.rpc('join_group_match_search', {
+          p_search_id: searchId,
+        });
+        if (error) throw error;
+
+        // Vérifier transition vers "1 place restante"
+        const { data: afterPlayersRows } = await supabase
+          .from('group_match_search_players')
+          .select('user_id')
+          .eq('search_id', searchId);
+
+        const afterPlayers = afterPlayersRows || [];
+        const afterPlayersCount = afterPlayers.length;
+        const afterRemaining = 4 - afterPlayersCount;
+
+        if (beforeRow && beforeRow.club_id && beforeRow.starts_at) {
+          const shouldTriggerAlmostFull =
+            Number.isFinite(beforeRemaining) && beforeRemaining > 1 && afterRemaining === 1;
+
+          if (shouldTriggerAlmostFull) {
+            const startsAtIso = beforeRow.starts_at;
+            const endsAtIso = new Date(new Date(startsAtIso).getTime() + 90 * 60 * 1000).toISOString();
+            const excludedUserIds = afterPlayers.map((p) => String(p.user_id));
+            const candidateUserIds = (allGroupMemberIds || []).map(String);
+
+            console.log('[OpportunityNotif] match_almost_full transition détectée', {
+              searchId,
+              groupId,
+              beforeRemaining,
+              afterRemaining,
+              candidateCount: candidateUserIds.length,
+              excludedCount: excludedUserIds.length,
+            });
+
+            const eligibleUserIds = await getEligibleUsersForMatchNotification({
+              groupId,
+              startsAtIso,
+              endsAtIso,
+              clubId: beforeRow.club_id,
+              candidateUserIds,
+              excludedUserIds,
+              refusedClubsByUser,
+            });
+
+            console.log('[OpportunityNotif] match_almost_full candidates', {
+              eligibleCount: eligibleUserIds.length,
+            });
+
+            void enqueueMatchOpportunityNotifications({
+              kind: 'match_almost_full',
+              groupId,
+              opportunityId: searchId,
+              recipientUserIds: eligibleUserIds,
+              startsAtIso,
+              endsAtIso,
+              remainingSlots: 1,
+              trigger: 'transition_to_1_remaining',
+            });
+          }
+        }
+
+        await fetchData();
+        await loadFindGameRequests();
+      } catch (e) {
+        Alert.alert('Impossible', e?.message || String(e));
+      }
+    },
+    [fetchData, loadFindGameRequests, findGameRequests, allGroupMemberIds, groupId, refusedClubsByUser]
+  );
+
+  const onDeleteFindGameRequest = useCallback(async (searchId) => {
+    try {
+      const { error } = await supabase.rpc('cancel_group_match_search', {
+        p_search_id: searchId,
+      });
+      if (error) throw error;
+      await fetchData();
+      await loadFindGameRequests();
+    } catch (e) {
+      Alert.alert('Impossible', e?.message || String(e));
+    }
+  }, [fetchData, loadFindGameRequests]);
+
   const proposesTab = React.useMemo(
     () => (
       <>
@@ -9990,212 +11315,63 @@ const HourSlotRow = ({ item }) => {
             </Text>
           </View>
         )}
-        {/* Sélecteur 1h / 1h30 */}
-        <View style={styles.segmentWrap}>
-          <View style={styles.segment}>
-            <Pressable
-              onPress={() => setMode('hour')}
-              style={[
-                styles.segmentBtn,
-                styles.segmentBtnCompact,
-                mode === 'hour' && styles.segmentBtnActiveProposes,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  mode === 'hour' && styles.segmentTextActive,
-                ]}
-              >
-                {`1h (${(renderHourReady || []).length || 0})`}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setMode('long')}
-              style={[
-                styles.segmentBtn,
-                styles.segmentBtnCompact,
-                mode === 'long' && styles.segmentBtnActiveProposes,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  mode === 'long' && styles.segmentTextActive,
-                ]}
-              >
-                {`1h30 (${(renderLongSections || []).reduce((sum, s) => sum + (s.data?.length || 0), 0) || 0})`}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
 
-        {/* Sélecteur de groupe + Lien page club (sous 1h / 1h30) */}
-        <View style={{ paddingHorizontal: 16, marginTop: 4, marginBottom: 8 }}>
+        {possibleEmpty ? (
           <View
             style={{
-              flexDirection: 'row',
-              alignItems: 'stretch',
               justifyContent: 'center',
-              gap: 0,
-              flexWrap: 'nowrap',
+              minHeight: Math.max(340, height * 0.52),
+              paddingVertical: 8,
             }}
           >
-            <Pressable
-              onPress={() => setGroupSelectorOpen(true)}
-              style={{
-                flex: activeGroup?.club_id ? 0.5 : 1,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 4,
-                paddingHorizontal: 12,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.22)',
-                backgroundColor: 'rgba(255,255,255,0.16)',
-                shadowColor: '#000000',
-                shadowOpacity: 0.25,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
-                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-              }}
-            >
-              <Ionicons name="people" size={18} color="#e0ff00" style={{ marginRight: 4 }} />
-              <OneLineText
-                style={{
-                  fontWeight: '700',
-                  color: THEME.accent,
-                  fontSize: 14,
-                  textAlign: 'center',
-                  textAlignVertical: 'center',
-                  includeFontPadding: false,
-                  maxWidth: 260,
-                  textShadowColor: 'rgba(0,0,0,0.6)',
-                  textShadowOffset: { width: 0, height: 1 },
-                  textShadowRadius: 2,
-                }}
-              >
-                {(() => {
-                  const label = activeGroup?.name || 'Sélectionner un groupe';
-                  const maxLen = activeGroup?.club_id ? 15 : 28;
-                  return label.length > maxLen ? `${label.slice(0, maxLen)}…` : label;
-                })()}
-              </OneLineText>
-              <Ionicons name="chevron-down" size={18} color={THEME.accent} style={{ marginLeft: 4 }} />
-            </Pressable>
-
-            {activeGroup?.club_id ? (
-              <Pressable
-                onPress={() => router.push(`/clubs/${activeGroup.club_id}`)}
-                style={{
-                  flex: 0.5,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingVertical: 0,
-                  paddingHorizontal: 4,
-                  borderRadius: 10,
-                  borderWidth: 0,
-                  backgroundColor: 'transparent',
-                  ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-                }}
-              >
-                <Ionicons
-                  name="home"
-                  size={16}
-                  color="#cfe9ff"
-                  style={{
-                    marginRight: 4,
-                    textShadowColor: 'rgba(207, 233, 255, 0.75)',
-                    textShadowOffset: { width: 0, height: 0 },
-                    textShadowRadius: 6,
-                  }}
-                />
-                <Text
-                  style={{
-                    fontWeight: '700',
-                    color: '#cfe9ff',
-                    fontSize: 16,
-                    textAlign: 'center',
-                    textShadowColor: 'rgba(207, 233, 255, 0.75)',
-                    textShadowOffset: { width: 0, height: 0 },
-                    textShadowRadius: 6,
-                  }}
-                >
-                  Page club
-                </Text>
-              </Pressable>
-            ) : null}
+            <EmptyStateMatch
+              onAddAvailability={onAddAvailability}
+              onInvitePlayers={onInvitePlayers}
+              onFindGame={contentFilter === 'possible' ? openFindGameWizard : undefined}
+              showMissingClubs={false}
+            />
           </View>
-        </View>
-
-        {(!loadingWeek &&
-          (renderLongSections || []).length === 0 &&
-          (renderHourReady || []).length === 0) ? (
-          <EmptyMatchesState
-            onAddAvailability={onAddAvailability}
-            onInvitePlayers={onInvitePlayers}
-            showMissingClubs={!myAcceptedClubs || myAcceptedClubs.size === 0}
-          />
-        ) : mode === 'long' ? (
-          <>
-            {(renderLongSections || []).length === 0 ? (
-              <Text style={{ color: THEME.muted, marginBottom: 6 }}>Aucun créneau 1h30 prêt.</Text>
-            ) : (
-              <SectionList
-                key={`long-list-${listKeySeed}-${(renderLongSections || []).length}-${(renderLongSections || []).map((s) => s.data?.length || 0).join(',')}`}
-                sections={renderLongSections}
-                keyExtractor={(item) => item.key}
-                renderSectionHeader={({ section }) => (
-                  <View style={{ paddingHorizontal: 0, paddingVertical: 0, height: 0 }}>
-                    <Text style={{ fontWeight: '900', color: '#111827', display: 'none' }}>{section.title}</Text>
-                  </View>
-                )}
-                ItemSeparatorComponent={() => null}
-                SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
-                renderItem={({ item }) => <LongSlotRow item={item} />}
-                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
-                extraData={longListExtraData}
-                removeClippedSubviews={false}
-              />
-            )}
-          </>
         ) : (
-          <>
-            {(renderHourReady || []).length === 0 ? (
-              <Text style={{ color: THEME.muted, marginBottom: 6 }}>Aucun créneau 1h prêt.</Text>
-            ) : (
-              <FlatList
-                key={`hour-list-${listKeySeed}-${(renderHourReady || []).length}-${(renderHourReady || []).map((x) => x.time_slot_id).slice(0, 3).join(',')}`}
-                data={renderHourReady}
-                keyExtractor={(x) => x.time_slot_id + '-hour'}
-                renderItem={({ item }) => <HourSlotRow item={item} />}
-                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
-                extraData={hourListExtraData}
-                removeClippedSubviews={false}
+          <SectionList
+            key={`possible-list-${listKeySeed}-${(renderLongSections || []).length}`}
+            sections={renderLongSections || []}
+            keyExtractor={(item) => item.key}
+            renderSectionHeader={({ section }) => (
+              <View style={{ paddingHorizontal: 0, paddingVertical: 0, height: 0 }}>
+                <Text style={{ fontWeight: '900', color: '#111827', display: 'none' }}>{section.title}</Text>
+              </View>
+            )}
+            ItemSeparatorComponent={() => null}
+            SectionSeparatorComponent={() => <View style={{ height: 0 }} />}
+            renderItem={({ item }) => (
+              <LongSlotRow
+                item={item}
+                hotMode={false}
+                durationPillLabel={contentFilter === 'possible' ? '1h30' : undefined}
               />
             )}
-          </>
+            contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
+            scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+            ListFooterComponent={() => <View style={{ height: bottomPad + 100 }} />}
+            extraData={longListExtraData}
+            removeClippedSubviews={false}
+          />
         )}
       </>
     ),
     [
-      mode,
       loadingWeek,
+      possibleEmpty,
       renderLongSections,
-      renderHourReady,
       bottomPad,
       listKeySeed,
       longListExtraData,
-      hourListExtraData,
       onAddAvailability,
       onInvitePlayers,
+      openFindGameWizard,
+      contentFilter,
+      myRefusedClubIds,
+      height,
     ]
   );
 
@@ -10245,262 +11421,364 @@ const HourSlotRow = ({ item }) => {
         </View>
       ) : null}
 
-      <View style={styles.header}>
-        <View />
-      </View>
-
-      <View
-        style={styles.segmentWrapFloating}
-        onLayout={(event) => {
-          const h = Math.max(0, event?.nativeEvent?.layout?.height || 0);
-          setMatchTabsHeight((prev) => (Math.abs(prev - h) > 1 ? h : prev));
-        }}
-      >
-        <View style={styles.segment}>
+      {/* Sélecteur de groupe + Lien page club — avec club : 2/3 + 1/3 */}
+      <View style={{ paddingHorizontal: 16, marginTop: 0, marginBottom: 6 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: activeGroup?.club_id ? 6 : 0,
+            flexWrap: 'nowrap',
+          }}
+        >
           <Pressable
-            onPress={() => setTab('proposes')}
-            style={[
-              styles.segmentBtn,
-              tab === 'proposes' && styles.segmentBtnActiveProposes,
-            ]}
+            onPress={() => setGroupSelectorOpen(true)}
+            style={{
+              flex: activeGroup?.club_id ? 2 : 1,
+              minWidth: 0,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: activeGroup?.club_id ? 4 : 5,
+              paddingHorizontal: activeGroup?.club_id ? 8 : 12,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.22)',
+              backgroundColor: 'rgba(255,255,255,0.16)',
+              shadowColor: '#000000',
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
+              ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+            }}
           >
-            <View style={styles.segmentContent}>
-              <View style={styles.segmentCountWrap}>
-                <Text
-                  style={[
-                    styles.segmentCount,
-                    tab === 'proposes' && styles.segmentCountActive,
-                  ]}
-                >
-                  {proposedTabCountDisplay}
-                </Text>
-              </View>
-              <View style={styles.segmentLabelStack}>
-                <Text
-                  style={[
-                    styles.segmentLabel,
-                    tab === 'proposes' && styles.segmentLabelActive,
-                  ]}
-                >
-                  <Text style={styles.segmentLabelStrong}>MATCHS</Text>
-                </Text>
-                <Text
-                  style={[
-                    styles.segmentLabel,
-                    tab === 'proposes' && styles.segmentLabelActive,
-                  ]}
-                >
-                  possibles
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-          <Pressable
-            onPress={() => setTab('valides')}
-            style={[
-              styles.segmentBtn,
-              tab === 'valides' && styles.segmentBtnActive,
-            ]}
-          >
-            <View style={styles.segmentContent}>
-              <View style={styles.segmentCountWrap}>
-                <Text
-                  style={[
-                    styles.segmentCount,
-                    tab === 'valides' && styles.segmentCountActive,
-                  ]}
-                >
-                  {confirmedTabCount}
-                </Text>
-              </View>
-              <View style={styles.segmentLabelStack}>
-                <Text
-                  style={[
-                    styles.segmentLabel,
-                    tab === 'valides' && styles.segmentLabelActive,
-                  ]}
-                >
-                  <Text style={styles.segmentLabelStrong}>MATCHS</Text>
-                </Text>
-                <Text
-                  style={[
-                    styles.segmentLabel,
-                    styles.segmentLabelLarge,
-                    tab === 'valides' && styles.segmentLabelActive,
-                  ]}
-                >
-                  validés
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-        </View>
-      </View>
-      <View style={{ height: matchTabsHeight + 1 }} />
-
-      
-      {/* Filtre par niveau ciblé - affiché seulement pour les matchs possibles */}
-      {tab === 'proposes' && (
-        <>
-          {/* Icônes filtres pour afficher/masquer les configurations - Positionnées en bas, au-dessus du sélecteur de semaine */}
-          <View
-            onLayout={updateMeasuredHeight(setFilterBarMeasuredHeight, FILTER_BAR_HEIGHT)}
-            style={[styles.filtersBar, { bottom: filterButtonsBottom }]}
-          >
-            <Pressable
-              onPress={() => {
-                if (!filterConfigVisible) {
-                  // Si on ouvre ce filtre, fermer l'autre
-                  setFilterGeoVisible(false);
-                }
-                setFilterConfigVisible(!filterConfigVisible);
-              }}
+            <Ionicons
+              name="people"
+              size={activeGroup?.club_id ? 18 : 22}
+              color="#e0ff00"
+              style={{ marginRight: activeGroup?.club_id ? 5 : 6 }}
+            />
+            <OneLineText
               style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 3,
-                paddingHorizontal: 8,
-                borderRadius: 999,
-                backgroundColor: 'rgba(255,255,255,0.16)',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.22)',
-                shadowColor: '#000000',
-                shadowOpacity: 0.25,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
-                gap: 8,
-              }}
-            >
-              <Image 
-                source={racketIcon}
-                style={{
-                  width: 20,
-                  height: 20,
-                  tintColor: filterByLevel ? THEME.accent : THEME.muted,
-                }}
-                resizeMode="contain"
-              />
-              <Text style={{ 
-                color: (filterByLevel || filterConfigVisible) ? THEME.accent : THEME.muted, 
-                fontWeight: '700', 
-                fontSize: 12,
+                flex: activeGroup?.club_id ? 1 : undefined,
+                minWidth: 0,
+                fontWeight: '800',
+                color: THEME.accent,
+                fontSize: activeGroup?.club_id ? 15 : 17,
+                textAlign: 'center',
+                textAlignVertical: 'center',
+                includeFontPadding: false,
+                ...(activeGroup?.club_id ? {} : { maxWidth: 288 }),
                 textShadowColor: 'rgba(0,0,0,0.6)',
                 textShadowOffset: { width: 0, height: 1 },
                 textShadowRadius: 2,
-              }}>
-                {filterByLevel ? `Filtre actif (${filterLevels.length})` : 'Filtre niveau'}
-              </Text>
-            </Pressable>
-            
-            {/* Icône flammes pour les matchs en feu - centrée entre les filtres */}
+              }}
+            >
+              {(() => {
+                const label = activeGroup?.name || 'Sélectionner un groupe';
+                const maxLen = activeGroup?.club_id ? 14 : 28;
+                return label.length > maxLen ? `${label.slice(0, maxLen)}…` : label;
+              })()}
+            </OneLineText>
+            <Ionicons
+              name="chevron-down"
+              size={activeGroup?.club_id ? 18 : 22}
+              color={THEME.accent}
+              style={{ marginLeft: activeGroup?.club_id ? 5 : 6 }}
+            />
+          </Pressable>
+
+          {activeGroup?.club_id ? (
             <Pressable
-              onPress={() => setHotMatchesModalVisible(true)}
-              disabled={hotMatches.length === 0}
+              onPress={() => router.push(`/clubs/${activeGroup.club_id}`)}
               style={{
+                flex: 1,
+                minWidth: 0,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
                 paddingVertical: 3,
-                paddingHorizontal: 6,
-                borderRadius: 999,
-                backgroundColor: hotMatches.length > 0 ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)',
-                borderWidth: 1,
-                borderColor: hotMatches.length > 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)',
-                shadowColor: hotMatches.length > 0 ? '#000000' : 'transparent',
-                shadowOpacity: hotMatches.length > 0 ? 0.25 : 0,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: hotMatches.length > 0 ? 3 : 0,
-                gap: 6,
-                flexShrink: 0,
-                opacity: hotMatches.length > 0 ? 1 : 0.6,
+                paddingHorizontal: 2,
+                borderRadius: 10,
+                borderWidth: 0,
+                backgroundColor: 'transparent',
+                ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
               }}
             >
-              <Text style={{ fontSize: 18 }}>🔥</Text>
-              <Text
-                style={{ 
-                  color: hotMatches.length > 0 ? '#fd9c68' : THEME.muted, 
-                  fontWeight: '700', 
-                  fontSize: 12,
+              <Ionicons
+                name="home"
+                size={16}
+                color="#cfe9ff"
+                style={{
+                  marginRight: 4,
                   flexShrink: 0,
-                  textShadowColor: hotMatches.length > 0 ? 'rgba(0,0,0,0.6)' : 'transparent',
-                  textShadowOffset: { width: 0, height: 1 },
-                  textShadowRadius: 2,
+                  textShadowColor: 'rgba(207, 233, 255, 0.75)',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 6,
+                }}
+              />
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                style={{
+                  fontWeight: '800',
+                  color: '#cfe9ff',
+                  fontSize: 13,
+                  textAlign: 'center',
+                  flexShrink: 1,
+                  textShadowColor: 'rgba(207, 233, 255, 0.75)',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 6,
                 }}
               >
-                {hotMatches.length}
+                Page club
               </Text>
             </Pressable>
-            
-            {!activeGroup?.club_id ? (
+          ) : null}
+        </View>
+      </View>
+
+      {/* Sélecteur de semaine — sous le groupe, au-dessus des onglets Compléter / Prêts / Validés */}
+      <View
+        style={{
+          paddingHorizontal: 16,
+          marginBottom: 6,
+        }}
+      >
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+            paddingVertical: 2,
+            paddingHorizontal: 4,
+          }}
+        >
+          <Pressable
+            onPress={() => setWeekOffset((x) => x - 1)}
+            accessibilityRole="button"
+            accessibilityLabel="Semaine précédente"
+            hitSlop={10}
+            style={{ padding: 4, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Ionicons name="caret-back" size={24} color={COLORS.primary} />
+          </Pressable>
+
+          <View
+            style={{
+              flex: 1,
+              minWidth: 0,
+              maxWidth: 300,
+              paddingHorizontal: 10,
+              paddingVertical: 3,
+              borderRadius: 999,
+              alignItems: 'center',
+              backgroundColor: 'rgba(255,255,255,0.16)',
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.22)',
+              shadowColor: '#000000',
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
+            }}
+          >
+            <OneLineText
+              style={{
+                fontWeight: '800',
+                fontSize: 12,
+                color: THEME.text,
+                textShadowColor: 'rgba(0,0,0,0.6)',
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 2,
+              }}
+            >
+              {formatWeekRangeLabel(currentWs, currentWe)}
+            </OneLineText>
+          </View>
+
+          <Pressable
+            onPress={() => setWeekOffset((x) => x + 1)}
+            accessibilityRole="button"
+            accessibilityLabel="Semaine suivante"
+            hitSlop={10}
+            style={{ padding: 4, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Ionicons name="caret-forward" size={24} color={COLORS.primary} />
+          </Pressable>
+        </View>
+      </View>
+
+      <HorizontalPillToggle
+        compact
+        value={contentFilter}
+        options={CONTENT_FILTERS}
+        onChange={(next) => {
+          setContentFilter(next);
+          // Garder un état "tab" cohérent pour la logique existante (sans l'utiliser comme UI principale).
+          setTab(next === 'validated' ? 'valides' : 'proposes');
+        }}
+        style={{
+          marginTop: 0,
+          marginBottom:
+            contentFilter === 'possible' || contentFilter === 'complete' ? 0 : 4,
+        }}
+        activeColor={contentFilter === 'possible' ? '#e0ff00' : '#ff8c00'}
+        inactiveBg="rgba(255,255,255,0.12)"
+        inactiveBorder="rgba(255,255,255,0.18)"
+        inactiveText={THEME.text}
+        activeText={THEME.ink}
+      />
+
+      {contentFilter === 'possible' && (
+        <>
+          <View style={{ paddingHorizontal: 16, marginTop: 0, marginBottom: 0 }}>
+            <Text
+              style={{
+                textAlign: 'center',
+                color: 'rgba(255,255,255,0.7)',
+                fontWeight: '500',
+                fontSize: 13,
+                lineHeight: 17,
+              }}
+            >
+              <Text style={{ fontSize: 9, lineHeight: 17, color: 'rgba(255,255,255,0.7)' }}>
+                ⚡️{' '}
+              </Text>
+              {MATCH_COPY.possible.intro}
+            </Text>
+          </View>
+
+          {/* Filtres compacts sous le sous-titre — même logique qu’avant */}
+          <View
+            style={{
+              paddingHorizontal: 16,
+              marginTop: 8,
+              marginBottom: filterConfigVisible || filterGeoVisible ? 8 : 12,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
+              }}
+            >
               <Pressable
                 onPress={() => {
-                  if (!filterGeoVisible) {
-                    // Si on ouvre ce filtre, fermer l'autre
-                    setFilterConfigVisible(false);
+                  if (!filterConfigVisible) {
+                    setFilterGeoVisible(false);
                   }
-                  setFilterGeoVisible(!filterGeoVisible);
+                  setFilterConfigVisible(!filterConfigVisible);
                 }}
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  paddingVertical: 3,
-                  paddingHorizontal: 8,
+                  paddingVertical: 5,
+                  paddingHorizontal: 11,
                   borderRadius: 999,
-                  backgroundColor: 'rgba(255,255,255,0.16)',
+                  backgroundColor:
+                    filterByLevel || filterConfigVisible
+                      ? 'rgba(224,255,0,0.12)'
+                      : 'rgba(255,255,255,0.07)',
                   borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.22)',
-                  shadowColor: '#000000',
-                  shadowOpacity: 0.25,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 3,
-                  gap: 8,
+                  borderColor:
+                    filterByLevel || filterConfigVisible
+                      ? 'rgba(224,255,0,0.35)'
+                      : 'rgba(255,255,255,0.14)',
                 }}
               >
-                <Text style={{ 
-                  color: (filterByGeo || filterGeoVisible) ? THEME.accent : THEME.muted, 
-                  fontWeight: '700', 
-                  fontSize: 12,
-                  textShadowColor: 'rgba(0,0,0,0.6)',
-                  textShadowOffset: { width: 0, height: 1 },
-                  textShadowRadius: 2,
-                }}>
-                  {filterByGeo && filterGeoRadiusKm ? `Filtre géo (${filterGeoRadiusKm}km)` : 'Filtre géographique'}
+                <Text
+                  style={{
+                    color:
+                      filterByLevel || filterConfigVisible ? THEME.accent : 'rgba(255,255,255,0.55)',
+                    fontWeight: '600',
+                    fontSize: 11,
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  {filterByLevel
+                    ? `Niveaux · ${filterLevels.length}`
+                    : 'Tous niveaux'}
                 </Text>
-                <Ionicons 
-                  name="location" 
-                  size={20} 
-                  color={filterByGeo ? THEME.accent : THEME.muted}
-                />
               </Pressable>
-            ) : null}
+
+              {!activeGroup?.club_id ? (
+                <Pressable
+                  onPress={() => {
+                    if (!filterGeoVisible) {
+                      setFilterConfigVisible(false);
+                    }
+                    setFilterGeoVisible(!filterGeoVisible);
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingVertical: 5,
+                    paddingHorizontal: 11,
+                    borderRadius: 999,
+                    backgroundColor:
+                      filterByGeo || filterGeoVisible
+                        ? 'rgba(224,255,0,0.12)'
+                        : 'rgba(255,255,255,0.07)',
+                    borderWidth: 1,
+                    borderColor:
+                      filterByGeo || filterGeoVisible
+                        ? 'rgba(224,255,0,0.35)'
+                        : 'rgba(255,255,255,0.14)',
+                    gap: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color:
+                        filterByGeo || filterGeoVisible ? THEME.accent : 'rgba(255,255,255,0.55)',
+                      fontWeight: '600',
+                      fontSize: 11,
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    {filterByGeo
+                      ? matchFilterRadiusKm === null
+                        ? 'Illimité'
+                        : `≤ ${matchFilterRadiusKm} km`
+                      : 'Distance'}
+                  </Text>
+                  <Ionicons
+                    name="location-outline"
+                    size={14}
+                    color={filterByGeo || filterGeoVisible ? THEME.accent : 'rgba(255,255,255,0.45)'}
+                  />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-          
-          {/* Zone de configuration du filtre (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
+
           {filterConfigVisible && (
-            <View style={{ 
-              position: 'absolute',
-              bottom: filterConfigBottom,
-              left: 16,
-              right: 16,
-              backgroundColor: THEME.card, 
-              borderRadius: 12, 
-              padding: 12,
-              borderWidth: 2,
-              borderColor: THEME.accent,
-              zIndex: 1002,
-              elevation: 11,
-              maxHeight: 300,
-            }}>
+            <View
+              style={{
+                marginHorizontal: 16,
+                marginBottom: 10,
+                backgroundColor: THEME.card,
+                borderRadius: 12,
+                padding: 12,
+                borderWidth: 2,
+                borderColor: THEME.accent,
+                maxHeight: 300,
+              }}
+            >
               <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.text, marginBottom: 12 }}>
                 Sélectionnez les niveaux à afficher
               </Text>
-              
-              {/* Sélection des niveaux */}
+
               <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
                 {LEVELS.map((lv) => {
                   const isSelected = Array.isArray(filterLevels) && filterLevels.includes(lv.v);
@@ -10527,18 +11805,20 @@ const HourSlotRow = ({ item }) => {
                         justifyContent: 'center',
                       }}
                     >
-                      <Text style={{ 
-                        fontSize: 13, 
-                        fontWeight: isSelected ? '900' : '800', 
-                        color: THEME.text 
-                      }}>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: isSelected ? '900' : '800',
+                          color: THEME.text,
+                        }}
+                      >
                         {lv.v}
                       </Text>
                     </Pressable>
                   );
                 })}
               </View>
-              
+
               {filterByLevel && (
                 <Text style={{ fontSize: 12, fontWeight: '500', color: THEME.accent, marginTop: 8 }}>
                   ✓ Filtre actif : niveaux ciblés {filterLevels.slice().sort((a, b) => a - b).join(', ')}
@@ -10546,155 +11826,222 @@ const HourSlotRow = ({ item }) => {
               )}
             </View>
           )}
-          
-          {/* Zone de configuration du filtre géographique (masquée par défaut) - Positionnée au-dessus de la ligne de filtres */}
-          {filterGeoVisible && (
-            <View style={{ 
-              position: 'absolute',
-              bottom: filterConfigBottom,
-              left: 16,
-              right: 16,
-              backgroundColor: 'rgba(10, 32, 56, 0.95)', 
-              borderRadius: 12, 
-              padding: 12,
-              borderWidth: 2,
-              borderColor: THEME.accent,
-              zIndex: 1002,
-              elevation: 11,
-              maxHeight: 400,
-            }}>
-              <View style={{ marginBottom: 14 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.accent, marginBottom: 8 }}>
-                  Zone active
-                </Text>
-                <Pressable
-                  onPress={() => setGeoZonePickerOpen(true)}
-                  style={{
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRadius: 10,
-                    backgroundColor: 'rgba(255,255,255,0.06)',
-                    borderWidth: 1,
-                    borderColor: THEME.cardBorder,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8
-                  }}
-                >
-                  <OneLineText style={{ fontSize: 12, fontWeight: '700', color: THEME.text }}>
-                    {currentZone?.name || 'Sélectionner une zone'}
-                  </OneLineText>
-                  <Ionicons name="chevron-down" size={16} color={THEME.muted} />
-                </Pressable>
-                <Text style={{ fontSize: 11, color: THEME.muted, marginTop: 6 }}>
-                  Changer de zone ne met pas à jour tes clubs acceptés.
-                </Text>
-              </View>
 
-              <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.accent, marginBottom: 8 }}>
-                  Rayon en km (non bloquant)
-                </Text>
-                <Text style={{ fontSize: 12, color: THEME.muted, marginBottom: 6 }}>
-                  {Math.round(comfortRadiusKm ?? currentZone?.default_radius_km ?? 30)} km
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
-                  {[10, 20, 30, 40, 50, 60].map((km) => {
-                    const isSelected = Math.round(comfortRadiusKm ?? currentZone?.default_radius_km ?? 30) === km;
-                    return (
-                      <Pressable
-                        key={km}
-                        onPress={async () => {
-                          setComfortRadiusKm(km);
-                          if (!meId) return;
-                          const { error } = await supabase
-                            .from("profiles")
-                            .update({ comfort_radius_km: km })
-                            .eq("id", meId);
-                          if (error) Alert.alert("Erreur", error.message);
-                          persistGeoPrefs(activeGroup?.id, { comfort_radius_km: km });
-                        }}
+          {filterGeoVisible && (
+            <View
+              style={{
+                marginHorizontal: 16,
+                marginBottom: 12,
+                backgroundColor: 'rgba(255,255,255,0.04)',
+                borderRadius: 14,
+                padding: 14,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.10)',
+                maxHeight: 520,
+              }}
+            >
+              <Text style={{ fontSize: 14, fontWeight: '800', color: THEME.text, marginBottom: 10 }}>
+                Filtre distance
+              </Text>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 12 }}>
+                {geoDistanceMaxSubtitle} — les résultats sont triés par distance croissante. Si la liste est vide, le rayon est élargi automatiquement (50 km puis illimité).
+              </Text>
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.88)', marginBottom: 8 }}>
+                Position de référence
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {[
+                  { key: 'current', label: 'Position actuelle' },
+                  { key: 'city', label: 'Ville' },
+                ].map(({ key, label }) => {
+                  const isSelected = filterGeoLocationType === key;
+                  return (
+                    <Pressable
+                      key={key}
+                      onPress={() => {
+                        if (isSelected) {
+                          setFilterGeoRefPoint(null);
+                          setFilterGeoCityQuery('');
+                          setFilterGeoCitySuggestions([]);
+                          setFilterGeoLocationType(null);
+                        } else {
+                          setFilterGeoLocationType(key);
+                          if (key === 'city') {
+                            setFilterGeoRefPoint(null);
+                            setFilterGeoCityQuery('');
+                          }
+                        }
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 12,
+                        borderRadius: 999,
+                        backgroundColor: isSelected ? 'rgba(224,255,0,0.16)' : 'rgba(255,255,255,0.06)',
+                        borderWidth: 1,
+                        borderColor: isSelected ? 'rgba(224,255,0,0.4)' : 'rgba(255,255,255,0.12)',
+                      }}
+                    >
+                      <Text
                         style={{
-                          flex: 1,
-                          paddingVertical: 6,
-                          paddingHorizontal: 8,
-                          borderRadius: 8,
-                          backgroundColor: isSelected ? THEME.accent : 'rgba(255,255,255,0.06)',
-                          borderWidth: 1,
-                          borderColor: isSelected ? THEME.accent : THEME.cardBorder,
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          fontSize: 12,
+                          fontWeight: isSelected ? '800' : '600',
+                          color: isSelected ? THEME.accent : 'rgba(255,255,255,0.85)',
                         }}
                       >
-                        <Text style={{ 
-                          fontSize: 12, 
-                          fontWeight: isSelected ? '800' : '700', 
-                          color: isSelected ? THEME.ink : THEME.text 
-                        }}>
-                          {km}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
-              <Pressable
-                onPress={() => setGeoClubsModalOpen(true)}
-                style={{
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 10,
-                  backgroundColor: 'rgba(255,255,255,0.06)',
-                  borderWidth: 1,
-                  borderColor: THEME.cardBorder,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: '700',
-                    color: (() => {
-                      let count = 0;
-                      if (geoClubsModalOpen && geoClubsSelected?.size != null) {
-                        count = geoClubsSelected.size;
-                      } else if (geoClubsList?.length) {
-                        const ids = new Set(geoClubsList.map((c) => String(c.id)));
-                        count = Array.from(myAcceptedClubs || []).filter((id) => ids.has(String(id))).length;
-                      } else {
-                        count = myAcceptedClubs?.size || 0;
-                      }
-                      return count > 0 ? THEME.text : '#f59e0b';
-                    })(),
-                  }}
-                >
-                  {(() => {
-                    let count = 0;
-                    if (geoClubsModalOpen && geoClubsSelected?.size != null) {
-                      count = geoClubsSelected.size;
-                    } else if (geoClubsList?.length) {
-                      const ids = new Set(geoClubsList.map((c) => String(c.id)));
-                      count = Array.from(myAcceptedClubs || []).filter((id) => ids.has(String(id))).length;
-                    } else {
-                      count = myAcceptedClubs?.size || 0;
-                    }
-                    return count > 0
-                      ? `${count} clubs acceptés`
-                      : 'Sélectionner les clubs acceptés';
-                  })()}
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={THEME.muted} />
-              </Pressable>
+              {filterGeoLocationType === 'city' ? (
+                <View style={{ marginBottom: 12 }}>
+                  <TextInput
+                    placeholder="Rechercher une ville…"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    value={filterGeoCityQuery}
+                    onChangeText={(t) => {
+                      setFilterGeoCityQuery(t);
+                      searchFilterGeoCity(t);
+                    }}
+                    style={{
+                      backgroundColor: 'rgba(255,255,255,0.08)',
+                      borderRadius: 10,
+                      padding: 10,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.12)',
+                      color: THEME.text,
+                      fontSize: 14,
+                    }}
+                  />
+                  {filterGeoCitySuggestions.length > 0 ? (
+                    <View
+                      style={{
+                        marginTop: 8,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        maxHeight: 120,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <ScrollView keyboardShouldPersistTaps="handled">
+                        {filterGeoCitySuggestions.map((s, idx) => (
+                          <Pressable
+                            key={`${s.name}-${idx}`}
+                            onPress={() => {
+                              setFilterGeoRefPoint({ lat: s.lat, lng: s.lng, address: s.name });
+                              setFilterGeoCityQuery(s.name);
+                              setFilterGeoCitySuggestions([]);
+                            }}
+                            style={{
+                              padding: 10,
+                              borderBottomWidth: idx < filterGeoCitySuggestions.length - 1 ? 1 : 0,
+                              borderBottomColor: 'rgba(255,255,255,0.08)',
+                            }}
+                          >
+                            <Text style={{ fontSize: 13, color: THEME.text }}>{s.name}</Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
+              {filterGeoRefPoint?.address ? (
+                <Text style={{ fontSize: 11, color: THEME.accent, marginBottom: 12, fontWeight: '600' }}>
+                  Point : {filterGeoRefPoint.address}
+                </Text>
+              ) : null}
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.88)', marginBottom: 8 }}>
+                Rayon
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {[
+                  { km: 10, sub: 'Proche' },
+                  { km: 25, sub: 'Équilibré' },
+                  { km: 50, sub: 'Large' },
+                  { km: null, sub: 'Illimité' },
+                ].map(({ km, sub }) => {
+                  const isSelected = matchFilterRadiusKm === km;
+                  return (
+                    <Pressable
+                      key={String(km ?? 'inf')}
+                      onPress={() => {
+                        setMatchFilterRadiusKm(km);
+                        persistGeoPrefs(activeGroup?.id, { radius_km: km });
+                      }}
+                      style={{
+                        minWidth: '44%',
+                        flexGrow: 1,
+                        paddingVertical: 10,
+                        paddingHorizontal: 10,
+                        borderRadius: 12,
+                        backgroundColor: isSelected ? 'rgba(224,255,0,0.14)' : 'rgba(255,255,255,0.06)',
+                        borderWidth: 1,
+                        borderColor: isSelected ? 'rgba(224,255,0,0.35)' : 'rgba(255,255,255,0.10)',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: isSelected ? '900' : '700',
+                          color: isSelected ? THEME.accent : 'rgba(255,255,255,0.9)',
+                        }}
+                      >
+                        {km == null ? 'Illimité' : `${km} km`}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{sub}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           )}
+        </>
+      )}
 
-          <Modal visible={geoZonePickerOpen} transparent animationType="fade" onRequestClose={() => setGeoZonePickerOpen(false)}>
+      {contentFilter === 'complete' && (
+        <View style={{ paddingHorizontal: 16, marginTop: 0, marginBottom: 4 }}>
+          <Text
+            style={{
+              textAlign: 'center',
+              color: 'rgba(255,255,255,0.7)',
+              fontWeight: '500',
+              fontSize: 13,
+              lineHeight: 17,
+            }}
+          >
+            {MATCH_COPY.complete.intro}
+          </Text>
+        </View>
+      )}
+
+      {contentFilter === 'validated' && (
+        <View style={{ paddingHorizontal: 16, marginTop: 0, marginBottom: 4 }}>
+          <Text
+            style={{
+              textAlign: 'center',
+              color: 'rgba(255,255,255,0.7)',
+              fontWeight: '500',
+              fontSize: 13,
+              lineHeight: 17,
+            }}
+          >
+            <Text style={{ fontSize: 10, lineHeight: 17, color: 'rgba(255,255,255,0.7)' }}>
+              ✅{' '}
+            </Text>
+            {MATCH_COPY.validated.intro}
+          </Text>
+        </View>
+      )}
+
+      <Modal visible={geoZonePickerOpen} transparent animationType="fade" onRequestClose={() => setGeoZonePickerOpen(false)}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', padding: 24, justifyContent: 'center' }}>
               <Pressable style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }} onPress={() => setGeoZonePickerOpen(false)} />
               <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
@@ -10840,69 +12187,183 @@ const HourSlotRow = ({ item }) => {
             </View>
           </Modal>
 
-          <Modal visible={geoClubsModalOpen} transparent animationType="fade" onRequestClose={() => setGeoClubsModalOpen(false)}>
+      <Modal visible={geoClubsModalOpen} transparent animationType="fade" onRequestClose={() => setGeoClubsModalOpen(false)}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', padding: 24, justifyContent: 'center' }}>
               <Pressable style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 }} onPress={() => setGeoClubsModalOpen(false)} />
               <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.text, marginBottom: 10 }}>Clubs acceptés</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: THEME.text, marginBottom: 4 }}>Masquer des clubs</Text>
+                <Text style={{ fontSize: 12, color: THEME.muted, marginBottom: 8 }}>
+                  Coches = masqués. Rayon affiché : {matchFilterRadiusKm === null ? '∞' : `${getEffectiveRadius({ radius_km: matchFilterRadiusKm })}`} km — tri par distance
+                </Text>
                 {geoClubsLoading ? (
                   <ActivityIndicator size="small" color={THEME.accent} />
                 ) : (
-                  <ScrollView style={{ maxHeight: 360 }}>
-                    {(geoClubsList || []).map((club) => {
-                      const isSelected = geoClubsSelected.has(String(club.id));
-                      return (
-                        <Pressable
-                          key={club.id}
-                          onPress={() => {
-                            setGeoClubsSelected((prev) => {
-                              const next = new Set(prev);
-                              const key = String(club.id);
-                              if (next.has(key)) next.delete(key);
-                              else next.add(key);
-                              return next;
-                            });
-                          }}
-                          style={{
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
-                            marginBottom: 8,
-                            backgroundColor: isSelected ? THEME.accentSoft : 'rgba(255,255,255,0.06)',
-                            borderWidth: 1,
-                            borderColor: isSelected ? THEME.accent : THEME.cardBorder,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between'
-                          }}
-                        >
-                          <Text style={{ color: THEME.text, fontWeight: '700', flexShrink: 1 }}>{club.name}</Text>
-                          {isSelected ? <Ionicons name="checkmark" size={18} color={THEME.accent} /> : null}
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
+                  <>
+                    {geoClubsOutsideSelection.length > 0 ? (
+                      <View
+                        style={{
+                          marginBottom: 10,
+                          padding: 10,
+                          borderRadius: 10,
+                          backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                          borderWidth: 1,
+                          borderColor: 'rgba(245, 158, 11, 0.35)',
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#fbbf24', marginBottom: 6 }}>
+                          {geoClubsOutsideSelection.length === 1
+                            ? '1 club sélectionné est hors rayon'
+                            : 'Certains clubs ne sont plus dans ton rayon'}
+                        </Text>
+                        {geoClubsOutsideSelection.map((row) => (
+                          <View
+                            key={String(row.id)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              marginTop: 6,
+                            }}
+                          >
+                            <Text
+                              style={{ color: THEME.text, fontSize: 12, flex: 1, marginRight: 8 }}
+                              numberOfLines={2}
+                            >
+                              {row.name}
+                              {row.distanceKm != null && Number.isFinite(row.distanceKm) ? (
+                                <Text style={{ fontWeight: '600', color: THEME.muted }}>
+                                  {` · ${row.distanceKm} km`}
+                                </Text>
+                              ) : null}
+                            </Text>
+                            <Pressable
+                              onPress={() => {
+                                setGeoClubsSelected((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(String(row.id));
+                                  return next;
+                                });
+                              }}
+                              hitSlop={8}
+                            >
+                              <Text style={{ color: '#f87171', fontSize: 12, fontWeight: '700' }}>Retirer</Text>
+                            </Pressable>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {(geoClubsList || []).length === 0 ? (
+                      <View style={{ paddingVertical: 16, alignItems: 'center' }}>
+                        <Text style={{ fontSize: 13, color: THEME.muted, textAlign: 'center', marginBottom: 8 }}>
+                          Aucun club dans ton rayon avec cette distance.
+                        </Text>
+                        <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', textAlign: 'center' }}>
+                          Augmente la distance max ou vérifie ta zone active.
+                        </Text>
+                      </View>
+                    ) : (
+                      <ScrollView style={{ maxHeight: 360 }}>
+                        {(geoClubsList || []).map((club) => {
+                          const isRefused = geoClubsSelected.has(String(club.id));
+                          const distLabel =
+                            club.distanceKm != null && Number.isFinite(club.distanceKm)
+                              ? ` · ${club.distanceKm} km`
+                              : '';
+                          return (
+                            <Pressable
+                              key={club.id}
+                              onPress={() => {
+                                setGeoClubsSelected((prev) => {
+                                  const next = new Set(prev);
+                                  const key = String(club.id);
+                                  if (next.has(key)) next.delete(key);
+                                  else next.add(key);
+                                  return next;
+                                });
+                              }}
+                              style={{
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                borderRadius: 8,
+                                marginBottom: 8,
+                                backgroundColor: isRefused ? 'rgba(248,113,113,0.14)' : 'rgba(255,255,255,0.06)',
+                                borderWidth: 1,
+                                borderColor: isRefused ? 'rgba(248,113,113,0.45)' : THEME.cardBorder,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}
+                            >
+                              <Text style={{ color: THEME.text, fontWeight: '700', flexShrink: 1 }}>
+                                {club.name}
+                                {distLabel ? (
+                                  <Text style={{ fontWeight: '600', color: THEME.muted }}>{distLabel}</Text>
+                                ) : null}
+                              </Text>
+                              {isRefused ? <Ionicons name="eye-off" size={18} color="#fca5a5" /> : null}
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                  </>
                 )}
                 <Pressable
                   onPress={async () => {
                     if (!meId) return;
-                    const selected = Array.from(geoClubsSelected);
-                    const inZoneIds = new Set((geoClubsList || []).map((c) => String(c.id)));
-                    const toDelete = Array.from(inZoneIds).filter((id) => !geoClubsSelected.has(id));
+                    const allIds = (geoClubsAllInZone || []).map((c) => String(c.id));
+                    const refused = new Set(geoClubsSelected);
+
+                    const { data: prefRow } = await supabase
+                      .from('user_clubs')
+                      .select('club_id')
+                      .eq('user_id', meId)
+                      .eq('is_preferred', true)
+                      .eq('is_refused', false)
+                      .maybeSingle();
+                    const prefId = prefRow?.club_id ? String(prefRow.club_id) : null;
+                    if (prefId) refused.delete(prefId);
+
+                    const needRow = new Set(refused);
+                    if (prefId) needRow.add(prefId);
+
+                    const toDelete = allIds.filter((cid) => !needRow.has(String(cid)));
                     if (toDelete.length) {
-                      await supabase.from("user_clubs").delete().eq("user_id", meId).in("club_id", toDelete);
+                      await supabase.from('user_clubs').delete().eq('user_id', meId).in('club_id', toDelete);
                     }
-                    if (selected.length) {
-                      const payload = selected.map((clubId) => ({
+
+                    const upserts = [];
+                    for (const sid of refused) {
+                      if (!allIds.includes(String(sid))) continue;
+                      upserts.push({
                         user_id: meId,
-                        club_id: clubId,
-                        is_accepted: true,
-                        is_preferred: false
-                      }));
-                      await supabase.from("user_clubs").upsert(payload, { onConflict: "user_id,club_id" });
+                        club_id: sid,
+                        is_preferred: false,
+                        is_refused: true,
+                        is_accepted: false,
+                      });
                     }
-                    setMyAcceptedClubs(new Set(selected));
-                    persistGeoPrefs(activeGroup?.id, { club_ids: selected });
+                    if (prefId && allIds.includes(prefId)) {
+                      upserts.push({
+                        user_id: meId,
+                        club_id: prefId,
+                        is_preferred: true,
+                        is_refused: false,
+                        is_accepted: true,
+                      });
+                    }
+                    if (upserts.length) {
+                      await supabase.from('user_clubs').upsert(upserts, { onConflict: 'user_id,club_id' });
+                    }
+
+                    setMyRefusedClubIds(new Set(refused));
+                    const inRadiusIds = (geoClubsList || []).map((c) => String(c.id));
+                    logClubsRefusalFilter({
+                      tag: 'Matches/geoModalSave',
+                      clubsInRadius: inRadiusIds,
+                      refusedIds: [...refused],
+                      allowedIds: allowedClubIdsAfterRefusals(inRadiusIds, [...refused]),
+                    });
                     setGeoClubsModalOpen(false);
                   }}
                   style={{ marginTop: 8, paddingVertical: 10, borderRadius: 999, backgroundColor: THEME.accent, alignItems: 'center' }}
@@ -10912,726 +12373,174 @@ const HourSlotRow = ({ item }) => {
               </View>
             </View>
           </Modal>
-        </>
-      )}
-      
 
-  {tab === 'proposes' &&
-    (matchCreatedUndoVisible && proposesTabSnapshotRef.current
-      ? proposesTabSnapshotRef.current
-      : proposesTab)}
-
-      {tab === 'rsvp' && null}
-
-      {tab === 'valides' && (
-        <>
-          {/* Sélecteur 1h / 1h30 pour Validés */}
-          <View style={styles.segmentWrap}>
-            <View style={styles.segment}>
-              <Pressable
-                onPress={() => setConfirmedMode('hour')}
-                style={[
-                  styles.segmentBtn,
-                  styles.segmentBtnCompact,
-                  confirmedMode === 'hour' && styles.segmentBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    confirmedMode === 'hour' && styles.segmentTextActive,
-                  ]}
-                >
-                  {`1h (${confirmedHourWeek?.length || 0})`}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setConfirmedMode('long')}
-                style={[
-                  styles.segmentBtn,
-                  styles.segmentBtnCompact,
-                  confirmedMode === 'long' && styles.segmentBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    confirmedMode === 'long' && styles.segmentTextActive,
-                  ]}
-                >
-                  {`1h30 (${confirmedLongWeek?.length || 0})`}
-                </Text>
-              </Pressable>
+      {matchCreatedUndoVisible && proposesTabSnapshotRef.current ? (
+        proposesTabSnapshotRef.current
+      ) : (
+        <View style={{ flex: 1, minHeight: 0 }}>
+          {loadingWeek && (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(6, 26, 43, 0.72)',
+                zIndex: 9999,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <ActivityIndicator size="large" color={THEME.accent} />
+              <Text style={{ color: THEME.accent, marginTop: 12, fontWeight: '700' }}>
+                Chargement de la semaine...
+              </Text>
             </View>
-          </View>
-
-          {confirmedMode === 'long' ? (
-            confirmedLong.length === 0 ? (
-              <Text style={{ color: THEME.muted }}>Aucun match 1h30 confirmé.</Text>
-            ) : (
-              <FlatList
-          data={confirmedLong.filter(m => {
-            // Si pas de time_slots, inclure par défaut
-            if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
-              console.log('[Validés Long] Match sans time_slots (inclus):', m.id);
-              return true;
+          )}
+          <FlatList
+            data={unifiedFeedFiltered}
+            keyExtractor={(item) => item.id}
+            windowSize={9}
+            maxToRenderPerBatch={8}
+            initialNumToRender={8}
+            updateCellsBatchingPeriod={40}
+            nestedScrollEnabled
+            extraData={
+              dataVersion +
+              unifiedFeedFiltered.length +
+              filteredHotMatches.length +
+              historyMatches.length +
+              (historyLoading ? 1 : 0) +
+              Object.keys(clubNamesById).length
             }
-            const inRange = isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-            if (!inRange) {
-              console.log('[Validés Long] Match exclu par isInWeekRange:', m.id, 'starts_at:', m?.time_slots?.starts_at, 'ends_at:', m?.time_slots?.ends_at);
-            }
-            return inRange;
-          })}
-                keyExtractor={(m) => m.id + '-confirmed-long'}
-                renderItem={({ item: m }) => (
-                  <MatchCardConfirmed m={m} />
-                )}
-                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-          ListFooterComponent={() => (
-            <>
-              {/* Ligne de séparation */}
-              {historyMatches.length > 0 && (
-                <View style={{ height: 1, backgroundColor: '#e0ff00', marginVertical: 20, marginHorizontal: 16 }} />
-              )}
-
-              {/* Historique des 5 derniers matchs */}
-              {historyMatches.length > 0 && (
-                <View style={{ marginBottom: 16 }}>
-                  <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 18, marginBottom: 12, paddingHorizontal: 4 }}>
-                    MES 5 DERNIERS MATCHS
-                  </Text>
-                  {historyMatches
-                    .filter((match) => {
-                      // Vérification de sécurité : ne pas afficher les matches où l'utilisateur n'a pas de RSVP accepted
-                      const matchRsvps = rsvpsByMatch[match.id] || [];
-                      const hasUserAccepted = matchRsvps.some(r => 
-                        String(r.user_id) === String(meId) && 
-                        String(r.status || '').toLowerCase() === 'accepted'
-                      );
-                      if (!hasUserAccepted) {
-                        console.warn('[History] Match exclu de l\'affichage (pas de RSVP accepted):', match.id);
-                        return false;
-                      }
-                      return true;
-                    })
-                    .map((match) => {
-                const slot = match.time_slots || {};
-                const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
-                
-                // Formater la date/heure au format "Mar 23 Déc - 21:00 à 22:30"
-                const formatHistoryDate = (startDate, endDate) => {
-                  if (!startDate || !endDate) return 'Date inconnue';
-                  const start = new Date(startDate);
-                  const end = new Date(endDate);
-                  const WD = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-                  const MO = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-                  const wd = WD[start.getDay()] || '';
-                  const dd = String(start.getDate()).padStart(2, '0');
-                  const mo = MO[start.getMonth()] || '';
-                  const startTime = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                  const endTime = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                  return `${wd} ${dd} ${mo} - ${startTime} à ${endTime}`;
-                };
-                
-                const dateTimeStr = slot.starts_at && slot.ends_at 
-                  ? formatHistoryDate(slot.starts_at, slot.ends_at)
-                  : (matchDate ? matchDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Date inconnue');
-                
-                // Récupérer les joueurs du match
-                const matchRsvps = rsvpsByMatch[match.id] || [];
-                const acceptedPlayers = matchRsvps.filter(r => String(r.status || '').toLowerCase() === 'accepted');
-                
+            renderItem={({ item }) => {
+              if (item.type === 'possible') {
+                const durationPillLabel = contentFilter === 'possible' ? '1h30' : undefined;
                 return (
-                  <View
-                    key={match.id}
-                    style={{
-                      backgroundColor: '#1e3a5f',
-                      borderRadius: 12,
-                      padding: 12,
-                      marginBottom: 8,
-                      borderWidth: 1,
-                      borderColor: '#2d4a6f',
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
-                          {dateTimeStr}
-                        </Text>
-                        {acceptedPlayers.length > 0 && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                            {(() => {
-                              // Si le match a un résultat, organiser les joueurs par équipe (gagnante d'abord)
-                              if (match.result) {
-                                const team1Players = [
-                                  match.result.team1_player1_id,
-                                  match.result.team1_player2_id
-                                ].filter(Boolean);
-                                const team2Players = [
-                                  match.result.team2_player1_id,
-                                  match.result.team2_player2_id
-                                ].filter(Boolean);
-                                
-                                // Calculer le nombre de sets gagnés par chaque équipe
-                                const parseSets = (scoreText) => {
-                                  if (!scoreText) return [];
-                                  const sets = scoreText.split(',').map(s => s.trim());
-                                  return sets.map(set => {
-                                    const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
-                                    return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
-                                  });
-                                };
-                                
-                                const sets = parseSets(match.result.score_text);
-                                let team1SetsWon = 0;
-                                let team2SetsWon = 0;
-                                
-                                sets.forEach(set => {
-                                  // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
-                                  if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
-                                    team1SetsWon++;
-                                  } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
-                                    team2SetsWon++;
-                                  }
-                                });
-                                
-                                // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
-                                const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
-                                
-                                // Équipe gagnante en premier (basée sur les sets gagnés, pas sur winner_team)
-                                const winningTeamPlayers = actualWinnerTeam === 'team1' ? team1Players : team2Players;
-                                const losingTeamPlayers = actualWinnerTeam === 'team1' ? team2Players : team1Players;
-                                
-                                return (
-                                  <>
-                                    {/* Joueurs de l'équipe gagnante avec bordure verte */}
-                                    {winningTeamPlayers.map((playerId) => {
-                                      const p = profilesById[String(playerId)];
-                                      if (!p) return null;
-                                      return (
-                                        <View key={playerId} style={{ borderWidth: 2, borderColor: '#10b981', borderRadius: 24, padding: 2 }}>
-                                          <LevelAvatar
-                                            profile={p}
-                                            size={40}
-                                            rsvpStatus={undefined}
-                                            onLongPressProfile={openProfile}
-                                          />
-                                        </View>
-                                      );
-                                    })}
-                                    {/* Icône éclair entre les équipes */}
-                                    <Ionicons name="flash" size={20} color="#10b981" style={{ marginHorizontal: 4 }} />
-                                    {/* Joueurs de l'équipe perdante avec bordure rouge */}
-                                    {losingTeamPlayers.map((playerId) => {
-                                      const p = profilesById[String(playerId)];
-                                      if (!p) return null;
-                                      return (
-                                        <View key={playerId} style={{ borderWidth: 2, borderColor: '#ef4444', borderRadius: 24, padding: 2 }}>
-                                          <LevelAvatar
-                                            profile={p}
-                                            size={40}
-                                            rsvpStatus={undefined}
-                                            onLongPressProfile={openProfile}
-                                          />
-                                        </View>
-                                      );
-                                    })}
-                                  </>
-                                );
-                              } else {
-                                // Pas de résultat, afficher tous les joueurs sans bordure spéciale
-                                return acceptedPlayers.slice(0, 4).map((r) => {
-                                  const p = profilesById[String(r.user_id)];
-                                  if (!p) return null;
-                                  return (
-                                    <LevelAvatar
-                                      key={r.user_id}
-                                      profile={p}
-                                      size={40}
-                                      onLongPressProfile={openProfile}
-                                    />
-                                  );
-                                });
-                              }
-                            })()}
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                    
-                    {match.result ? (
-                      // Afficher le score
-                      <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#2d4a6f' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                          <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
-                          <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
-                            Résultat enregistré
-                          </Text>
-                        </View>
-                        {(() => {
-                          const parseSets = (scoreText) => {
-                            if (!scoreText) return [];
-                            const sets = scoreText.split(',').map(s => s.trim());
-                            return sets.map(set => {
-                              const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
-                              return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
-                            });
-                          };
-                          
-                          const sets = parseSets(match.result.score_text);
-                          while (sets.length < 3) {
-                            sets.push({ team1: 0, team2: 0 });
-                          }
-                          
-                          // Calculer le nombre de sets gagnés par chaque équipe
-                          let team1SetsWon = 0;
-                          let team2SetsWon = 0;
-                          
-                          sets.forEach(set => {
-                            // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
-                            if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
-                              team1SetsWon++;
-                            } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
-                              team2SetsWon++;
-                            }
-                          });
-                          
-                          // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
-                          const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
-                          
-                          const team1Player1 = profilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
-                          const team1Player2 = profilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
-                          const team2Player1 = profilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1';
-                          const team2Player2 = profilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2';
-                          
-                          // Couleurs basées sur le nombre de sets gagnés, pas sur winner_team
-                          const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
-                          const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';
-                          
-                          return (
-                            <View>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
-                                  {team1Player1} / {team1Player2}
-                                </Text>
-                                <View style={{ flexDirection: 'row', gap: 8 }}>
-                                  {sets.map((set, index) => (
-                                    <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
-                                      {set.team1}
-                                    </Text>
-                                  ))}
-                                </View>
-                              </View>
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
-                                  {team2Player1} / {team2Player2}
-                                </Text>
-                                <View style={{ flexDirection: 'row', gap: 8 }}>
-                                  {sets.map((set, index) => (
-                                    <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
-                                      {set.team2}
-                                    </Text>
-                                  ))}
-                                </View>
-                              </View>
-                            </View>
-                          );
-                        })()}
-                        {/* Bouton pour modifier le résultat */}
-                        <Pressable
-                          onPress={() => {
-                            router.push({
-                              pathname: '/matches/record-result',
-                              params: { matchId: match.id },
-                            });
-                          }}
-                          style={{
-                            marginTop: 12,
-                            backgroundColor: '#9ca3af',
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Ionicons name="create-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
-                            Modifier le résultat
-                          </Text>
-                        </Pressable>
-                      </View>
-                    ) : (
-                      // Bouton pour enregistrer le score
-                      <Pressable
-                        onPress={() => {
-                          router.push({
-                            pathname: '/matches/record-result',
-                            params: { matchId: match.id },
-                          });
-                        }}
-                        style={{
-                          marginTop: 8,
-                          backgroundColor: '#1a4b97',
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderRadius: 8,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Ionicons name="trophy-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                        <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
-                          Enregistrer le score
-                        </Text>
-                      </Pressable>
-                    )}
+                  <View style={{ marginBottom: 10 }}>
+                    <LongSlotRow
+                      item={item.sourceData}
+                      hotMode={false}
+                      durationPillLabel={durationPillLabel}
+                    />
                   </View>
                 );
-              })}
+              }
+              if (item.type === 'complete') {
+                return (
+                  <View style={{ marginBottom: 10 }}>
+                    <FindGameFeedCard
+                      rq={item.sourceData}
+                      meId={meId}
+                      profilesById={profilesById}
+                      formatRange={formatRange}
+                      formatPlayerName={formatPlayerName}
+                      onJoin={onJoinFindGameRequest}
+                      onDelete={onDeleteFindGameRequest}
+                    />
+                  </View>
+                );
+              }
+              if (item.type === 'validated') {
+                return (
+                  <View style={{ marginBottom: 10 }}>
+                    <MatchCardConfirmed m={item.sourceData} />
+                  </View>
+                );
+              }
+              return null;
+            }}
+            ListHeaderComponent={matchesFeedListHeader}
+            ListEmptyComponent={
+              loadingWeek ? null : (
+                <View
+                  style={{
+                    flexGrow: 1,
+                    minHeight: Math.max(340, height * 0.52),
+                    justifyContent: 'center',
+                    paddingVertical: 8,
+                    paddingHorizontal: 8,
+                  }}
+                >
+                  {contentFilter === 'possible' && (
+                    <EmptyStateMatch
+                      onAddAvailability={onAddAvailability}
+                      onInvitePlayers={onInvitePlayers}
+                      showMissingClubs={false}
+                    />
+                  )}
+                  {contentFilter === 'complete' && (
+                    <EmptyStateMatch
+                      title="Aucun match à compléter"
+                      hook="Publie une recherche pour compléter un créneau avec des joueurs du groupe."
+                      onAddAvailability={onAddAvailability}
+                      onInvitePlayers={onInvitePlayers}
+                      showAvailabilityAndInvite={false}
+                      variant="full"
+                    />
+                  )}
+                  {contentFilter === 'validated' && (
+                    <EmptyStateMatch
+                      title="Aucun match validé"
+                      hook="Les matchs confirmés pour cette semaine apparaissent ici."
+                      onAddAvailability={onAddAvailability}
+                      onInvitePlayers={onInvitePlayers}
+                      onFindGame={openFindGameWizard}
+                      variant="full"
+                    />
+                  )}
                 </View>
-              )}
-              <View style={{ height: bottomPad + 100 }} />
-            </>
-          )}
-        />
-            )
-          ) : (
-            confirmedHour.length === 0 ? (
-              <Text style={{ color: THEME.muted }}>Aucun match 1h confirmé.</Text>
-            ) : (
-              <FlatList
-          data={confirmedHour.filter(m => {
-            // Si pas de time_slots, inclure par défaut
-            if (!m?.time_slots?.starts_at || !m?.time_slots?.ends_at) {
-              console.log('[Validés Hour] Match sans time_slots (inclus):', m.id);
-              return true;
+              )
             }
-            return isInWeekRange(m.time_slots.starts_at, m.time_slots.ends_at, currentWs, currentWe);
-          })}
-                keyExtractor={(m) => m.id + '-confirmed-hour'}
-                renderItem={({ item: m }) => (
-                  <MatchCardConfirmed m={m} />
-                )}
-                contentContainerStyle={{ paddingBottom: bottomPad + 100 }}
-                scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
-                ListFooterComponent={() => (
-                  <>
-                    {/* Ligne de séparation */}
-                    {historyMatches.length > 0 && (
-                      <View style={{ height: 1, backgroundColor: '#e0ff00', marginVertical: 20, marginHorizontal: 16 }} />
-                    )}
-
-                    {/* Historique des 5 derniers matchs */}
-                    {historyMatches.length > 0 && (
-                      <View style={{ marginBottom: 16 }}>
-                        <Text style={{ color: '#e0ff00', fontWeight: '800', fontSize: 18, marginBottom: 12, paddingHorizontal: 4 }}>
-                          MES 5 DERNIERS MATCHS
-                        </Text>
-                        {historyMatches
-                          .filter((match) => {
-                            // Vérification de sécurité : ne pas afficher les matches où l'utilisateur n'a pas de RSVP accepted
-                            const matchRsvps = rsvpsByMatch[match.id] || [];
-                            const hasUserAccepted = matchRsvps.some(r => 
-                              String(r.user_id) === String(meId) && 
-                              String(r.status || '').toLowerCase() === 'accepted'
-                            );
-                            if (!hasUserAccepted) {
-                              console.warn('[History] Match exclu de l\'affichage (pas de RSVP accepted):', match.id);
-                              return false;
-                            }
-                            return true;
-                          })
-                          .map((match) => {
-                          const slot = match.time_slots || {};
-                          const matchDate = slot.starts_at ? new Date(slot.starts_at) : (match.created_at ? new Date(match.created_at) : null);
-                          
-                          // Formater la date/heure au format "Mar 23 Déc - 21:00 à 22:30"
-                          const formatHistoryDate = (startDate, endDate) => {
-                            if (!startDate || !endDate) return 'Date inconnue';
-                            const start = new Date(startDate);
-                            const end = new Date(endDate);
-                            const WD = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-                            const MO = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-                            const wd = WD[start.getDay()] || '';
-                            const dd = String(start.getDate()).padStart(2, '0');
-                            const mo = MO[start.getMonth()] || '';
-                            const startTime = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                            const endTime = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                            return `${wd} ${dd} ${mo} - ${startTime} à ${endTime}`;
-                          };
-                          
-                          const dateTimeStr = slot.starts_at && slot.ends_at 
-                            ? formatHistoryDate(slot.starts_at, slot.ends_at)
-                            : (matchDate ? matchDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Date inconnue');
-                          
-                          // Récupérer les joueurs du match
-                          const matchRsvps = rsvpsByMatch[match.id] || [];
-                          const acceptedPlayers = matchRsvps.filter(r => String(r.status || '').toLowerCase() === 'accepted');
-                          
-                          return (
-                            <View
-                              key={match.id}
-                              style={{
-                                backgroundColor: '#1e3a5f',
-                                borderRadius: 12,
-                                padding: 12,
-                                marginBottom: 8,
-                                borderWidth: 1,
-                                borderColor: '#2d4a6f',
-                              }}
-                            >
-                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
-                                    {dateTimeStr}
-                                  </Text>
-                                  {acceptedPlayers.length > 0 && (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                                      {(() => {
-                                        // Si le match a un résultat, organiser les joueurs par équipe (gagnante d'abord)
-                                        if (match.result) {
-                                          const team1Players = [
-                                            match.result.team1_player1_id,
-                                            match.result.team1_player2_id
-                                          ].filter(Boolean);
-                                          const team2Players = [
-                                            match.result.team2_player1_id,
-                                            match.result.team2_player2_id
-                                          ].filter(Boolean);
-                                          
-                                          // Calculer le nombre de sets gagnés par chaque équipe
-                                          const parseSets = (scoreText) => {
-                                            if (!scoreText) return [];
-                                            const sets = scoreText.split(',').map(s => s.trim());
-                                            return sets.map(set => {
-                                              const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
-                                              return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
-                                            });
-                                          };
-                                          
-                                          const sets = parseSets(match.result.score_text);
-                                          let team1SetsWon = 0;
-                                          let team2SetsWon = 0;
-                                          
-                                          sets.forEach(set => {
-                                            // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
-                                            if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
-                                              team1SetsWon++;
-                                            } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
-                                              team2SetsWon++;
-                                            }
-                                          });
-                                          
-                                          // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
-                                          const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
-                                          
-                                          // Équipe gagnante en premier (basée sur les sets gagnés, pas sur winner_team)
-                                          const winningTeamPlayers = actualWinnerTeam === 'team1' ? team1Players : team2Players;
-                                          const losingTeamPlayers = actualWinnerTeam === 'team1' ? team2Players : team1Players;
-                                          
-                                          return (
-                                            <>
-                                              {/* Joueurs de l'équipe gagnante avec bordure verte */}
-                                              {winningTeamPlayers.map((playerId) => {
-                                                const p = profilesById[String(playerId)];
-                                                if (!p) return null;
-                                                return (
-                                                  <View key={playerId} style={{ borderWidth: 2, borderColor: '#10b981', borderRadius: 24, padding: 2 }}>
-                                                    <LevelAvatar
-                                                      profile={p}
-                                                      size={40}
-                                                      rsvpStatus={undefined}
-                                                      onLongPressProfile={openProfile}
-                                                    />
-                                                  </View>
-                                                );
-                                              })}
-                                              {/* Icône éclair entre les équipes */}
-                                              <Ionicons name="flash" size={20} color="#10b981" style={{ marginHorizontal: 4 }} />
-                                              {/* Joueurs de l'équipe perdante avec bordure rouge */}
-                                              {losingTeamPlayers.map((playerId) => {
-                                                const p = profilesById[String(playerId)];
-                                                if (!p) return null;
-                                                return (
-                                                  <View key={playerId} style={{ borderWidth: 2, borderColor: '#ef4444', borderRadius: 24, padding: 2 }}>
-                                                    <LevelAvatar
-                                                      profile={p}
-                                                      size={40}
-                                                      rsvpStatus={undefined}
-                                                      onLongPressProfile={openProfile}
-                                                    />
-                                                  </View>
-                                                );
-                                              })}
-                                            </>
-                                          );
-                                        } else {
-                                          // Pas de résultat, afficher tous les joueurs sans bordure spéciale
-                                          return acceptedPlayers.slice(0, 4).map((r) => {
-                                            const p = profilesById[String(r.user_id)];
-                                            if (!p) return null;
-                                            return (
-                                              <LevelAvatar
-                                                key={r.user_id}
-                                                profile={p}
-                                                size={40}
-                                                onLongPressProfile={openProfile}
-                                              />
-                                            );
-                                          });
-                                        }
-                                      })()}
-                                    </View>
-                                  )}
-                                </View>
-                              </View>
-                              
-                              {match.result ? (
-                                // Afficher le score
-                                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#2d4a6f' }}>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                                    <Ionicons name="trophy" size={16} color="#e0ff00" style={{ marginRight: 6 }} />
-                                    <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 12 }}>
-                                      Résultat enregistré
-                                    </Text>
-                                  </View>
-                                  {(() => {
-                                    const parseSets = (scoreText) => {
-                                      if (!scoreText) return [];
-                                      const sets = scoreText.split(',').map(s => s.trim());
-                                      return sets.map(set => {
-                                        const [a, b] = set.split('-').map(s => parseInt(s.trim(), 10));
-                                        return { team1: isNaN(a) ? 0 : a, team2: isNaN(b) ? 0 : b };
-                                      });
-                                    };
-                                    
-                                    const sets = parseSets(match.result.score_text);
-                                    while (sets.length < 3) {
-                                      sets.push({ team1: 0, team2: 0 });
-                                    }
-                                    
-                                    // Calculer le nombre de sets gagnés par chaque équipe
-                                    let team1SetsWon = 0;
-                                    let team2SetsWon = 0;
-                                    
-                                    sets.forEach(set => {
-                                      // Un set est gagné si le score est 6 ou 7 et supérieur à l'adversaire
-                                      if ((set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2) {
-                                        team1SetsWon++;
-                                      } else if ((set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1) {
-                                        team2SetsWon++;
-                                      }
-                                    });
-                                    
-                                    // Déterminer l'équipe gagnante basée sur le nombre de sets gagnés
-                                    const actualWinnerTeam = team1SetsWon > team2SetsWon ? 'team1' : (team2SetsWon > team1SetsWon ? 'team2' : null);
-                                    
-                                    const team1Player1 = profilesById?.[String(match.result.team1_player1_id)]?.display_name || 'Joueur 1';
-                                    const team1Player2 = profilesById?.[String(match.result.team1_player2_id)]?.display_name || 'Joueur 2';
-                                    const team2Player1 = profilesById?.[String(match.result.team2_player1_id)]?.display_name || 'Joueur 1';
-                                    const team2Player2 = profilesById?.[String(match.result.team2_player2_id)]?.display_name || 'Joueur 2';
-                                    
-                                    // Couleurs basées sur le nombre de sets gagnés, pas sur winner_team
-                                    const team1Color = actualWinnerTeam === 'team1' ? '#10b981' : '#ef4444';
-                                    const team2Color = actualWinnerTeam === 'team2' ? '#10b981' : '#ef4444';
-                                    
-                                    return (
-                                      <View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                          <Text style={{ color: team1Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
-                                            {team1Player1} / {team1Player2}
-                                          </Text>
-                                          <View style={{ flexDirection: 'row', gap: 8 }}>
-                                            {sets.map((set, index) => (
-                                              <Text key={index} style={{ color: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '#10b981' : '#ffffff', fontWeight: (set.team1 === 6 || set.team1 === 7) && set.team1 > set.team2 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
-                                              {set.team1}
-                                            </Text>
-                                            ))}
-                                          </View>
-                                        </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                          <Text style={{ color: team2Color, fontWeight: '400', fontSize: 12, flex: 1 }}>
-                                            {team2Player1} / {team2Player2}
-                                          </Text>
-                                          <View style={{ flexDirection: 'row', gap: 8 }}>
-                                            {sets.map((set, index) => (
-                                              <Text key={index} style={{ color: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '#10b981' : '#ffffff', fontWeight: (set.team2 === 6 || set.team2 === 7) && set.team2 > set.team1 ? '700' : '600', fontSize: 14, minWidth: 16, textAlign: 'right' }}>
-                                                {set.team2}
-                                              </Text>
-                                            ))}
-                                          </View>
-                                        </View>
-                                      </View>
-                                    );
-                                  })()}
-                                  {/* Bouton pour modifier le résultat */}
-                                  <Pressable
-                                    onPress={() => {
-                                      router.push({
-                                        pathname: '/matches/record-result',
-                                        params: { matchId: match.id },
-                                      });
-                                    }}
-                                    style={{
-                                      marginTop: 12,
-                                      backgroundColor: '#9ca3af',
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 12,
-                                      borderRadius: 8,
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                  >
-                                    <Ionicons name="create-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                                    <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
-                                      Modifier le résultat
-                                    </Text>
-                                  </Pressable>
-                                </View>
-                              ) : (
-                                // Bouton pour enregistrer le score
-                                <Pressable
-                                  onPress={() => {
-                                    router.push({
-                                      pathname: '/matches/record-result',
-                                      params: { matchId: match.id },
-                                    });
-                                  }}
-                                  style={{
-                                    marginTop: 8,
-                                    backgroundColor: '#1a4b97',
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 8,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                  }}
-                                >
-                                  <Ionicons name="trophy-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                                  <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 12 }}>
-                                    Enregistrer le score
-                                  </Text>
-                                </Pressable>
-                              )}
-                            </View>
-                          );
-                        })}
-                      </View>
-                    )}
-                    <View style={{ height: bottomPad + 100 }} />
-                  </>
-                )}
-              />
-            )
-          )}
-                </>
+            ListFooterComponent={
+              contentFilter === 'validated' ? (
+                <View style={{ paddingHorizontal: 12, paddingBottom: 24 }}>
+                  <FormeDuMomentSection
+                    historyMatches={historyMatches}
+                    historyProfilesById={historyProfilesById}
+                    historyLoading={historyLoading}
+                    historyError={historyError}
+                    meId={meId}
+                    marginTop={12}
+                  />
+                </View>
+              ) : null
+            }
+            contentContainerStyle={{
+              flexGrow: 1,
+              paddingBottom: bottomPad + 100,
+              paddingTop: 2,
+            }}
+            scrollIndicatorInsets={{ bottom: (bottomPad + 100) / 2 }}
+            removeClippedSubviews={Platform.OS === 'android'}
+          />
+          {contentFilter === 'complete' ? (
+            <View
+              pointerEvents="box-none"
+              style={[
+                styles.completeFindFab,
+                { bottom: Math.max((tabBarHeight || 0) + 12, safeBottomInset + 8) },
+              ]}
+            >
+              <Pressable
+                onPress={() => {
+                  if (typeof openFindGameWizard === 'function') openFindGameWizard();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Mettre une partie à compléter"
+                style={({ pressed }) => [
+                  styles.completeFindFabPress,
+                  pressed && { opacity: 0.92 },
+                ]}
+              >
+                <Ionicons name="add" size={30} color={THEME.ink} />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       )}
+
 
       {/* Icône flottante pour créer un match géographique (à gauche) - MASQUÉE */}
       {false && (
@@ -11659,13 +12568,12 @@ const HourSlotRow = ({ item }) => {
       </Pressable>
       )}
 
-      {FLASH_MATCH_ENABLED && (
+      {FLASH_MATCH_ENABLED && contentFilter === 'possible' && (
         <>
-          {/* 5 — Match éclair - Bouton flottant toujours visible sur tous les onglets */}
+          {/* 5 — Match éclair - FAB sur l’onglet Prêts */}
           <Step order={4} name="flash" text="Pressé ? Propose un match maintenant en 3 clics.">
             <View style={{ position: 'absolute', bottom: (tabBarHeight || 0) + 140, right: 13, width: 48, height: 48 }} />
           </Step>
-          {/* Bouton flottant match éclair - toujours visible sur tous les onglets */}
           <Animated.View
             style={[
               styles.fabWrap,
@@ -12124,20 +13032,6 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* Annuler pour le picker - rouvre le modal flash */}
-      {flashDatePickerModalOpen && (
-              <Pressable
-                onPress={() => {
-            setFlashDatePickerModalOpen(false);
-            setTimeout(() => {
-              setFlashDateModalOpen(true);
-            }, 300);
-          }}
-          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, top: 0, backgroundColor: 'transparent' }}
-        />
-      )}
-
-
       {/* Modale de sélection des joueurs */}
       <Modal
         visible={flashPickerOpen}
@@ -12200,9 +13094,14 @@ const HourSlotRow = ({ item }) => {
                       }
                     }
                     
-                    // Filtre géographique
-                    if (flashGeoRefPoint && flashGeoRefPoint.lat != null && flashGeoRefPoint.lng != null && flashGeoRadiusKm != null) {
-                      // Utiliser domicile, puis travail, comme position du joueur
+                    // Filtre géographique (radius_km : 10 / 25 / 50 / null = illimité)
+                    const flashEffR = getEffectiveRadius({ radius_km: flashGeoRadiusKm });
+                    if (
+                      flashGeoRefPoint &&
+                      flashGeoRefPoint.lat != null &&
+                      flashGeoRefPoint.lng != null &&
+                      flashEffR !== null
+                    ) {
                       let playerLat = null;
                       let playerLng = null;
                       if (member.address_home?.lat && member.address_home?.lng) {
@@ -12213,11 +13112,10 @@ const HourSlotRow = ({ item }) => {
                         playerLng = member.address_work.lng;
                       }
                       
-                      if (!playerLat || !playerLng) return false; // Pas de position = exclu
+                      if (!playerLat || !playerLng) return false;
                       
-                      // Calculer la distance
                       const distanceKm = haversineKm(flashGeoRefPoint, { lat: playerLat, lng: playerLng });
-                      if (distanceKm > flashGeoRadiusKm) return false;
+                      if (distanceKm > flashEffR) return false;
                     }
                     
                     return true;
@@ -12391,7 +13289,7 @@ const HourSlotRow = ({ item }) => {
                             }}
                             style={{
                               padding: 10,
-                              backgroundColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                              backgroundColor: flashGeoRefPoint ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
                               borderRadius: 999,
                               borderWidth: 1,
                               borderColor: 'rgba(255,255,255,0.65)',
@@ -12405,7 +13303,7 @@ const HourSlotRow = ({ item }) => {
                             <Ionicons 
                               name="location" 
                               size={20} 
-                              color={(flashGeoRefPoint && flashGeoRadiusKm) ? '#ff751d' : '#374151'}
+                              color={flashGeoRefPoint ? '#ff751d' : '#374151'}
                               style={{
                                 shadowColor: '#000',
                                 shadowOffset: { width: 0, height: 2 },
@@ -12501,7 +13399,7 @@ const HourSlotRow = ({ item }) => {
                             borderRadius: 16, 
                             padding: 12,
                             borderWidth: 1,
-                            borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
+                            borderColor: flashGeoRefPoint ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
                             marginBottom: 12,
                             shadowColor: '#0b2240',
                             shadowOpacity: 0.08,
@@ -12521,8 +13419,6 @@ const HourSlotRow = ({ item }) => {
                               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                                 {[
                                   { key: 'current', label: '📍 Position actuelle' },
-                                  { key: 'home', label: '🏠 Domicile' },
-                                  { key: 'work', label: '💼 Travail' },
                                   { key: 'city', label: '🏙️ Ville' },
                                 ].map(({ key, label }) => {
                                   const isSelected = flashGeoLocationType === key;
@@ -12535,7 +13431,7 @@ const HourSlotRow = ({ item }) => {
                                           setFlashGeoCityQuery('');
                                           setFlashGeoCitySuggestions([]);
                                           setFlashGeoLocationType(null);
-                                          setFlashGeoRadiusKm(null);
+                                          setFlashGeoRadiusKm(25);
                                         } else {
                                           setFlashGeoLocationType(key);
                                           if (key === 'city') {
@@ -12627,44 +13523,47 @@ const HourSlotRow = ({ item }) => {
                             {/* Sélection du rayon */}
                             <View style={{ marginBottom: 12 }}>
                               <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
-                                Rayon : {flashGeoRadiusKm ? `${flashGeoRadiusKm} km` : 'non sélectionné'}
+                                Rayon :{' '}
+                                {flashGeoRadiusKm === null
+                                  ? 'Illimité'
+                                  : `${flashGeoRadiusKm} km`}
                               </Text>
-                              <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
-                                {[10, 20, 30, 40, 50].map((km) => {
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                {[
+                                  { km: 10, sub: 'Proche' },
+                                  { km: 25, sub: 'Équilibré' },
+                                  { km: 50, sub: 'Large' },
+                                  { km: null, sub: 'Illimité' },
+                                ].map(({ km, sub }) => {
                                   const isSelected = flashGeoRadiusKm === km;
                                   return (
                                     <Pressable
-                                      key={km}
-                                      onPress={() => {
-                                        if (isSelected) {
-                                          setFlashGeoRadiusKm(null);
-                                        } else {
-                                          setFlashGeoRadiusKm(km);
-                                        }
-                                      }}
+                                      key={String(km ?? 'inf')}
+                                      onPress={() => setFlashGeoRadiusKm(km)}
                                       style={{
-                                        flex: 1,
-                                        paddingVertical: 6,
+                                        minWidth: '44%',
+                                        flexGrow: 1,
+                                        paddingVertical: 8,
                                         paddingHorizontal: 8,
-                                        borderRadius: 999,
+                                        borderRadius: 10,
                                         backgroundColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(255,255,255,0.85)',
                                         borderWidth: 1,
                                         borderColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(15,23,42,0.12)',
-                                        shadowColor: '#0b2240',
-                                        shadowOpacity: 0.08,
-                                        shadowRadius: 8,
-                                        shadowOffset: { width: 0, height: 2 },
-                                        elevation: 2,
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                       }}
                                     >
-                                      <Text style={{ 
-                                        fontSize: 12, 
-                                        fontWeight: isSelected ? '800' : '700', 
-                                        color: isSelected ? '#ffffff' : '#111827' 
-                                      }}>
-                                        {km} km
+                                      <Text
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: isSelected ? '800' : '700',
+                                          color: isSelected ? '#ffffff' : '#111827',
+                                        }}
+                                      >
+                                        {km == null ? 'Illimité' : `${km} km`}
+                                      </Text>
+                                      <Text style={{ fontSize: 9, color: isSelected ? 'rgba(255,255,255,0.85)' : '#6b7280', marginTop: 2 }}>
+                                        {sub}
                                       </Text>
                                     </Pressable>
                                   );
@@ -12672,11 +13571,15 @@ const HourSlotRow = ({ item }) => {
                               </View>
                             </View>
                             
-                            {(flashGeoRefPoint && flashGeoRadiusKm) && (
+                            {flashGeoRefPoint ? (
                               <Text style={{ fontSize: 12, fontWeight: '700', color: '#e0ff00', marginTop: 8 }}>
-                                ✓ Filtre actif : {flashGeoRadiusKm} km autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
+                                ✓ Filtre actif :{' '}
+                                {flashGeoRadiusKm === null
+                                  ? 'Illimité'
+                                  : `${flashGeoRadiusKm} km`}{' '}
+                                autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
                               </Text>
-                            )}
+                            ) : null}
                           </View>
                         )}
                         
@@ -12685,7 +13588,8 @@ const HourSlotRow = ({ item }) => {
                             Aucun membre trouvé
                             {flashQuery.trim() && ` pour "${flashQuery}"`}
                             {flashLevelFilter.length > 0 && ` avec les niveaux ${flashLevelFilter.sort((a, b) => a - b).join(', ')}`}
-                            {flashGeoRefPoint && flashGeoRadiusKm && ` dans un rayon de ${flashGeoRadiusKm} km autour de ${flashGeoRefPoint.address || 'la position sélectionnée'}`}
+                            {flashGeoRefPoint &&
+                              ` (${flashGeoRadiusKm === null ? 'illimité' : `${flashGeoRadiusKm} km`} autour de ${flashGeoRefPoint.address || 'la position'})`}
                           </Text>
                         </View>
                       </>
@@ -12849,7 +13753,7 @@ const HourSlotRow = ({ item }) => {
                           }}
                           style={{
                             padding: 10,
-                            backgroundColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
+                            backgroundColor: flashGeoRefPoint ? 'rgba(255, 117, 29, 0.2)' : 'rgba(255,255,255,0.6)',
                             borderRadius: 999,
                             borderWidth: 1,
                             borderColor: 'rgba(255,255,255,0.65)',
@@ -12863,7 +13767,7 @@ const HourSlotRow = ({ item }) => {
                           <Ionicons 
                             name="location" 
                             size={20} 
-                            color={(flashGeoRefPoint && flashGeoRadiusKm) ? '#ff751d' : '#374151'}
+                            color={flashGeoRefPoint ? '#ff751d' : '#374151'}
                             style={{
                               shadowColor: '#000',
                               shadowOffset: { width: 0, height: 2 },
@@ -12959,7 +13863,7 @@ const HourSlotRow = ({ item }) => {
                           borderRadius: 16, 
                           padding: 12,
                           borderWidth: 1,
-                          borderColor: (flashGeoRefPoint && flashGeoRadiusKm) ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
+                          borderColor: flashGeoRefPoint ? 'rgba(21, 128, 61, 0.7)' : 'rgba(15,23,42,0.12)',
                           marginBottom: 12,
                           shadowColor: '#0b2240',
                           shadowOpacity: 0.08,
@@ -12979,8 +13883,6 @@ const HourSlotRow = ({ item }) => {
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                               {[
                                 { key: 'current', label: '📍 Position actuelle' },
-                                { key: 'home', label: '🏠 Domicile' },
-                                { key: 'work', label: '💼 Travail' },
                                 { key: 'city', label: '🏙️ Ville' },
                               ].map(({ key, label }) => {
                                 const isSelected = flashGeoLocationType === key;
@@ -12993,7 +13895,7 @@ const HourSlotRow = ({ item }) => {
                                         setFlashGeoCityQuery('');
                                         setFlashGeoCitySuggestions([]);
                                         setFlashGeoLocationType(null);
-                                        setFlashGeoRadiusKm(null);
+                                        setFlashGeoRadiusKm(25);
                                       } else {
                                         setFlashGeoLocationType(key);
                                         if (key === 'city') {
@@ -13084,45 +13986,48 @@ const HourSlotRow = ({ item }) => {
                           
                           {/* Sélection du rayon */}
                           <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
-                              Rayon : {flashGeoRadiusKm ? `${flashGeoRadiusKm} km` : 'non sélectionné'}
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', marginBottom: 8 }}>
+                              Rayon :{' '}
+                              {flashGeoRadiusKm === null
+                                ? 'Illimité'
+                                : `${flashGeoRadiusKm} km`}
                             </Text>
-                            <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 6 }}>
-                              {[10, 20, 30, 40, 50].map((km) => {
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                              {[
+                                { km: 10, sub: 'Proche' },
+                                { km: 25, sub: 'Équilibré' },
+                                { km: 50, sub: 'Large' },
+                                { km: null, sub: 'Illimité' },
+                              ].map(({ km, sub }) => {
                                 const isSelected = flashGeoRadiusKm === km;
                                 return (
                                   <Pressable
-                                    key={km}
-                                    onPress={() => {
-                                      if (isSelected) {
-                                        setFlashGeoRadiusKm(null);
-                                      } else {
-                                        setFlashGeoRadiusKm(km);
-                                      }
-                                    }}
+                                    key={String(km ?? 'inf')}
+                                    onPress={() => setFlashGeoRadiusKm(km)}
                                     style={{
-                                      flex: 1,
-                                      paddingVertical: 6,
+                                      minWidth: '44%',
+                                      flexGrow: 1,
+                                      paddingVertical: 8,
                                       paddingHorizontal: 8,
-                                      borderRadius: 999,
+                                      borderRadius: 10,
                                       backgroundColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(255,255,255,0.85)',
                                       borderWidth: 1,
                                       borderColor: isSelected ? 'rgba(21, 128, 61, 0.9)' : 'rgba(15,23,42,0.12)',
-                                      shadowColor: '#0b2240',
-                                      shadowOpacity: 0.08,
-                                      shadowRadius: 8,
-                                      shadowOffset: { width: 0, height: 2 },
-                                      elevation: 2,
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                     }}
                                   >
-                                    <Text style={{ 
-                                      fontSize: 12, 
-                                      fontWeight: isSelected ? '800' : '700', 
-                                      color: isSelected ? '#ffffff' : '#111827' 
-                                    }}>
-                                      {km} km
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: isSelected ? '800' : '700',
+                                        color: isSelected ? '#ffffff' : '#111827',
+                                      }}
+                                    >
+                                      {km == null ? 'Illimité' : `${km} km`}
+                                    </Text>
+                                    <Text style={{ fontSize: 9, color: isSelected ? 'rgba(255,255,255,0.85)' : '#6b7280', marginTop: 2 }}>
+                                      {sub}
                                     </Text>
                                   </Pressable>
                                 );
@@ -13130,11 +14035,15 @@ const HourSlotRow = ({ item }) => {
                             </View>
                           </View>
                           
-                          {(flashGeoRefPoint && flashGeoRadiusKm) && (
+                          {flashGeoRefPoint ? (
                             <Text style={{ fontSize: 12, fontWeight: '700', color: '#e0ff00', marginTop: 8 }}>
-                              ✓ Filtre actif : {flashGeoRadiusKm} km autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
+                              ✓ Filtre actif :{' '}
+                              {flashGeoRadiusKm === null
+                                ? 'Illimité'
+                                : `${flashGeoRadiusKm} km`}{' '}
+                              autour de {flashGeoRefPoint.address || 'la position sélectionnée'}
                             </Text>
-                          )}
+                          ) : null}
                         </View>
                       )}
 
@@ -13620,8 +14529,8 @@ const HourSlotRow = ({ item }) => {
                   Lieu de référence
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {['current', 'home', 'work', 'city'].map((type) => {
-                    const labels = { current: '📍 Position actuelle', home: '🏠 Domicile', work: '💼 Travail', city: '🏙️ Ville' };
+                  {['current', 'city'].map((type) => {
+                    const labels = { current: '📍 Position actuelle', city: '🏙️ Ville' };
                     const isSelected = locationType === type;
                     return (
                       <Pressable
@@ -13632,7 +14541,7 @@ const HourSlotRow = ({ item }) => {
                             setRefPoint(null);
                             setCityQuery('');
                           }
-                          // Pour current/home/work, le point sera calculé quand on ouvrira le modal ou qu'on cherchera les clubs
+                          // Pour current, le point sera calculé à l’ouverture ou à la recherche des clubs
                         }}
                         style={{
                           paddingVertical: 8,
@@ -14375,7 +15284,7 @@ const HourSlotRow = ({ item }) => {
                   Aucun match en feu pour le moment.
                 </Text>
                 <Text style={{ color: THEME.muted, textAlign: 'center', fontSize: 14, marginTop: 8 }}>
-                  Les matchs en feu sont ceux où il ne manque plus qu'un joueur (3 joueurs disponibles).
+                  Les matchs en feu sont les creneaux avec au moins 2 joueurs disponibles.
                 </Text>
               </View>
             ) : (
@@ -14439,28 +15348,103 @@ const HourSlotRow = ({ item }) => {
                   // Ne pas ajouter automatiquement l'utilisateur à la liste
                   const allAvailableIds = [...new Set(availableUserIds)];
                   const slot = m.time_slots || {};
+                  const openSpots = Math.max(0, 4 - allAvailableIds.length);
+                  const prefillClubsForSlotModal = getPossibleClubsPrefillForHotCard(m);
+                  const canCompleteSlot =
+                    !!groupId &&
+                    !!slot.starts_at &&
+                    openSpots > 0 &&
+                    prefillClubsForSlotModal.length > 0;
+                  const prefillClubId = groupClubId ? String(groupClubId) : null;
+                  const prefillClubName = null;
                   
                   // Vérifier si l'utilisateur est disponible sur ce créneau
                   const userIsAvailable = availableUserIds.some(id => String(id) === String(meId));
-                  
+                  const hotDurationPillModal = slot.starts_at && slot.ends_at ? '1h30' : null;
+
                   return (
                     <View
                       key={m.id}
-                      style={{
-                        backgroundColor: THEME.cardAlt,
-                        borderRadius: 20,
-                        padding: 16,
-                        marginBottom: 12,
-                        borderWidth: 1,
-                        borderColor: THEME.cardBorder,
-                      }}
+                      style={[styles.hotCard, { marginBottom: 12 }]}
                     >
-                      <Text style={{ fontWeight: '800', fontSize: 16, color: THEME.text, marginBottom: 8 }}>
-                        {slot.starts_at && slot.ends_at 
-                          ? formatRange(slot.starts_at, slot.ends_at)
-                          : 'Date à définir'
+                      <View style={styles.hotCardContent}>
+                        <View style={[styles.matchDateRowWithPill, { alignItems: 'flex-start' }]}>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={[
+                                styles.matchDate,
+                                styles.matchDateInRow,
+                                { color: '#FFFFFF', fontWeight: '700', marginBottom: 4 },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              🔥{' '}
+                              {slot.starts_at && slot.ends_at
+                                ? formatHotMatchDateLine(slot.starts_at, slot.ends_at)
+                                : 'Date à définir'}
+                            </Text>
+                            {slot.starts_at && slot.ends_at ? (
+                              <Text
+                                style={[
+                                  styles.matchDate,
+                                  styles.matchDateInRow,
+                                  {
+                                    color: '#FFFFFF',
+                                    fontWeight: '600',
+                                    fontSize: 15,
+                                    opacity: 0.92,
+                                    marginBottom: 0,
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {formatHotMatchTimeLine(slot.starts_at, slot.ends_at)}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {hotDurationPillModal ? (
+                            <View style={[styles.durationPillHot, { marginTop: 2 }]} pointerEvents="none">
+                              <Text style={styles.durationPillTextHot}>{hotDurationPillModal}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                      {(() => {
+                        const clubs = getPossibleClubsForHotCard(m);
+                        if (clubs.length > 0) {
+                          return (
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                color: THEME.muted,
+                                marginBottom: 8,
+                                textAlign: 'left',
+                                lineHeight: 17,
+                              }}
+                            >
+                              <Text style={{ fontWeight: '800', color: THEME.text }}>Clubs possibles : </Text>
+                              {clubs.map((c) => c.name).join(' · ')}
+                            </Text>
+                          );
                         }
-                      </Text>
+                        if (!isClubGroup && allAvailableIds.length > 0) {
+                          return (
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                color: THEME.muted,
+                                marginBottom: 8,
+                                textAlign: 'left',
+                                lineHeight: 17,
+                              }}
+                            >
+                              <Text style={{ fontWeight: '800', color: THEME.text }}>Clubs : </Text>
+                              Aucun club commun disponible — ajuste ton rayon ou tes clubs acceptés.
+                            </Text>
+                          );
+                        }
+                        return null;
+                      })()}
                       
                       <View style={{ marginTop: 8 }}>
                         <Text style={{ fontWeight: '700', fontSize: 14, color: THEME.muted, marginBottom: 8 }}>
@@ -14480,16 +15464,7 @@ const HourSlotRow = ({ item }) => {
                                   }
                                 }}
                                 delayLongPress={400}
-                                style={{
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  backgroundColor: isMe ? 'rgba(255,255,255,0.12)' : THEME.card,
-                                  padding: 0,
-                                  borderRadius: 28,
-                                  borderWidth: 1,
-                                  borderColor: isMe ? THEME.accent : THEME.cardBorder,
-                                  position: 'relative',
-                                }}
+                                style={styles.hotAvailableAvatarWrapSm}
                               >
                                 {profile.avatar_url ? (
                                   <Image
@@ -14503,6 +15478,22 @@ const HourSlotRow = ({ item }) => {
                                     </Text>
                                   </View>
                                 )}
+                                {profile?.cote ? (
+                                  <View style={styles.hotAvailableSideBadge}>
+                                    <Ionicons
+                                      name={
+                                        String(profile.cote || '').toLowerCase().includes('both') ||
+                                        (String(profile.cote || '').toLowerCase().includes('gauche') && String(profile.cote || '').toLowerCase().includes('droite'))
+                                          ? 'swap-horizontal'
+                                          : String(profile.cote || '').toLowerCase().includes('gauche') || String(profile.cote || '').toLowerCase().includes('left')
+                                            ? 'arrow-back'
+                                            : 'arrow-forward'
+                                      }
+                                      size={10}
+                                      color="#ffffff"
+                                    />
+                                  </View>
+                                ) : null}
                                 {profile.niveau != null && profile.niveau !== '' && (
                                   <View
                                     style={{
@@ -14530,9 +15521,68 @@ const HourSlotRow = ({ item }) => {
                         </View>
                       </View>
                       
-                      <Text style={{ fontSize: 12, color: THEME.accent, fontWeight: '700', marginTop: 8 }}>
-                        🔥 Il ne manque plus qu'un joueur !
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: openSpots === 1 ? '#FF8A3D' : THEME.accent,
+                          fontWeight: '700',
+                          marginTop: 8,
+                        }}
+                      >
+                        {openSpots > 0
+                          ? (openSpots === 1
+                              ? "🔥 Plus qu’1 place à compléter"
+                              : `🔥 Il reste ${openSpots} place${openSpots > 1 ? 's' : ''} a completer`)
+                          : '✅ Creneau deja complet'}
                       </Text>
+
+                      {canCompleteSlot ? (
+                        <Pressable
+                          onPress={() => {
+                            const selectedStart = String(slot.starts_at);
+                            setHotMatchesModalVisible(false);
+                            setFindGameWizardPrefill({
+                              prefillDate: null,
+                              prefillStartAt: selectedStart,
+                              prefillEndAt: slot.ends_at ? String(slot.ends_at) : null,
+                              prefillGroupId: String(groupId),
+                              prefillClubId: prefillClubId || null,
+                              prefillClubName: prefillClubName || null,
+                              prefillOpenSpots: openSpots,
+                              prefillPlayerIds: allAvailableIds.map((id) => String(id)),
+                              prefillGoToClub: true,
+                              prefillPossibleClubs: getPossibleClubsPrefillForHotCard(m),
+                            });
+                            setFindGameWizardOpen(true);
+                          }}
+                          style={({ pressed }) => [
+                            {
+                              backgroundColor: '#FF6B00',
+                              padding: 14,
+                              borderRadius: 20,
+                              borderWidth: 1,
+                              borderColor: '#FF8C00',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginTop: 10,
+                              gap: 6,
+                              shadowColor: '#FF6B00',
+                              shadowOffset: { width: 0, height: 4 },
+                              shadowOpacity: 0.2,
+                              shadowRadius: 8,
+                              elevation: 6,
+                              opacity: pressed ? 0.88 : 1,
+                            },
+                            Platform.OS === 'web' && { cursor: 'pointer' },
+                          ]}
+                        >
+                          <Text style={{ fontSize: 18 }}>🎯</Text>
+                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 17 }}>
+                            {MATCH_COPY.hot.ctaLaunch}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                       
                       {/* Bouton conditionnel selon la disponibilité */}
                       {userIsAvailable ? (
@@ -14841,6 +15891,7 @@ const HourSlotRow = ({ item }) => {
                           </Text>
                         </Pressable>
                       )}
+                      </View>
                     </View>
                   );
                 })}
@@ -15577,23 +16628,7 @@ const HourSlotRow = ({ item }) => {
       </Modal>
 
       {/* Bottom sheet confirmation création match */}
-      {(() => {
-        const ids = forcedClubId ? [forcedClubId] : (pendingCreate?.commonClubIds ?? []);
-        console.log('[HotMatch] render pendingCreate:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
-        return null;
-      })()}
       <Modal transparent animationType="slide" visible={!!pendingCreate} onRequestClose={() => closeConfirm('cancel')}>
-        {(() => {
-          const ids = forcedClubId ? [forcedClubId] : (pendingCreate?.commonClubIds ?? []);
-          console.log('[HotMatch] render visible:', !!pendingCreate, 'ids:', ids.length, 'clubs:', confirmCommonClubs.length);
-          console.log('[HotMatch] RENDER MAP', {
-            isArray: Array.isArray(confirmCommonClubs),
-            type: typeof confirmCommonClubs,
-            len: confirmCommonClubs?.length,
-            value: confirmCommonClubs,
-          });
-          return null;
-        })()}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: THEME.bg, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -15624,15 +16659,15 @@ const HourSlotRow = ({ item }) => {
 
             <Divider m={12} />
 
-            {/* Clubs communs */}
+            {/* Lieu (suggestion, jamais bloquant) */}
             {(() => {
-              const forcedClubId = pendingCreate?.forcedClubId ?? null;
-              const forcedClub = forcedClubId
-                ? (confirmCommonClubs || []).find((c) => String(c?.id) === String(forcedClubId)) || (confirmCommonClubs || [])[0]
+              const forcedClubIdModal = pendingCreate?.forcedClubId ?? null;
+              const forcedClub = forcedClubIdModal
+                ? (confirmCommonClubs || []).find((c) => String(c?.id) === String(forcedClubIdModal)) || (confirmCommonClubs || [])[0]
                 : null;
               return (
                 <>
-                  {forcedClubId ? (
+                  {forcedClubIdModal ? (
                     <>
                       <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Club du groupe</Text>
                       <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
@@ -15669,8 +16704,10 @@ const HourSlotRow = ({ item }) => {
                     </>
                   ) : (
                     <>
-                      <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Choisis le club</Text>
-                      <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>Clubs acceptés par les 4 joueurs</Text>
+                      <Text style={{ color: THEME.accent, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Choisir un club</Text>
+                      <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 10 }}>
+                        Les mêmes suggestions que sous « Clubs possibles » sur la carte — choisis le lieu où vous jouez.
+                      </Text>
                     </>
                   )}
                 </>
@@ -15681,32 +16718,14 @@ const HourSlotRow = ({ item }) => {
               <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={THEME.accent} />
               </View>
-            ) : (pendingCreate?.forcedClubId ? false : (pendingCreate?.commonClubIds ?? []).length === 0) ? (
-              <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder }}>
-                <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
-                  Aucun club en commun entre les 4 joueurs.
-                </Text>
-                <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 12 }}>
-                  Chaque joueur doit avoir accepté le club dans ses préférences.
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Pressable
-                    onPress={() => closeConfirm('change-player')}
-                    style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 10, borderRadius: 10, alignItems: 'center' }}
-                  >
-                    <Text style={{ color: THEME.text, fontWeight: '700', fontSize: 12 }}>Changer un joueur</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : pendingCreate?.forcedClubId ? null : (
+            ) : !pendingCreate?.forcedClubId ? (
               <>
                 {!confirmClubsLoading && (confirmCommonClubs || []).length === 0 ? (
                   <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10 }}>
-                    <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
-                      Aucun club trouvé pour ces IDs.
-                    </Text>
                     <Text style={{ color: THEME.muted, fontSize: 12 }}>
-                      Vérifie la requête Supabase, la table 'clubs' ou les règles RLS.
+                      {pendingCreate?.clubsFromCard
+                        ? 'Les clubs affichés sur la carte n’ont pas pu être chargés dans la modale. Ferme et rouvre, ou réessaie dans un instant.'
+                        : 'Aucun club dans ton rayon pour l’instant. Ajuste le filtre distance ou tes clubs acceptés, puis réessaie.'}
                     </Text>
                   </View>
                 ) : null}
@@ -15732,22 +16751,10 @@ const HourSlotRow = ({ item }) => {
 
                 {(confirmCommonClubs || []).length === 1 && confirmCommonClubs[0] ? (
                   <Text style={{ color: THEME.muted, fontSize: 12, marginBottom: 8 }}>
-                    Club commun trouvé : <Text style={{ color: THEME.text, fontWeight: '800' }}>{confirmCommonClubs[0].name}</Text>
+                    Suggestion : <Text style={{ color: THEME.text, fontWeight: '800' }}>{confirmCommonClubs[0].name}</Text>
                   </Text>
                 ) : null}
 
-                {(confirmCommonClubs ?? []).length === 0 ? (
-                  <View style={{ backgroundColor: THEME.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: THEME.cardBorder, marginBottom: 10 }}>
-                    <Text style={{ color: THEME.text, fontWeight: '800', marginBottom: 6 }}>
-                      Aucun club à afficher
-                    </Text>
-                    <Text style={{ color: THEME.muted, fontSize: 12 }}>
-                      Vérifie le filtre ou le chargement des clubs.
-                    </Text>
-                  </View>
-                ) : null}
-
-                {/* Boutons toggles (sélection unique) */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, columnGap: 8, marginBottom: 8 }}>
                   {(confirmCommonClubs ?? []).map((club) => {
                     const active = String(confirmClubId) === String(club.id);
@@ -15798,27 +16805,56 @@ const HourSlotRow = ({ item }) => {
                 </View>
 
               </>
-            )}
+            ) : null}
 
             <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700', marginTop: 6, marginBottom: 6 }}>
               Sois sûr.e d'avoir une piste libre avant de confirmer. Ne bloque pas des joueurs. Appelle le club si nécessaire
             </Text>
 
-            <Pressable
-              onPress={() => handleConfirmCreate('confirm')}
-              disabled={!(pendingCreate?.forcedClubId ?? confirmClubId)}
-              style={{
-                marginTop: 12,
-                backgroundColor: (pendingCreate?.forcedClubId ?? confirmClubId) ? THEME.accent : 'rgba(255,255,255,0.12)',
-                paddingVertical: 12,
-                borderRadius: 12,
-                alignItems: 'center',
-              }}
-            >
-              <Text style={{ color: (pendingCreate?.forcedClubId ?? confirmClubId) ? THEME.ink : THEME.muted, fontWeight: '800', fontSize: 14 }}>
-                Confirmer le match
-              </Text>
-            </Pressable>
+            {(() => {
+              const canConfirm = true;
+              const barWidth = confirmBarAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%'],
+              });
+              return (
+                <Pressable
+                  onPress={onPressConfirmMatch}
+                  disabled={!canConfirm}
+                  style={{ marginTop: 12, borderRadius: 12, overflow: 'hidden', opacity: canConfirm ? 1 : 0.55 }}
+                >
+                  <View style={{ minHeight: 46, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' }}>
+                    <Animated.View
+                      pointerEvents="none"
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        backgroundColor: THEME.accent,
+                        width: barWidth,
+                      }}
+                    />
+                    <View style={{ paddingVertical: 12, alignItems: 'center', zIndex: 1 }}>
+                      <Text
+                        style={{
+                          color: confirmMatchCountdownActive ? '#001833' : canConfirm ? THEME.ink : THEME.muted,
+                          fontWeight: '800',
+                          fontSize: 14,
+                        }}
+                      >
+                        {confirmMatchCountdownActive ? 'Confirmation demandée' : 'Confirmer le match'}
+                      </Text>
+                      {confirmMatchCountdownActive ? (
+                        <Text style={{ color: THEME.muted, fontSize: 11, fontWeight: '600', marginTop: 4 }}>
+                          Touche à nouveau pour annuler
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -16086,77 +17122,6 @@ const HourSlotRow = ({ item }) => {
         </View>
       </Modal>
 
-      {/* Week navigator - Positionné en bas */}
-      <View
-        onLayout={updateMeasuredHeight(setWeekBarMeasuredHeight, WEEK_BAR_HEIGHT)}
-        style={{
-          position: 'absolute',
-          bottom: weekNavigatorBottom,
-          left: 0,
-          right: 0,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 4,
-          paddingVertical: 0,
-          paddingHorizontal: 6,
-          backgroundColor: 'transparent',
-          zIndex: 999,
-          elevation: 9,
-          marginBottom: 0,
-        }}
-      >
-        <Pressable
-          onPress={() => setWeekOffset((x) => x - 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Semaine précédente"
-          hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="caret-back" size={32} color={COLORS.primary} />
-        </Pressable>
-
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 4,
-            borderRadius: 999,
-            width: 290,
-            alignItems: 'center',
-            backgroundColor: 'rgba(255,255,255,0.16)',
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.22)',
-            shadowColor: '#000000',
-            shadowOpacity: 0.25,
-            shadowRadius: 6,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 3,
-          }}
-        >
-          <OneLineText style={{ 
-            fontWeight: '800', 
-            fontSize: 15, 
-            color: THEME.text,
-            textShadowColor: 'rgba(0,0,0,0.6)',
-            textShadowOffset: { width: 0, height: 1 },
-            textShadowRadius: 2,
-          }}>
-            {formatWeekRangeLabel(currentWs, currentWe)}
-          </OneLineText>
-        </View>
-
-        <Pressable
-          onPress={() => setWeekOffset((x) => x + 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Semaine suivante"
-          hitSlop={10}
-          style={{ padding: 8, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Ionicons name="caret-forward" size={32} color={COLORS.primary} />
-        </Pressable>
-      </View>
-
-
       {/* Popup pas de groupe sélectionné */}
       <OnboardingModal
         visible={noGroupModalVisible}
@@ -16167,6 +17132,24 @@ const HourSlotRow = ({ item }) => {
           router.replace("/(tabs)/groupes");
         }}
       />
+
+      {groupId ? (
+        <FindGameWizardModal
+          visible={findGameWizardOpen}
+          groupId={groupId}
+          prefill={findGameWizardPrefill}
+          onClose={() => {
+            setFindGameWizardOpen(false);
+            setFindGameWizardPrefill(null);
+          }}
+          onPublished={async () => {
+            setFindGameWizardOpen(false);
+            setFindGameWizardPrefill(null);
+            await fetchData();
+            await loadFindGameRequests();
+          }}
+        />
+      ) : null}
     </View>
   );
 }

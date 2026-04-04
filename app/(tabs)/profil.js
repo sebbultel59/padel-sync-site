@@ -11,6 +11,7 @@ import {
     Alert,
     Image,
     KeyboardAvoidingView,
+    Linking,
     Modal,
     Platform,
     Pressable,
@@ -34,6 +35,13 @@ import { hasAvailabilityForGroup } from "../../lib/availabilityCheck";
 import { getBadgeImage } from "../../lib/badgeImages";
 import { acceptInviteCode, clearPendingInvite, getPendingInviteCode, setInviteJoinedBanner } from "../../lib/invite";
 import { isProfileComplete } from "../../lib/profileCheck";
+import {
+  buildGeoPatchForActiveSource,
+  GEO_ACTIVE_SOURCE,
+  GEO_PLAY_RADIUS_OPTIONS_KM,
+  inferLegacyGeoActiveSource,
+  normalizeGeoRadiusKm,
+} from "../../lib/userGeoSettings";
 import { useIsSuperAdmin, useUserRole } from "../../lib/roles";
 import { supabase } from "../../lib/supabase";
 import { computeInitials, press } from "../../lib/uiSafe";
@@ -256,8 +264,18 @@ export default function ProfilScreen() {
   const [club, setClub] = useState("");
   const [zoneId, setZoneId] = useState(null);
   const [zoneInfo, setZoneInfo] = useState(null);
-  const [acceptedClubsCount, setAcceptedClubsCount] = useState(0);
+  const [refusedClubsCount, setRefusedClubsCount] = useState(0);
   const [preferredClubName, setPreferredClubName] = useState(null);
+  /** Point de départ géographique (une seule source active) — profiles.geo_active_source */
+  const [geoActiveSource, setGeoActiveSource] = useState(GEO_ACTIVE_SOURCE.CLUB);
+  const [geoRadiusKm, setGeoRadiusKm] = useState(30);
+  const [preferredClubGeo, setPreferredClubGeo] = useState(null); // { lat, lng, name } | null
+  const [referenceAddressModalVisible, setReferenceAddressModalVisible] = useState(false);
+  const [refGeoPermission, setRefGeoPermission] = useState(null);
+  /** Incrémenté au retour sur l’onglet (ex. après /clubs/select ou /clubs/preferred) pour recharger clubs masqués / préféré. */
+  const [zoneClubsFocusKey, setZoneClubsFocusKey] = useState(0);
+  const profilFocusSkipRef = useRef(true);
+  const [zoneGeo, setZoneGeo] = useState(null); // { lat, lng, name } | null
   const [rayonKm, setRayonKm] = useState(null); // 5,10,20,30,99
   const [phone, setPhone] = useState("");
   
@@ -508,7 +526,9 @@ export default function ProfilScreen() {
 
         const { data: p, error } = await supabase
           .from("profiles")
-          .select("display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work, classement, zone_id")
+          .select(
+            "display_name, name, avatar_url, niveau, main, cote, club, rayon_km, phone, address_home, address_work, classement, zone_id, geo_ref_type, geo_ref_lat, geo_ref_lng, geo_ref_label, geo_radius_km, geo_use_live_location, geo_active_source"
+          )
           .eq("id", id)
           .maybeSingle();
         if (error) throw error;
@@ -543,6 +563,9 @@ export default function ProfilScreen() {
           setAddressHomeInput(init.addressHome?.address || "");
           setAddressWorkInput(init.addressWork?.address || "");
           setClassement(init.classement);
+          const gr = Number(p?.geo_radius_km);
+          setGeoRadiusKm(Number.isFinite(gr) && gr > 0 ? gr : 30);
+          setGeoActiveSource(inferLegacyGeoActiveSource(p));
           setInitialSnap(init);
         }
       } catch (e) {
@@ -583,32 +606,52 @@ export default function ProfilScreen() {
         if (zoneId) {
           const { data: z } = await supabase
             .from("zones")
-            .select("id, name, default_radius_km, is_active")
+            .select("id, name, default_radius_km, is_active, lat_center, lng_center")
             .eq("id", zoneId)
             .maybeSingle();
-          if (mounted) setZoneInfo(z || null);
+          if (mounted) {
+            setZoneInfo(z || null);
+            if (z?.lat_center != null && z?.lng_center != null) {
+              setZoneGeo({ lat: z.lat_center, lng: z.lng_center, name: z.name });
+            } else {
+              setZoneGeo(null);
+            }
+          }
         } else if (mounted) {
           setZoneInfo(null);
+          setZoneGeo(null);
         }
 
         const { data: uc } = await supabase
           .from("user_clubs")
-          .select("club_id, is_preferred")
-          .eq("user_id", me.id)
-          .eq("is_accepted", true);
-        const count = (uc || []).length;
-        const pref = (uc || []).find((r) => r.is_preferred)?.club_id || null;
-        if (mounted) setAcceptedClubsCount(count);
+          .select("club_id, is_preferred, is_refused")
+          .eq("user_id", me.id);
+        const refusedN = (uc || []).filter((r) => r.is_refused === true).length;
+        const pref =
+          (uc || []).find((r) => r.is_preferred && r.is_refused !== true)?.club_id || null;
+        if (mounted) setRefusedClubsCount(refusedN);
 
         if (pref) {
           const { data: prefClub } = await supabase
             .from("clubs")
-            .select("name")
+            .select("name, lat, lng")
             .eq("id", pref)
             .maybeSingle();
-          if (mounted) setPreferredClubName(prefClub?.name || null);
+          if (mounted) {
+            setPreferredClubName(prefClub?.name || null);
+            if (prefClub?.lat != null && prefClub?.lng != null) {
+              setPreferredClubGeo({
+                lat: prefClub.lat,
+                lng: prefClub.lng,
+                name: prefClub.name || "Club préféré",
+              });
+            } else {
+              setPreferredClubGeo(null);
+            }
+          }
         } else if (mounted) {
           setPreferredClubName(null);
+          setPreferredClubGeo(null);
         }
       } catch (e) {
         console.warn("[Profil] Zone/clubs load error:", e?.message || e);
@@ -617,7 +660,127 @@ export default function ProfilScreen() {
     return () => {
       mounted = false;
     };
-  }, [me?.id, zoneId]);
+  }, [me?.id, zoneId, zoneClubsFocusKey]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (profilFocusSkipRef.current) {
+        profilFocusSkipRef.current = false;
+        return;
+      }
+      setZoneClubsFocusKey((k) => k + 1);
+    }, [])
+  );
+
+  const persistGeoRefPatch = useCallback(async (patch) => {
+    if (!me?.id) return;
+    const { error } = await supabase.from("profiles").update(patch).eq("id", me.id);
+    if (error) throw error;
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      // eslint-disable-next-line no-console
+      console.log("[ZoneDeJeu] profil mis à jour", patch);
+    }
+  }, [me?.id]);
+
+  const applyGeoActiveSource = useCallback(
+    async (source) => {
+      if (!me?.id) return;
+      if (source === GEO_ACTIVE_SOURCE.LIVE) {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        setRefGeoPermission(status);
+        if (status !== "granted") {
+          Alert.alert(
+            "Localisation",
+            "Autorise l’accès à la position pour utiliser ta position actuelle comme point de départ."
+          );
+          return;
+        }
+      }
+      const addressLabel =
+        (extractCityFromAddress(addressHome?.address) || "").trim() ||
+        (formatAddressCompact(addressHome) || "").trim() ||
+        "";
+      const patch = buildGeoPatchForActiveSource(source, {
+        addressHome,
+        preferredClubGeo,
+        addressLabel: addressLabel || undefined,
+      });
+      if (!patch) {
+        if (source === GEO_ACTIVE_SOURCE.CLUB) {
+          Alert.alert(
+            "Club préféré",
+            "Choisis un club préféré avec coordonnées dans « Où je joue », puis réessaie."
+          );
+        } else if (source === GEO_ACTIVE_SOURCE.ADDRESS) {
+          Alert.alert(
+            "Adresse",
+            "Renseigne une adresse de référence géolocalisée via « Modifier l’adresse »."
+          );
+        }
+        return;
+      }
+      try {
+        await persistGeoRefPatch(patch);
+        setGeoActiveSource(source);
+      } catch (e) {
+        Alert.alert("Erreur", e?.message ?? String(e));
+      }
+    },
+    [me?.id, addressHome, preferredClubGeo, persistGeoRefPatch]
+  );
+
+  const onSelectGeoRadius = useCallback(
+    async (km) => {
+      const v = normalizeGeoRadiusKm(km);
+      try {
+        await persistGeoRefPatch({ geo_radius_km: v });
+        setGeoRadiusKm(v);
+      } catch (e) {
+        Alert.alert("Erreur", e?.message ?? String(e));
+      }
+    },
+    [persistGeoRefPatch]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (!cancelled) setRefGeoPermission(status);
+        } catch {
+          if (!cancelled) setRefGeoPermission(null);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const addressGeoSummary = useMemo(() => {
+    if (!addressHome?.lat || !addressHome?.lng) return "Non renseignée";
+    const city = (addressHome.city || "").trim();
+    const fromAddr = extractCityFromAddress(addressHome.address);
+    return city || fromAddr || formatAddressCompact(addressHome) || "Enregistrée";
+  }, [addressHome]);
+
+  const clubGeoSummary = useMemo(() => {
+    if (!preferredClubGeo || preferredClubGeo.lat == null || preferredClubGeo.lng == null) {
+      return preferredClubName ? `${preferredClubName} (coordonnées manquantes)` : "Non défini";
+    }
+    return preferredClubGeo.name || preferredClubName || "Club préféré";
+  }, [preferredClubGeo, preferredClubName]);
+
+  const liveGeoSummary = useMemo(() => {
+    if (refGeoPermission === "granted") {
+      return geoActiveSource === GEO_ACTIVE_SOURCE.LIVE ? "Activée" : "Disponible";
+    }
+    if (refGeoPermission === "denied") return "Permission refusée";
+    if (refGeoPermission === "undetermined") return "Permission requise";
+    return "Non disponible";
+  }, [refGeoPermission, geoActiveSource]);
 
   // Récupérer le club_id depuis le nom du club favori
   useEffect(() => {
@@ -1233,6 +1396,49 @@ export default function ProfilScreen() {
     return geocoded || current;
   }, [geocodeAddress]);
 
+  const onSaveReferenceAddressModal = useCallback(async () => {
+    if (!me?.id) return;
+    setGeocodingHome(true);
+    const nextHome = await normalizeAddressForDisplay(addressHome, addressHomeInput);
+    setGeocodingHome(false);
+    if (!nextHome?.lat || !nextHome?.lng) {
+      Alert.alert(
+        "Adresse",
+        "Choisis une suggestion dans la liste ou une adresse assez précise pour la géolocaliser."
+      );
+      return;
+    }
+    setAddressHome(nextHome);
+    if (nextHome.address) setAddressHomeInput(nextHome.address);
+    try {
+      const row = { address_home: nextHome };
+      let geoExtra = {};
+      if (geoActiveSource === GEO_ACTIVE_SOURCE.ADDRESS) {
+        const al = (extractCityFromAddress(nextHome.address) || "").trim();
+        const gp = buildGeoPatchForActiveSource(GEO_ACTIVE_SOURCE.ADDRESS, {
+          addressHome: nextHome,
+          preferredClubGeo,
+          addressLabel: al,
+        });
+        if (gp) geoExtra = gp;
+      }
+      const { error } = await supabase.from("profiles").update({ ...row, ...geoExtra }).eq("id", me.id);
+      if (error) throw error;
+      setReferenceAddressModalVisible(false);
+      setInitialSnap((prev) => (prev ? { ...prev, addressHome: nextHome } : prev));
+      Alert.alert("Enregistré", "Adresse de référence mise à jour.");
+    } catch (e) {
+      Alert.alert("Erreur", e?.message ?? String(e));
+    }
+  }, [
+    me?.id,
+    addressHome,
+    addressHomeInput,
+    geoActiveSource,
+    preferredClubGeo,
+    normalizeAddressForDisplay,
+  ]);
+
   const onValidateAddresses = useCallback(async () => {
     const [nextHome, nextWork] = await Promise.all([
       normalizeAddressForDisplay(addressHome, addressHomeInput),
@@ -1287,11 +1493,6 @@ export default function ProfilScreen() {
     if (rayonKm === null || rayonKm === undefined) { Alert.alert("Champ obligatoire", "Merci de sélectionner votre rayon de jeu possible."); return false; }
     if (SHOW_ADDRESS_SECTION && (!addressHome || !addressHome.address)) { Alert.alert("Champ obligatoire", "Merci de renseigner votre adresse de domicile."); return false; }
     if (!zoneId) { Alert.alert("Champ obligatoire", "La zone de jeu est obligatoire et n'est pas renseignée."); return false; }
-    if (!acceptedClubsCount || acceptedClubsCount <= 0) {
-      Alert.alert("Champ obligatoire", "Les clubs acceptés sont obligatoires et ne sont pas renseignés.");
-      return false;
-    }
-
     try {
       setSaving(true);
       // Détecter si c'est la première complétion du profil
@@ -1898,27 +2099,313 @@ export default function ProfilScreen() {
                 <Text style={{ color: '#e0ff00', fontWeight: '700' }}>{zoneId ? 'Changer de zone' : 'Choisir ma zone'}</Text>
               </Pressable>
             </View>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, marginTop: 16 }}>
+            <Ionicons name="navigate" size={22} color="#e0ff00" />
+            <Text style={[s.tileTitle, { color: '#e0ff00' }]}>Ta zone de déplacement</Text>
+          </View>
+          <Text style={{ fontSize: 13, color: '#9bb6d6', textAlign: 'center', marginBottom: 10, paddingHorizontal: 12 }}>
+            Choisis d’où tu es prêt à jouer, puis la distance max autour de ce point.
+          </Text>
+          <View style={[s.card, { gap: 14, marginTop: 0, backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, marginBottom: 8 }]}>
             <View>
-              <Text style={[s.label, { fontSize: 16, color: '#ffffff' }]}>
-                Clubs où j’accepte de jouer <Text style={{ color: '#ef4444' }}>*</Text>
-              </Text>
-              <Text style={{ fontSize: 14, color: '#cfe9ff', marginTop: 4 }}>
-                {acceptedClubsCount > 0 ? `${acceptedClubsCount} club${acceptedClubsCount > 1 ? 's' : ''} sélectionné${acceptedClubsCount > 1 ? 's' : ''}` : 'Aucun club sélectionné'}
-              </Text>
-              {preferredClubName ? (
-                <Text style={{ fontSize: 13, color: '#e0ff00', marginTop: 4 }}>⭐ {preferredClubName}</Text>
-              ) : null}
-              <Pressable
-                onPress={() => router.push('/clubs/select')}
-                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
-              >
-                <Text style={{ color: '#e0ff00', fontWeight: '700' }}>Choisir mes clubs</Text>
-              </Pressable>
-              <Text style={{ fontSize: 12, color: '#9bb6d6', marginTop: 6 }}>
-                Les matchs ne seront proposés que dans les clubs que tu sélectionnes.
+              <Text style={[s.label, { fontSize: 15, color: '#ffffff' }]}>Point de départ</Text>
+              <Text style={{ fontSize: 12, color: '#9bb6d6', marginTop: 4 }}>
+                Une seule source est utilisée pour les calculs autour de toi ; les autres restent enregistrées.
               </Text>
             </View>
+
+            {/* Mon adresse */}
+            <View
+              style={{
+                borderRadius: 14,
+                padding: 14,
+                borderWidth: 2,
+                borderColor: geoActiveSource === GEO_ACTIVE_SOURCE.ADDRESS ? '#e0ff00' : 'rgba(255,255,255,0.12)',
+                backgroundColor: geoActiveSource === GEO_ACTIVE_SOURCE.ADDRESS ? 'rgba(224,255,0,0.08)' : 'rgba(0,0,0,0.2)',
+              }}
+            >
+              <Pressable
+                onPress={() => applyGeoActiveSource(GEO_ACTIVE_SOURCE.ADDRESS)}
+                style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}
+              >
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    borderWidth: 2,
+                    borderColor: geoActiveSource === GEO_ACTIVE_SOURCE.ADDRESS ? '#e0ff00' : 'rgba(255,255,255,0.35)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 2,
+                  }}
+                >
+                  {geoActiveSource === GEO_ACTIVE_SOURCE.ADDRESS ? (
+                    <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: '#e0ff00' }} />
+                  ) : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Mon adresse</Text>
+                  <Text style={{ fontSize: 13, color: '#cfe9ff', marginTop: 4 }} numberOfLines={2}>
+                    {addressGeoSummary}
+                  </Text>
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setAddressHomeInput((addressHome?.address || addressHomeInput || '').trim());
+                  setReferenceAddressModalVisible(true);
+                }}
+                style={{ alignSelf: 'flex-start', marginTop: 10, marginLeft: 34, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+              >
+                <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 13 }}>Modifier l’adresse</Text>
+              </Pressable>
+            </View>
+
+            {/* Club préféré */}
+            <View
+              style={{
+                borderRadius: 14,
+                padding: 14,
+                borderWidth: 2,
+                borderColor: geoActiveSource === GEO_ACTIVE_SOURCE.CLUB ? '#e0ff00' : 'rgba(255,255,255,0.12)',
+                backgroundColor: geoActiveSource === GEO_ACTIVE_SOURCE.CLUB ? 'rgba(224,255,0,0.08)' : 'rgba(0,0,0,0.2)',
+              }}
+            >
+              <Pressable
+                onPress={() => applyGeoActiveSource(GEO_ACTIVE_SOURCE.CLUB)}
+                style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}
+              >
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    borderWidth: 2,
+                    borderColor: geoActiveSource === GEO_ACTIVE_SOURCE.CLUB ? '#e0ff00' : 'rgba(255,255,255,0.35)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 2,
+                  }}
+                >
+                  {geoActiveSource === GEO_ACTIVE_SOURCE.CLUB ? (
+                    <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: '#e0ff00' }} />
+                  ) : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Mon club préféré</Text>
+                  <Text style={{ fontSize: 13, color: '#cfe9ff', marginTop: 4 }} numberOfLines={2}>
+                    {clubGeoSummary}
+                  </Text>
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/clubs/preferred')}
+                style={{ alignSelf: 'flex-start', marginTop: 10, marginLeft: 34, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+              >
+                <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 13 }}>Modifier le club préféré</Text>
+              </Pressable>
+            </View>
+
+            {/* Position actuelle */}
+            <View
+              style={{
+                borderRadius: 14,
+                padding: 14,
+                borderWidth: 2,
+                borderColor: geoActiveSource === GEO_ACTIVE_SOURCE.LIVE ? '#e0ff00' : 'rgba(255,255,255,0.12)',
+                backgroundColor: geoActiveSource === GEO_ACTIVE_SOURCE.LIVE ? 'rgba(224,255,0,0.08)' : 'rgba(0,0,0,0.2)',
+              }}
+            >
+              <Pressable
+                onPress={() => applyGeoActiveSource(GEO_ACTIVE_SOURCE.LIVE)}
+                style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}
+              >
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    borderWidth: 2,
+                    borderColor: geoActiveSource === GEO_ACTIVE_SOURCE.LIVE ? '#e0ff00' : 'rgba(255,255,255,0.35)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 2,
+                  }}
+                >
+                  {geoActiveSource === GEO_ACTIVE_SOURCE.LIVE ? (
+                    <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: '#e0ff00' }} />
+                  ) : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Ma position actuelle</Text>
+                  <Text style={{ fontSize: 13, color: '#cfe9ff', marginTop: 4 }}>{liveGeoSummary}</Text>
+                </View>
+              </Pressable>
+              <View style={{ marginLeft: 34, marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {refGeoPermission === 'denied' ? (
+                  <Pressable
+                    onPress={() => Linking.openSettings()}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+                  >
+                    <Text style={{ color: '#e0ff00', fontWeight: '700', fontSize: 13 }}>Ouvrir les réglages</Text>
+                  </Pressable>
+                ) : null}
+                {refGeoPermission === 'undetermined' || refGeoPermission === null ? (
+                  <Pressable
+                    onPress={async () => {
+                      const { status } = await Location.requestForegroundPermissionsAsync();
+                      setRefGeoPermission(status);
+                    }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(34,197,94,0.25)' }}
+                  >
+                    <Text style={{ color: '#86efac', fontWeight: '700', fontSize: 13 }}>Autoriser la localisation</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+
+            <View>
+              <Text style={[s.label, { fontSize: 15, color: '#ffffff' }]}>Distance max</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                {GEO_PLAY_RADIUS_OPTIONS_KM.map((km) => {
+                  const active = geoRadiusKm === km;
+                  return (
+                    <Pressable
+                      key={km}
+                      onPress={() => onSelectGeoRadius(km)}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        backgroundColor: active ? 'rgba(224,255,0,0.2)' : 'rgba(255,255,255,0.08)',
+                        borderWidth: 1,
+                        borderColor: active ? '#e0ff00' : 'rgba(255,255,255,0.15)',
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>{km} km</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={{ paddingTop: 4, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' }}>
+              <Text style={[s.label, { fontSize: 15, color: '#ffffff' }]}>Clubs à éviter</Text>
+              <Text style={{ fontSize: 12, color: '#9bb6d6', marginTop: 4 }}>
+                Tous les clubs dans ton rayon sont proposés par défaut. Masque seulement ceux où tu ne veux pas jouer.
+              </Text>
+              <Text style={{ fontSize: 14, color: '#cfe9ff', marginTop: 8 }}>
+                {refusedClubsCount === 0
+                  ? 'Aucun club masqué'
+                  : `${refusedClubsCount} club${refusedClubsCount > 1 ? 's' : ''} masqué${refusedClubsCount > 1 ? 's' : ''}`}
+              </Text>
+              <Pressable
+                onPress={() => router.push('/clubs/select')}
+                style={{ alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' }}
+              >
+                <Text style={{ color: '#e0ff00', fontWeight: '700' }}>Modifier</Text>
+              </Pressable>
+            </View>
           </View>
+
+          <Modal
+            visible={referenceAddressModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setReferenceAddressModalVisible(false)}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              style={{ flex: 1 }}
+            >
+              <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 }}>
+                <Pressable
+                  style={StyleSheet.absoluteFillObject}
+                  onPress={() => setReferenceAddressModalVisible(false)}
+                  accessibilityLabel="Fermer"
+                />
+                <View
+                  style={{ backgroundColor: '#0b1f36', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' }}
+                >
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: '#fff', marginBottom: 6 }}>Adresse de référence</Text>
+                  <Text style={{ fontSize: 13, color: '#9bb6d6', marginBottom: 12 }}>
+                    Utilisée quand « Mon adresse » est ton point de départ actif.
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#032344', borderRadius: 10, backgroundColor: '#032344', paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <Ionicons name="create" size={18} color="#e0ff00" style={{ marginRight: 8 }} />
+                    <TextInput
+                      value={addressHomeInput}
+                      onChangeText={(text) => {
+                        setAddressHomeInput(text);
+                        if (debounceTimerHome.current) clearTimeout(debounceTimerHome.current);
+                        if (text.trim().length < 3) {
+                          setAddressHomeSuggestions([]);
+                          return;
+                        }
+                        debounceTimerHome.current = setTimeout(() => {
+                          searchAddress(text, setAddressHomeSuggestions, true);
+                        }, 400);
+                      }}
+                      placeholder="Ex. 12 rue de la Paix, 59000 Lille"
+                      placeholderTextColor="#9ca3af"
+                      style={[{ flex: 1, fontSize: 16, color: '#ffffff' }, Platform.OS === 'android' && { textAlign: 'left' }]}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                  {addressHomeSuggestions.length > 0 ? (
+                    <View style={{ marginTop: 4, backgroundColor: '#032344', borderRadius: 8, maxHeight: 160 }}>
+                      <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                        {addressHomeSuggestions.map((sug, idx) => (
+                          <Pressable
+                            key={idx}
+                            onPress={async () => {
+                              setAddressHomeInput(sug.address);
+                              setAddressHomeSuggestions([]);
+                              setGeocodingHome(true);
+                              const geocoded = await geocodeAddress(sug.address);
+                              setGeocodingHome(false);
+                              if (geocoded) setAddressHome(geocoded);
+                              else Alert.alert('Erreur', 'Impossible de géocoder cette adresse.');
+                            }}
+                            style={{
+                              padding: 12,
+                              borderBottomWidth: idx < addressHomeSuggestions.length - 1 ? 1 : 0,
+                              borderBottomColor: 'rgba(255,255,255,0.08)',
+                            }}
+                          >
+                            <Text style={{ fontSize: 14, color: '#E0FF00', fontWeight: '500' }}>{sug.name}</Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                  {geocodingHome ? (
+                    <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ActivityIndicator size="small" color={BRAND} />
+                      <Text style={{ fontSize: 12, color: '#9bb6d6' }}>Géocodage…</Text>
+                    </View>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+                    <Pressable
+                      onPress={() => setReferenceAddressModalVisible(false)}
+                      style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.1)' }}
+                    >
+                      <Text style={{ color: '#94a3b8', fontWeight: '700' }}>Annuler</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={onSaveReferenceAddressModal}
+                      style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 999, backgroundColor: 'rgba(224,255,0,0.25)' }}
+                    >
+                      <Text style={{ color: '#e0ff00', fontWeight: '800' }}>Enregistrer</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </Modal>
 
           {SHOW_ADDRESS_SECTION ? (
           <>

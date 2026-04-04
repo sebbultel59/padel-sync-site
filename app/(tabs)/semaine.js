@@ -9,7 +9,7 @@ import isoWeek from "dayjs/plugin/isoWeek";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, DeviceEventEmitter, Image, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ballIcon from '../../assets/icons/tennis_ball_yellow.png';
 import { OnboardingModal } from "../../components/OnboardingModal";
@@ -38,6 +38,38 @@ function safeAlert(title = 'Info', message = '') {
   } catch (e) {
     console.log('[ALERT]', title, message);
   }
+}
+
+function getHeatLevel(playersCount) {
+  if (playersCount >= 4) return 'very_hot';
+  if (playersCount === 3) return 'hot';
+  if (playersCount === 2) return 'warm';
+  return 'none';
+}
+
+/** Couleur du chiffre (nombre de joueurs dispo sur la case 30 min). Vert = même logique que Matchs (intersection ≥ 4 sur 1h30). */
+function getDisposCountTextColor(availableCount, hasIntersection90, myStatusAvailable) {
+  let base;
+  if (availableCount <= 0) {
+    base = myStatusAvailable ? '#ffffff' : '#0b2240';
+  } else if (availableCount === 1) {
+    base = '#dc2626';
+  } else if (availableCount === 2) {
+    base = '#ea580c';
+  } else if (availableCount === 3) {
+    base = '#ca8a04';
+  } else if (availableCount === 4) {
+    base = hasIntersection90 ? '#16a34a' : '#ea580c';
+  } else {
+    base = '#ea580c';
+  }
+  if (!myStatusAvailable || availableCount <= 0) return base;
+  // Fond cellule dispo (#105b23) : lisibilité
+  if (base === '#16a34a') return '#86efac';
+  if (base === '#dc2626') return '#fca5a5';
+  if (base === '#ea580c') return '#fdba74';
+  if (base === '#ca8a04') return '#fef08a';
+  return '#ffffff';
 }
 
 // --- Normalisation des statuts RSVP (client → enum rsvp_status) ---
@@ -96,7 +128,7 @@ export default function Semaine() {
   const bodyListRef   = React.useRef(null);
   const isSyncingRef  = React.useRef(false);
   const refreshTimerRef = React.useRef(null);
-  const lastDataRef = React.useRef({ ts: null, av: null, m: null });
+  const lastDataRef = React.useRef({ ts: null, av: null, m: null, boost: null });
   const fetchDataRef = React.useRef(null);
   const scheduleRefresh = useCallback((ms = 200) => {
     try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch {}
@@ -145,6 +177,7 @@ export default function Semaine() {
     intent: 'available', // 'available' | 'neutral'
     selected: Array(7).fill(false), // jours cochés (0 = Lundi ... 6 = Dimanche)
   });
+
 
   // --- Sélection par appui long (mode tableau) ---
   const [rangeStart, setRangeStart] = useState(null);    // { dayIndex, slotIdx }
@@ -298,6 +331,37 @@ export default function Semaine() {
     return out;
   }, []);
 
+  // Centrer la semaine sur un créneau ciblé (deep link Activité → Dispos)
+  useEffect(() => {
+    const raw = params?.focusSlotStart;
+    if (!raw) return;
+    const t = dayjs(String(raw));
+    if (!t.isValid()) return;
+    const d0 = weekStart.startOf("day");
+    const d1 = weekStart.add(7, "day").startOf("day");
+    if (t.isBefore(d0) || !t.isBefore(d1)) {
+      setWeekStart(t.startOf("isoWeek"));
+    }
+  }, [params?.focusSlotStart, weekStart]);
+
+  useEffect(() => {
+    const raw = params?.focusSlotStart;
+    if (!raw) return;
+    const t = dayjs(String(raw));
+    if (!t.isValid()) return;
+    const idx = hoursOfDay.findIndex(
+      (h) => h.hour === t.hour() && h.minute === t.minute()
+    );
+    if (idx < 0) return;
+    const y = Math.max(0, idx * (SLOT_HEIGHT + 1) - 80);
+    const id = setTimeout(() => {
+      try {
+        scrollRef.current?.scrollTo?.({ y, animated: true });
+      } catch {}
+    }, 600);
+    return () => clearTimeout(id);
+  }, [params?.focusSlotStart, weekStart, hoursOfDay]);
+
   // Fonction centralisée pour normaliser une date de créneau (enlever secondes et millisecondes)
   const normalizeSlotTime = useCallback((dateIso) => {
     return dayjs(dateIso).second(0).millisecond(0).toISOString();
@@ -328,12 +392,17 @@ export default function Semaine() {
     return byGroup;
   }, [slots, groupId, memberIdsSet, groupMembers]);
 
-  // Pré-calcul optimisé: nombre de joueurs disponibles par créneau (clé = startIso)
-  const cellCountByStartIso = useMemo(() => {
+  // Pré-calcul: nombre de joueurs par case 30 min + ensembles (pour intersection 1h30 = Matchs prêts)
+  const { cellCountByStartIso, intersectionMatchReadyByStartIso } = useMemo(() => {
     const counts = new Map();
-    if (!days?.length || !hoursOfDay?.length) return counts;
-    
-    // Pré-calculer les dates des slots une seule fois
+    const userSets = new Map();
+    if (!days?.length || !hoursOfDay?.length) {
+      return {
+        cellCountByStartIso: counts,
+        intersectionMatchReadyByStartIso: new Map(),
+      };
+    }
+
     const slotDates = new Map();
     for (const day of days) {
       for (const { hour, minute } of hoursOfDay) {
@@ -344,11 +413,11 @@ export default function Semaine() {
           slotDates.set(startIso, { start: slotStart, end: slotEnd });
         } else {
           counts.set(startIso, 0);
+          userSets.set(startIso, new Set());
         }
       }
     }
-    
-    // Pré-parser les disponibilités une seule fois
+
     const parsedSlots = [];
     for (const s of slotsForGroup) {
       if (!s?.user_id || !s?.start) continue;
@@ -361,8 +430,7 @@ export default function Semaine() {
       const time = dayjs(s.created_at || s.updated_at || s.start).valueOf();
       parsedSlots.push({ uid, availStart, availEnd, time });
     }
-    
-    // Pour chaque slot, compter les disponibilités qui le couvrent
+
     for (const [startIso, { start: slotStart, end: slotEnd }] of slotDates.entries()) {
       const uniqueByUser = new Map();
       const slotStartMs = slotStart.valueOf();
@@ -370,7 +438,6 @@ export default function Semaine() {
       for (const { uid, availStart, availEnd: availEndDate, time } of parsedSlots) {
         const availStartMs = availStart.valueOf();
         const availEndMs = availEndDate.valueOf();
-        // La disponibilité doit commencer avant ou à l'heure du slot ET finir après ou à l'heure de fin du slot
         if (availStartMs <= slotStartMs && availEndMs >= slotEndMs) {
           const existing = uniqueByUser.get(uid);
           if (!existing || time > existing) {
@@ -379,9 +446,40 @@ export default function Semaine() {
         }
       }
       counts.set(startIso, uniqueByUser.size);
+      userSets.set(startIso, new Set(uniqueByUser.keys()));
     }
-    
-    return counts;
+
+    const msIso = (iso) => dayjs(iso).valueOf();
+    const findKeyAtMs = (targetMs) => {
+      for (const k of userSets.keys()) {
+        if (msIso(k) === targetMs) return k;
+      }
+      return null;
+    };
+
+    const intersectionMap = new Map();
+    for (const startIso of userSets.keys()) {
+      const t0 = msIso(startIso);
+      const k1 = findKeyAtMs(t0 + 30 * 60 * 1000);
+      const k2 = findKeyAtMs(t0 + 60 * 60 * 1000);
+      if (!k1 || !k2) {
+        intersectionMap.set(startIso, false);
+        continue;
+      }
+      const s0 = userSets.get(startIso) || new Set();
+      const s1 = userSets.get(k1) || new Set();
+      const s2 = userSets.get(k2) || new Set();
+      let n = 0;
+      for (const uid of s0) {
+        if (s1.has(uid) && s2.has(uid)) n += 1;
+      }
+      intersectionMap.set(startIso, n >= 4);
+    }
+
+    return {
+      cellCountByStartIso: counts,
+      intersectionMatchReadyByStartIso: intersectionMap,
+    };
   }, [days, hoursOfDay, slotsForGroup, weekStart]);
 
   // Génère les heures: 08:00, 08:30, ..., 21:30
@@ -534,6 +632,9 @@ export default function Semaine() {
         lastDataRef.current.m = mJson;
         setMatches(mData ?? []);
       }
+
+      // Les flammes de chaleur sont calculees localement via availableCount (2+),
+      // donc pas de chargement d'un etat de boost serveur ici.
     } catch (e) {
       console.warn(e);
       safeAlert("Erreur", e?.message ?? String(e));
@@ -1945,10 +2046,20 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
           
           // Récupérer le nombre pré-calculé depuis le cache (beaucoup plus rapide)
           const availableCount = cellCountByStartIso.get(startIso) ?? 0;
+          const hasIntersection90 = intersectionMatchReadyByStartIso.get(startIso) === true;
           const match = mapMatches.get(startIso);
+          const heatLevel = getHeatLevel(availableCount);
+          if (heatLevel !== 'none') {
+            console.log(`[dispos-heat] players_count=${availableCount} heat=${heatLevel} start=${startIso}`);
+          }
           // Normaliser startIso pour la recherche dans myStatusByStart
           const normalizedStartIsoForLookup = normalizeSlotTime(startIso);
           const myStatus = myStatusByStart.get(normalizedStartIsoForLookup);
+          const countDigitColor = getDisposCountTextColor(
+            availableCount,
+            hasIntersection90,
+            myStatus === 'available'
+          );
 
           // Couleurs selon la disponibilité du joueur
           let cellBg = '#f7f9fd'; // par défaut
@@ -2079,7 +2190,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                           fontSize: 11,
                           lineHeight: 13,
                           fontWeight: '900',
-                          color: myStatus === 'available' ? '#ffffff' : '#0b2240',
+                          color: countDigitColor,
                           textAlign: 'center',
                         }}
                       >
@@ -2125,7 +2236,7 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                           fontSize: 9,
                           lineHeight: 11,
                           fontWeight: '900',
-                          color: myStatus === 'available' ? '#ffffff' : '#0b2240',
+                          color: countDigitColor,
                           textAlign: 'center',
                         }}
                       >
@@ -2148,6 +2259,31 @@ function DayColumn({ day, dayIndex, onPaintSlot, onPaintRange, onPaintRangeWithS
                   </View>
                 </>
               )}
+              {!isPast && heatLevel !== 'none' ? (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    bottom: -1,
+                    left: 0,
+                    padding: 1,
+                    zIndex: 6,
+                  }}
+                >
+                  <Ionicons
+                    name="flame"
+                    size={heatLevel === 'very_hot' ? 13 : 11}
+                    color={
+                      heatLevel === 'very_hot'
+                        ? '#39ff14'
+                        : heatLevel === 'hot'
+                          ? '#facc15'
+                          : '#f97316'
+                    }
+                    style={{ opacity: 0.98 }}
+                  />
+                </View>
+              ) : null}
             </Pressable>
           );
         })}

@@ -31,6 +31,7 @@ export default function TabsLayout() {
   const [notifPermissionStatus, setNotifPermissionStatus] = useState(null);
   const [notificationPreferences, setNotificationPreferences] = useState({
     match_created: true,
+    match_proposed: true,
     match_confirmed: true,
     match_validated: true,
     match_canceled: true,
@@ -39,6 +40,7 @@ export default function TabsLayout() {
     rsvp_removed: true,
     group_member_joined: true,
     group_member_left: true,
+    match_almost_full: true,
     reminder_24h: true,
     reminder_2h: true,
     badge_unlocked: true,
@@ -153,8 +155,37 @@ export default function TabsLayout() {
       
       console.log('[notifications] Notifications finales à afficher:', finalRows.length);
 
+      // Tout job avec match_id : résoudre created_by ; payload.creator_id (nouvelles notifs) en secours
+      const matchIdsForCreator = [
+        ...new Set(finalRows.map((j) => j.match_id).filter(Boolean)),
+      ];
+      const payloadCreatorIds = Array.from(
+        new Set(
+          finalRows
+            .map((j) => j.payload?.creator_id)
+            .filter(Boolean)
+        )
+      );
+      let createdByByMatchId = {};
+      if (matchIdsForCreator.length > 0) {
+        const { data: matchRows } = await supabase
+          .from('matches')
+          .select('id, created_by')
+          .in('id', matchIdsForCreator);
+        createdByByMatchId = Object.fromEntries(
+          (matchRows || []).map((m) => [m.id, m.created_by])
+        );
+      }
+
       // Build lookup maps for actor (profiles) and group names
-      const actorIds = Array.from(new Set(finalRows.map(j => j.actor_id).filter(Boolean)));
+      const extraActorIds = Object.values(createdByByMatchId).filter(Boolean);
+      const actorIds = Array.from(
+        new Set([
+          ...finalRows.map((j) => j.actor_id).filter(Boolean),
+          ...extraActorIds,
+          ...payloadCreatorIds,
+        ])
+      );
       const groupIds = Array.from(new Set(finalRows.map(j => j.group_id).filter(Boolean)));
 
       const [{ data: profs }, { data: grps }] = await Promise.all([
@@ -175,19 +206,23 @@ export default function TabsLayout() {
 
       const KIND_LABELS = {
         // matches lifecycle
-        'match_pending': 'Match confirmé',
-        'match_rsvp': 'Match confirmé',
-        'match_confirmed': 'Match confirmé',
-        'match_validated': 'Match confirmé',
-        'confirmed': 'Match confirmé',
+        'match_pending': 'Match créé',
+        'match_rsvp': 'Match créé',
+        'match_confirmed': 'Match créé',
+        'match_validated': 'Match créé',
+        'confirmed': 'Match créé',
         'match_canceled': 'Match annulé',
         'match_cancelled': 'Match annulé',
         'canceled': 'Match annulé',
         'cancelled': 'Match annulé',
         'match_created': 'Match créé',
         'group_match_created': 'Match créé',
-        'group_match_confirmed': 'Match confirmé',
-        'group_match_validated': 'Match confirmé',
+        'group_match_confirmed': 'Match créé',
+        'group_match_validated': 'Match créé',
+
+        // V1 opportunités de match (Trouver)
+        'match_proposed': 'Nouvelle partie proposée',
+        'match_almost_full': 'Partie presque complète',
 
         // rsvps
         'rsvp_accepted': 'Joueur confirmé',
@@ -213,8 +248,13 @@ export default function TabsLayout() {
       };
 
       const mapped = finalRows.map((job) => {
-        const kind = String(job?.kind || '').toLowerCase();
-        const actor = profilesById[job.actor_id] || {};
+        const kind = String(job?.kind || '').toLowerCase().trim();
+        const payloadCreator = job.payload?.creator_id ? String(job.payload.creator_id) : null;
+        const effectiveActorId =
+          job.actor_id ||
+          payloadCreator ||
+          (job.match_id ? createdByByMatchId[job.match_id] : null);
+        const actor = profilesById[effectiveActorId] || profilesById[job.actor_id] || {};
         const meName =
           meProfile?.display_name?.trim?.() ||
           meProfile?.name?.trim?.() ||
@@ -237,9 +277,33 @@ export default function TabsLayout() {
           (job?.payload?.group_name || '').toString().trim() ||
           'Groupe';
 
-        const label = KIND_LABELS[kind] || KIND_LABELS[(job?.kind || '').toLowerCase().trim()];
-        const effectiveLabel = label || job?.payload?.title || (job?.kind || 'Notification');
-        const title = `${effectiveLabel} — ${actorName} — ${groupName}`;
+        const label =
+          KIND_LABELS[kind] ??
+          KIND_LABELS[String(job?.kind || '').toLowerCase().trim()];
+        let effectiveLabel =
+          label ||
+          (job?.payload?.title != null && String(job.payload.title).trim() !== ''
+            ? String(job.payload.title).trim()
+            : null) ||
+          job?.kind ||
+          'Notification';
+        if (typeof effectiveLabel === 'string' && /match\s*confirmé/i.test(effectiveLabel)) {
+          effectiveLabel = 'Match créé';
+        }
+        const isMatchLine =
+          kind === 'match_confirmed' ||
+          kind === 'group_match_created' ||
+          kind === 'group_match_confirmed' ||
+          kind === 'group_match_validated' ||
+          kind === 'match_validated' ||
+          kind === 'match_pending' ||
+          kind === 'match_rsvp' ||
+          kind === 'confirmed' ||
+          (kind.startsWith('match_') && !kind.includes('cancel') && !kind.includes('annul')) ||
+          (kind.startsWith('group_match_') && !kind.includes('member'));
+        const title = isMatchLine
+          ? `${effectiveLabel} - ${actorName} - ${groupName}`
+          : `${effectiveLabel} — ${actorName} — ${groupName}`;
 
         const body =
           (job?.payload && (job.payload.message || job.payload.body || job.payload.text)) ||
@@ -369,6 +433,7 @@ export default function TabsLayout() {
         // Fusionner avec les valeurs par défaut pour s'assurer que tous les types sont présents
         const defaults = {
           match_created: true,
+          match_proposed: true,
           match_confirmed: true,
           match_validated: true,
           match_canceled: true,
@@ -377,6 +442,7 @@ export default function TabsLayout() {
           rsvp_removed: true,
           group_member_joined: true,
           group_member_left: true,
+          match_almost_full: true,
           reminder_24h: true,
           reminder_2h: true,
           badge_unlocked: true,
@@ -823,6 +889,48 @@ export default function TabsLayout() {
           options={{
             tabBarLabel: 'Matches',
             tabBarAccessibilityLabel: 'Matches',
+            headerStyle: {
+              backgroundColor: '#011932',
+              height: isLandscape ? 46 + insets.top : 58 + insets.top,
+              elevation: 0,
+              shadowOpacity: 0,
+            },
+            headerTitleContainerStyle: {
+              flexGrow: 1,
+              maxWidth: '66%',
+              paddingVertical: 0,
+              justifyContent: 'center',
+              alignItems: 'center',
+            },
+            headerTitle: () => (
+              <View style={{ alignItems: 'center', justifyContent: 'flex-end', flex: 1, paddingBottom: 0 }}>
+                <Text
+                  style={{
+                    fontFamily: Platform.OS === 'android' && !fontsLoaded ? 'sans-serif-medium' : 'CaptureSmallzClean',
+                    fontWeight: '800',
+                    fontSize: isLandscape ? 34 : 42,
+                    textTransform: 'uppercase',
+                    color: '#e0ff00',
+                    textAlign: 'center',
+                    lineHeight: isLandscape ? 36 : 44,
+                  }}
+                >
+                  MATCH
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: '#8FA3BF',
+                    marginTop: 0,
+                    textAlign: 'center',
+                    lineHeight: 14,
+                  }}
+                >
+                  ⚡ Trouve une partie maintenant
+                </Text>
+              </View>
+            ),
           }}
         />
         <Tabs.Screen 
@@ -1054,7 +1162,9 @@ export default function TabsLayout() {
                   data={[
                     { key: 'availability_reminders', label: 'Rappels dispos', icon: 'calendar-outline' },
                     { key: 'match_created', label: 'Nouveau match créé', icon: 'tennisball-outline' },
-                    { key: 'match_confirmed', label: 'Match confirmé', icon: 'checkmark-circle-outline' },
+                    { key: 'match_proposed', label: 'Nouvelle partie proposée', icon: 'flame-outline' },
+                    { key: 'match_almost_full', label: 'Partie presque complète', icon: 'flash-outline' },
+                    { key: 'match_confirmed', label: 'Match créé', icon: 'checkmark-circle-outline' },
                     { key: 'match_validated', label: 'Match validé', icon: 'checkmark-done-outline' },
                     { key: 'match_canceled', label: 'Match annulé', icon: 'close-circle-outline' },
                     { key: 'rsvp_accepted', label: 'Joueur confirmé', icon: 'person-add-outline' },

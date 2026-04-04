@@ -3,10 +3,14 @@ import { router, Slot } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Linking } from 'react-native';
 import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CopilotProvider } from '../components/AppCopilot';
 import { AuthProvider } from '../context/auth';
+import { setRecoveryPending } from '../lib/authRecovery';
 import { ActiveGroupProvider } from '../lib/activeGroup';
+import { buildResetPasswordRouteQuery, parseSupabaseAuthUrl } from '../lib/parseSupabaseAuthUrl';
+import { supabase } from '../lib/supabase';
 
 const tooltipStyle = {
   backgroundColor: '#dcff13',
@@ -59,6 +63,76 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
+  // Deep links Supabase : recovery (reset password) vs OAuth — priorité recovery pour ne pas traiter comme magic link
+  useEffect(() => {
+    const handleAuthUrl = async (url) => {
+      if (!url || typeof url !== 'string') return;
+      // Laisser le handler "join" gérer ces liens (autre useEffect)
+      if (url.includes('group_id=') || url.includes('/join')) return;
+
+      const parsed = parseSupabaseAuthUrl(url);
+      if (__DEV__) {
+        console.log('[RootLayout][authUrl]', url?.slice(0, 160), '→', parsed?.kind);
+      }
+      if (!parsed) return;
+
+      if (parsed.kind === 'auth_error') {
+        if (__DEV__) {
+          console.warn('[RootLayout] auth error in URL', parsed.errorCode, parsed.errorDescription);
+        }
+        return;
+      }
+
+      if (parsed.kind === 'recovery') {
+        await setRecoveryPending();
+        const q = buildResetPasswordRouteQuery(parsed);
+        if (q) {
+          router.replace(`/reset-password?${q}`);
+        } else {
+          router.replace('/reset-password');
+        }
+        return;
+      }
+
+      if (parsed.kind === 'oauth_success') {
+        const { error } = await supabase.auth.setSession({
+          access_token: parsed.accessToken,
+          refresh_token: parsed.refreshToken,
+        });
+        if (error) {
+          console.warn('[RootLayout] setSession OAuth', error.message);
+          return;
+        }
+        router.replace('/');
+      }
+    };
+
+    const sub = Linking.addEventListener('url', (e) => {
+      handleAuthUrl(e.url);
+    });
+    Linking.getInitialURL().then((url) => {
+      if (url) handleAuthUrl(url);
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Supabase : événement PASSWORD_RECOVERY → écran reset (session déjà établie par le lien)
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (__DEV__) {
+        console.log('[RootLayout][onAuthStateChange]', event, session?.user?.id ?? 'no-user');
+      }
+      if (event === 'PASSWORD_RECOVERY') {
+        setRecoveryPending().then(() => {
+          router.replace('/reset-password');
+        });
+      }
+    });
+    return () => {
+      sub?.subscription?.unsubscribe();
+    };
+  }, []);
+
   // Enregistrer le token push au démarrage de l'app
   useEffect(() => {
     // Attendre un peu pour que l'auth soit prête
@@ -82,23 +156,25 @@ export default function RootLayout() {
   // }, []);
 
   return (
-    <SafeAreaProvider>
-      <CopilotProvider
-        animated
-        overlay="view"
-        tooltipStyle={tooltipStyle}
-        textStyle={textStyle}
-        buttonStyle={buttonStyle}
-        arrowColor="#dcff13"
-        stepNumberTextColor="#000000"
-        labels={{ previous: 'Préc.', next: 'Suivant', skip: 'Passer', finish: 'Terminer' }}
-      >
-        <AuthProvider>
-          <ActiveGroupProvider>
-            <Slot />
-          </ActiveGroupProvider>
-        </AuthProvider>
-      </CopilotProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <CopilotProvider
+          animated
+          overlay="view"
+          tooltipStyle={tooltipStyle}
+          textStyle={textStyle}
+          buttonStyle={buttonStyle}
+          arrowColor="#dcff13"
+          stepNumberTextColor="#000000"
+          labels={{ previous: 'Préc.', next: 'Suivant', skip: 'Passer', finish: 'Terminer' }}
+        >
+          <AuthProvider>
+            <ActiveGroupProvider>
+              <Slot />
+            </ActiveGroupProvider>
+          </AuthProvider>
+        </CopilotProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -7,6 +7,7 @@ import { useActiveGroup } from '../lib/activeGroup';
 import { hasAvailabilityForGroup } from '../lib/availabilityCheck';
 import { validateActiveGroup } from '../lib/groupValidation';
 import { acceptInviteCode, clearPendingInvite, getPendingInviteCode, setInviteJoinedBanner } from '../lib/invite';
+import { isRecoveryPending } from '../lib/authRecovery';
 import { isProfileComplete } from '../lib/profileCheck';
 import { supabase } from '../lib/supabase';
 
@@ -33,6 +34,13 @@ export default function Index() {
       setChecking(true);
       (async () => {
         try {
+          // Flux mot de passe oublié : ne pas envoyer vers l'accueil / onglets
+          if (await isRecoveryPending()) {
+            router.replace('/reset-password');
+            setChecking(false);
+            return;
+          }
+
           // Vérifier la session Supabase directement
           const { data: sessionData } = await supabase.auth.getSession();
           const hasSession = !!sessionData?.session;

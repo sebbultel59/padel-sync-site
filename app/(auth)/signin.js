@@ -3,8 +3,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isRecoveryPending } from "../../lib/authRecovery";
 import { supabase } from "../../lib/supabase";
 
 // Fermer le navigateur web après l'authentification
@@ -32,10 +33,15 @@ export default function SigninScreen() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
   // Si déjà connecté, repasse par /join pour finir l'invite ou redirige vers l'index
+  // Ne pas envoyer à l'accueil si on est en flux "mot de passe oublié" (recovery)
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
       if (data?.session) {
+        if (await isRecoveryPending()) {
+          router.replace("/reset-password");
+          return;
+        }
         if (gid) router.replace(`/join?group_id=${encodeURIComponent(gid)}`);
         else router.replace("/"); // Rediriger vers l'index qui vérifiera le profil
       }
@@ -347,7 +353,10 @@ export default function SigninScreen() {
 
   // Fonction pour réinitialiser le mot de passe
   const onForgotPassword = useCallback(async () => {
-    if (!email || !email.includes("@")) {
+    const cleanedEmail = (email ?? "").trim();
+    const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanedEmail);
+
+    if (!isEmailValid) {
       Alert.alert("Erreur", "Veuillez entrer une adresse email valide.");
       return;
     }
@@ -363,7 +372,7 @@ export default function SigninScreen() {
 
       console.log('[Reset Password] redirectTo:', redirectTo);
 
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanedEmail, {
         redirectTo,
       });
 
@@ -388,7 +397,7 @@ export default function SigninScreen() {
       setResetEmailSent(true);
       Alert.alert(
         "Email envoyé",
-        "Un email de réinitialisation de mot de passe a été envoyé à " + email + ". Vérifiez votre boîte mail et suivez les instructions.\n\nNote: Cliquez sur le lien dans l'email pour ouvrir l'application."
+        "Un email de réinitialisation de mot de passe a été envoyé à " + cleanedEmail + ". Vérifiez votre boîte mail et suivez les instructions.\n\nNote: Cliquez sur le lien dans l'email pour ouvrir l'application."
       );
     } catch (e) {
       const errorMsg = e?.message ?? String(e);
@@ -403,108 +412,7 @@ export default function SigninScreen() {
     }
   }, [email]);
 
-  // Gérer les deep links OAuth et reset password
-  useEffect(() => {
-    const handleDeepLink = async (event) => {
-      const url = event.url;
-      
-      // Vérifier si c'est un callback OAuth
-      if (url.includes('/auth/callback') || url.includes('syncpadel://auth/callback')) {
-        // Extraire les paramètres de l'URL (format: syncpadel://auth/callback#access_token=...&refresh_token=...)
-        const urlParts = url.split('#');
-        if (urlParts.length > 1) {
-          const params = new URLSearchParams(urlParts[1]);
-          const accessToken = params.get('access_token');
-          const refreshToken = params.get('refresh_token');
-
-          if (accessToken && refreshToken) {
-            try {
-              const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              });
-
-              if (sessionError) throw sessionError;
-
-              // Rediriger après succès
-              if (gid) {
-                router.replace(`/join?group_id=${encodeURIComponent(gid)}`);
-              } else {
-                router.replace("/");
-              }
-            } catch (e) {
-              Alert.alert("Erreur", e?.message ?? String(e));
-            }
-          }
-        }
-      }
-      
-      // Vérifier si c'est un callback Supabase avec un token de réinitialisation
-      // Format: https://PROJECT.supabase.co/auth/v1/callback#access_token=...&type=recovery
-      if (url.includes('/auth/v1/callback') || url.includes('auth/v1/callback')) {
-        const urlParts = url.split('#');
-        if (urlParts.length > 1) {
-          const params = new URLSearchParams(urlParts[1]);
-          const accessToken = params.get('access_token');
-          const type = params.get('type');
-          
-          // Si c'est un token de réinitialisation
-          if (accessToken && type === 'recovery') {
-            // Rediriger vers la page de réinitialisation avec le token
-            router.replace(`/reset-password?access_token=${encodeURIComponent(accessToken)}`);
-            return;
-          }
-        }
-      }
-      
-      // Vérifier si c'est un lien de réinitialisation de mot de passe (deep link)
-      if (url.includes('reset-password') || url.includes('reset_password')) {
-        // Extraire le token depuis l'URL
-        // Format: syncpadel://reset-password#access_token=...&type=recovery
-        const urlParts = url.split('#');
-        if (urlParts.length > 1) {
-          const params = new URLSearchParams(urlParts[1]);
-          const accessToken = params.get('access_token');
-          const type = params.get('type');
-          
-          // Si c'est un token de réinitialisation
-          if (accessToken && type === 'recovery') {
-            // Rediriger vers la page de réinitialisation avec le token
-            router.replace(`/reset-password?access_token=${encodeURIComponent(accessToken)}`);
-            return;
-          }
-        }
-        
-        // Si l'URL contient déjà les paramètres en query string
-        try {
-          const urlObj = new URL(url.replace('syncpadel://', 'https://'));
-          const accessToken = urlObj.searchParams.get('access_token');
-          const type = urlObj.searchParams.get('type');
-          
-          if (accessToken && type === 'recovery') {
-            router.replace(`/reset-password?access_token=${encodeURIComponent(accessToken)}`);
-            return;
-          }
-        } catch (e) {
-          // Ignorer les erreurs de parsing
-        }
-      }
-    };
-
-    // Écouter les deep links
-    const subscription = Linking.addEventListener('url', handleDeepLink);
-
-    // Vérifier si l'app a été ouverte via un deep link
-    Linking.getInitialURL().then((url) => {
-      if (url) {
-        handleDeepLink({ url });
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [gid]);
+  // Deep links OAuth / recovery : gérés globalement dans app/_layout.js (évite double traitement + priorité recovery)
 
   return (
     <>
